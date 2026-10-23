@@ -5,7 +5,7 @@ export const SEX = { unknown: '미상', male: '수컷', female: '암컷', mixed:
 export const CAPTURE = { unknown: '미상', not_captured: '채집하지 않음', captured: '채집함' } as const
 export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 종', user_confirmed: '사용자 확인' } as const
 export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 조사' } as const
-export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS' } as const
+export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
 export interface Species { id: number; korean_name: string; scientific_name: string | null }
 export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
@@ -26,4 +26,25 @@ export interface Observation extends ObservationInput {
 }
 export interface Survey extends Omit<SurveyInput, 'observations'> {
   id: number; created_at: string; updated_at: string; observations: Observation[]
+}
+
+export interface Coordinate { latitude: number; longitude: number }
+export interface AddressCandidate extends Coordinate { address: string }
+export interface MapPin extends Coordinate { id: string; surveyId: number; label: string }
+export interface Station extends Coordinate { id: number; name: string; distance_km: number | null; as_of: string }
+export interface WeatherContext {
+  date: string; time: string | null; latitude: number | null; longitude: number | null
+  place: string; kind: 'hourly' | 'daily'; target_time: string
+}
+export interface SavedWeather {
+  context: WeatherContext
+  weather: null | {
+    values: { code: string; label: string; unit: string; value: number | null; raw: string }[]
+    source: string; source_url: string; kind: 'hourly' | 'daily'; target_time: string; fetched_at: string
+    station: Station; distance_km: number | null; linked_context: WeatherContext; stale: boolean
+  }
+}
+export interface IntegrationStatus {
+  maps_ready: boolean; weather_ready: boolean
+  usage: { service: string; today: number; month: number; daily_limit: number; monthly_limit: number }[]
 }

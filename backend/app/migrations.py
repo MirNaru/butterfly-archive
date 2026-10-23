@@ -1,9 +1,9 @@
-"""기존 DB를 백업하고 최초 기록 스키마만 추가합니다."""
+"""기존 DB를 백업하고 기록 및 외부 연동 스키마를 순서대로 추가합니다."""
 import sqlite3
 from datetime import datetime, timezone
 from app.database import connect_database, database_path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -25,6 +25,25 @@ STATEMENTS = (
     "CREATE INDEX observations_survey ON observations(survey_id)",
 )
 
+INTEGRATION_STATEMENTS = (
+    """CREATE TABLE api_usage (
+        service TEXT NOT NULL, day TEXT NOT NULL, attempts INTEGER NOT NULL CHECK(attempts >= 0),
+        PRIMARY KEY(service, day))""",
+    """CREATE TABLE weather_stations (
+        as_of TEXT PRIMARY KEY, stations_json TEXT NOT NULL, fetched_at TEXT NOT NULL)""",
+    """CREATE TABLE weather_samples (
+        id INTEGER PRIMARY KEY, station_id INTEGER NOT NULL, kind TEXT NOT NULL,
+        target_time TEXT NOT NULL, payload_json TEXT NOT NULL, fetched_at TEXT NOT NULL)""",
+    "CREATE INDEX weather_sample_lookup ON weather_samples(station_id, kind, target_time, id)",
+    """CREATE TABLE weather_links (
+        id INTEGER PRIMARY KEY, survey_id INTEGER REFERENCES surveys(id),
+        observation_id INTEGER REFERENCES observations(id),
+        sample_id INTEGER NOT NULL REFERENCES weather_samples(id),
+        context_json TEXT NOT NULL, station_json TEXT NOT NULL, distance_km REAL,
+        CHECK ((survey_id IS NULL) != (observation_id IS NULL)),
+        UNIQUE(survey_id), UNIQUE(observation_id))""",
+)
+
 
 def initialize_database() -> None:
     target = database_path()
@@ -33,17 +52,26 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version != 0:
+        if version not in (0, 1):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if existing.intersection({"species", "surveys", "observations"}):
+        expected_new = {"api_usage", "weather_stations", "weather_samples", "weather_links"}
+        if version == 0:
+            expected_new.update({"species", "surveys", "observations"})
+        if existing.intersection(expected_new):
             raise RuntimeError("기존 테이블과 충돌합니다. 자동 변경을 중단합니다.")
         if had_content:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-            backup = target.with_name(f"{target.name}.before-v1-{stamp}.bak")
+            backup = target.with_name(f"{target.name}.before-v{SCHEMA_VERSION}-{stamp}.bak")
             with sqlite3.connect(backup) as destination:
                 connection.backup(destination)
         connection.execute("BEGIN IMMEDIATE")
-        for statement in STATEMENTS:
+        # 다른 시작 프로세스가 먼저 변경한 경우 중복 적용하지 않습니다.
+        current = connection.execute("PRAGMA user_version").fetchone()[0]
+        if current == SCHEMA_VERSION:
+            return
+        if current != version:
+            raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
+        for statement in ((STATEMENTS if version == 0 else ()) + INTEGRATION_STATEMENTS):
             connection.execute(statement)
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

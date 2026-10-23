@@ -23,13 +23,13 @@ class Location(InputModel):
     place_name: str = Field(default="", max_length=200)
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
-    location_method: Literal["unknown", "approximate", "manual", "gps"] = "unknown"
+    location_method: Literal["unknown", "approximate", "manual", "gps", "map", "address"] = "unknown"
 
     @model_validator(mode="after")
     def coordinate_pair(self) -> Self:
         if (self.latitude is None) != (self.longitude is None):
             raise ValueError("위도와 경도를 함께 입력해 주세요.")
-        if self.location_method in ("manual", "gps") and self.latitude is None:
+        if self.location_method in ("manual", "gps", "map", "address") and self.latitude is None:
             raise ValueError("지정한 위치 방식에는 좌표가 필요합니다.")
         return self
 

@@ -4,16 +4,22 @@ import type { FormEvent } from 'react'
 import { addSurvey } from './api'
 import { CAPTURE, IDENTIFICATION, LOCATION, PURPOSE, RESULT, SEX, STAGE } from './models'
 import type { ObservationInput, Species, Survey, SurveyInput } from './models'
+import LocationPicker from './LocationPicker'
 
 export function Options({ values }: { values: Record<string, string> }) {
   return Object.entries(values).map(([value, text]) => <option value={value} key={value}>{text}</option>)
 }
 function LocationFields({ prefix }: { prefix: string }) {
+  const [place, setPlace] = useState('')
+  const [latitude, setLatitude] = useState('')
+  const [longitude, setLongitude] = useState('')
+  const [method, setMethod] = useState<SurveyInput['location_method']>('unknown')
   return <div className="field-grid">
-    <label className="wide">장소명<input name={`${prefix}place_name`} maxLength={200} /></label>
-    <label>위도<input name={`${prefix}latitude`} type="number" min={-90} max={90} step="any" placeholder="선택" /></label>
-    <label>경도<input name={`${prefix}longitude`} type="number" min={-180} max={180} step="any" placeholder="선택" /></label>
-    <label>위치 입력 방식<select name={`${prefix}location_method`}><Options values={LOCATION} /></select></label>
+    <label className="wide">장소명<input name={`${prefix}place_name`} value={place} onChange={e => setPlace(e.target.value)} maxLength={200} /></label>
+    <label>위도<input name={`${prefix}latitude`} value={latitude} onChange={e => { setLatitude(e.target.value); setMethod('manual') }} type="number" min={-90} max={90} step="any" placeholder="선택" /></label>
+    <label>경도<input name={`${prefix}longitude`} value={longitude} onChange={e => { setLongitude(e.target.value); setMethod('manual') }} type="number" min={-180} max={180} step="any" placeholder="선택" /></label>
+    <label>위치 입력 방식<select name={`${prefix}location_method`} value={method} onChange={e => setMethod(e.target.value as SurveyInput['location_method'])}><Options values={LOCATION} /></select></label>
+    <LocationPicker onApply={value => { if (value.place_name) setPlace(value.place_name); setLatitude(String(value.latitude)); setLongitude(String(value.longitude)); setMethod(value.location_method) }} />
   </div>
 }
 function ObservationFields({ rowKey, index, species, remove }: { rowKey: number; index: number; species: Species[]; remove: () => void }) {
@@ -78,7 +84,7 @@ export default function SurveyForm({ species, onSaved, onCancel }: { species: Sp
     finally { setBusy(false) }
   }
   return <form onSubmit={submit} className="survey-form">
-    <h2>새 조사 등록</h2><p className="hint">날짜와 장소명 또는 좌표를 입력해 주세요. 모르는 수량과 시각은 비워 두셔도 됩니다.</p>
+    <h2>새 조사 등록</h2><p className="hint">날짜와 장소명 또는 좌표를 입력해 주세요. 모르는 수량과 시각은 비워 두셔도 됩니다. 기상자료는 저장 후 상세 화면에서 연결합니다.</p>
     {error && <p role="alert" className="error">{error}</p>}
     <fieldset disabled={busy}>
       <div className="field-grid">

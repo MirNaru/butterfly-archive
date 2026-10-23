@@ -8,6 +8,9 @@ from app.database import connect_database
 from app.migrations import initialize_database
 from app import records
 from app.schemas import Species, SpeciesInput, Survey, SurveyInput
+from app.integrations import router as integration_router
+from app.integration_settings import IntegrationError
+from app.api_usage import UsageLimitError
 
 
 @asynccontextmanager
@@ -16,7 +19,18 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Butterfly Archive", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Butterfly Archive", version="0.3.0", lifespan=lifespan)
+app.include_router(integration_router)
+
+
+@app.exception_handler(IntegrationError)
+async def integration_error(request: Request, exc: IntegrationError):
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+
+
+@app.exception_handler(UsageLimitError)
+async def usage_error(request: Request, exc: UsageLimitError):
+    return JSONResponse(status_code=429, content={"detail": str(exc)})
 
 
 @app.exception_handler(RequestValidationError)

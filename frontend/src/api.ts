@@ -1,11 +1,11 @@
 // 모든 기록 요청의 통신 오류와 서버 검증 오류를 한곳에서 처리합니다.
-import type { Species, Survey, SurveyInput } from './models'
+import type { Species, Survey, SurveyInput, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${ROOT}${path}`, { ...init, signal: AbortSignal.timeout(15000) })
+    response = await fetch(`${ROOT}${path}`, { ...init, signal: AbortSignal.timeout(30000) })
   } catch {
     throw new Error('서버에 연결할 수 없습니다. 입력은 유지됩니다. 연결을 확인한 뒤 저장 여부를 조회해 주세요.')
   }
@@ -33,3 +33,10 @@ export const listSpecies = () => request<Species[]>('/species')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))
 export const listSurveys = () => request<Survey[]>('/surveys')
 export const addSurvey = (value: SurveyInput) => request<Survey>('/surveys', post(value))
+export const integrationStatus = () => request<IntegrationStatus>('/integrations/status')
+export const mapPermit = () => request<{ client_id: string }>('/maps/permit', post({}))
+export const findAddress = (query: string) => request<AddressCandidate[]>('/maps/geocode', post({ query }))
+export const findCoordinateAddress = (point: Coordinate) => request<{ address: string | null }>('/maps/reverse', post(point))
+export const getWeather = (type: 'survey' | 'observation', id: number) => request<SavedWeather>(`/weather/${type}/${id}`)
+export const findStations = (target_type: 'survey' | 'observation', target_id: number) => request<Station[]>('/weather/stations', post({ target_type, target_id }))
+export const queryWeather = (target_type: 'survey' | 'observation', target_id: number, station_id: number, refresh = false) => request<SavedWeather>('/weather/query', post({ target_type, target_id, station_id, refresh }))
