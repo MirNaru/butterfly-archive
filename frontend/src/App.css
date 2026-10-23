@@ -1,0 +1,5 @@
+main { max-width: 680px; margin: 12vh auto; padding: 32px; }
+.eyebrow { color: #40614c; letter-spacing: 0.15em; font-size: 13px; }
+h1 { font-size: clamp(24px, 5vw, 36px); }
+[role='status'] { padding: 20px; background: #e3ede3; border-radius: 12px; margin: 32px 0; }
+small { color: #526359; }
