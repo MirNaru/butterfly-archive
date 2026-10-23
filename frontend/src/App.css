@@ -1,5 +1,52 @@
-main { max-width: 680px; margin: 12vh auto; padding: 32px; }
-.eyebrow { color: #40614c; letter-spacing: 0.15em; font-size: 13px; }
-h1 { font-size: clamp(24px, 5vw, 36px); }
-[role='status'] { padding: 20px; background: #e3ede3; border-radius: 12px; margin: 32px 0; }
-small { color: #526359; }
+/* 정보창과 작업 영역, 하단 탭의 배치를 정의합니다. */
+.app-shell { display: flex; flex-direction: column; height: 100dvh; }
+.app-header { background: #fff; border-bottom: 1px solid #dce4dc; padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; }
+.eyebrow { font-size: 11px; letter-spacing: .16em; color: #62815d; }
+.local-label { font-size: 13px; color: #637562; }
+.workspace { display: flex; flex: 1; min-height: 0; }
+.sidebar { flex: 0 0 350px; background: #fff; padding: 23px; border-right: 1px solid #dce4dc; overflow-y: auto; }
+.main-pane { flex: 1; min-width: 0; padding: 28px 36px; overflow-y: auto; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.toolbar h2 { margin: 0; }
+.primary { background: #315a40; color: white; border-color: #315a40; }
+.primary:hover:not(:disabled) { background: #244831; }
+.quiet, .link { background: transparent; border: 0; padding: 5px; }
+.link { text-decoration: underline; }
+.survey-list { display: grid; gap: 8px; }
+.survey-list button { text-align: left; padding: 14px; }
+.survey-list span { display: block; color: #68776a; font-size: 13px; }
+.selected { background: #eef4e7; }
+.survey-list button.selected { border-color: #7a9b62; }
+.species-editor { margin-top: 28px; border-top: 1px solid #e0e5dc; padding-top: 12px; }
+.error { color: #8b2924; background: #fff0ec; border: 1px solid #ecc6be; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notice { padding: 13px 18px; background: #e7f0df; border-radius: 6px; }
+.empty { padding: 22px 8px; color: #667266; }
+.table-wrap { overflow-x: auto; background: white; border: 1px solid #dbe3d7; border-radius: 9px; }
+table { border-collapse: collapse; width: 100%; text-align: left; font-size: 14px; }
+th, td { padding: 12px 16px; border-bottom: 1px solid #e6ebe2; white-space: nowrap; }
+th { background: #edf2e9; font-weight: 600; }
+.detail, .survey-form { background: white; border: 1px solid #dce4d7; border-radius: 10px; padding: 25px; margin-top: 22px; }
+.survey-form { margin: 0; max-width: 900px; }
+.sidebar .detail { padding: 16px; }
+.field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.wide { grid-column: 1 / -1; }
+.check { flex-direction: row; align-items: center; }
+.record-fields { border: 1px solid #d6dfd0; border-radius: 8px; padding: 16px; margin: 22px 0; background: #fcfdf9; }
+.record-fields legend { padding: 0 8px; font-weight: 600; }
+.actions { display: flex; gap: 12px; margin-top: 25px; }
+.observation { border-top: 1px solid #e2e8dc; padding: 18px 0 4px; }
+.record-title { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.record-title h3 { margin: 0; }
+.badge { font-size: 12px; border-radius: 20px; background: #e8f2df; padding: 3px 10px; }
+.badge.not_found { background: #f4ead4; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 7px 20px; font-size: 14px; }
+dt { color: #657362; } dd { margin: 0; }
+.memo { white-space: pre-wrap; overflow-wrap: anywhere; }
+.welcome { text-align: center; padding: 70px 20px; color: #667760; }
+.map-placeholder { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 65vh; text-align: center; border: 1px dashed #bacbb1; border-radius: 12px; background: #edf2e8; padding: 25px; }
+.tabs { border-top: 1px solid #cdd8c6; background: white; display: flex; align-items: center; gap: 6px; padding: 9px 22px; }
+.tabs button { min-width: 95px; border: 0; }
+.tabs button[aria-pressed='true'] { background: #e6efdd; color: #284932; font-weight: 700; box-shadow: inset 0 -3px #5e8148; }
+.tabs span { margin-left: auto; color: #6c7b66; font-size: 12px; }
+@media (max-width: 850px) { .sidebar { flex-basis: 285px; padding: 16px; } .main-pane { padding: 20px; } .field-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .workspace { flex-direction: column; overflow-y: auto; } .sidebar { flex: none; max-height: 300px; } .main-pane { overflow: visible; } .local-label { display: none; } .app-header { padding: 12px 20px; } }

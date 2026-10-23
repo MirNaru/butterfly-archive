@@ -13,8 +13,9 @@ def test_health_checks_database(tmp_path, monkeypatch):
 
 
 def test_health_reports_unavailable_database(tmp_path, monkeypatch):
-    monkeypatch.setenv("BUTTERFLY_DB_PATH", str(tmp_path))
+    monkeypatch.setenv("BUTTERFLY_DB_PATH", str(tmp_path / "valid.sqlite3"))
     with TestClient(app) as client:
+        monkeypatch.setenv("BUTTERFLY_DB_PATH", str(tmp_path))
         response = client.get("/api/health")
     assert response.status_code == 503
     assert response.json() == {"detail": "Database unavailable"}

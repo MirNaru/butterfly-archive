@@ -1,3 +1,18 @@
-:root { font-family: 'Segoe UI', sans-serif; color: #21372a; background: #f7faf6; line-height: 1.6; }
+/* 기록 화면의 기본 색상과 공통 입력 스타일입니다. */
+:root { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; color: #24392f; background: #f5f7f3; line-height: 1.6; font-synthesis: none; }
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 360px; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; border: 1px solid #c9d5cc; border-radius: 7px; background: white; color: #284735; padding: 8px 13px; }
+button:hover:not(:disabled) { background: #ecf3e9; }
+button:disabled { opacity: .55; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid #7f9e68; outline-offset: 2px; }
+input:not([type='checkbox']), select, textarea { width: 100%; background: white; border: 1px solid #becdc1; border-radius: 6px; padding: 9px 10px; color: #24392f; }
+label { display: flex; flex-direction: column; gap: 5px; margin: 10px 0; font-size: 14px; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+small, .hint { color: #627267; font-size: 13px; }
+h1, h2, h3, p { margin-top: 0; }
+h1 { font-size: 23px; margin-bottom: 0; }
+h2 { font-size: 20px; }
+h3 { font-size: 16px; }
+summary { cursor: pointer; font-size: 14px; padding: 8px 0; }
