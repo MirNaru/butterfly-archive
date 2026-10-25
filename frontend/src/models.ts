@@ -46,5 +46,5 @@ export interface SavedWeather {
 }
 export interface IntegrationStatus {
   maps_ready: boolean; weather_ready: boolean
-  usage: { service: string; today: number; month: number; daily_limit: number; monthly_limit: number }[]
+  usage: { service: string; today: number; month: number; daily_limit: number | null; monthly_limit: number | null; reported_count: number | null; reported_date: string | null }[]
 }

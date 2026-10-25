@@ -125,15 +125,21 @@ export default function App() {
         </details>
         <details className="integration-status"><summary onClick={() => void showIntegration()}>연동 상태·로컬 사용량</summary>
           <p className="hint">네이버 무료 대표 계정과 콘솔 사용 제한을 유지해야 합니다. 아래 숫자는 이 DB의 호출 시도이며 제공자 전체 사용량과 다를 수 있습니다.</p>
-          {integration && <><p>지도 {integration.maps_ready ? '설정됨' : '비활성'} · 기상 {integration.weather_ready ? '설정됨' : '비활성'}</p>{integration.usage.map(u => <p key={u.service}>{({ map: '지도 생성', geocode: '주소 검색', reverse: '좌표 주소 확인', kma: '기상청' })[u.service] || u.service}: 오늘 {u.today}/{u.daily_limit} · 이번 달 {u.month}/{u.monthly_limit}</p>)}</>}
+          {integration && <><p>지도 {integration.maps_ready ? '설정됨' : '비활성'} · 기상 {integration.weather_ready ? '설정됨' : '비활성'}</p>{integration.usage.map(u => <div key={u.service}>
+            <p><strong>{({ map: 'Dynamic Map', geocode: 'Geocoding', reverse: 'Reverse Geocoding', kma: '기상청' })[u.service] || u.service}</strong><br />
+              앱 집계: 오늘 {u.today.toLocaleString('ko-KR')}{u.daily_limit !== null && ` / ${u.daily_limit.toLocaleString('ko-KR')}`}회 · 이번 달 {u.month.toLocaleString('ko-KR')}{u.monthly_limit !== null && ` / ${u.monthly_limit.toLocaleString('ko-KR')}`}회<br />
+              한도: {u.daily_limit !== null ? `일 ${u.daily_limit.toLocaleString('ko-KR')}회` : `월 ${u.monthly_limit?.toLocaleString('ko-KR')}회`}
+            </p>
+            {u.reported_count !== null && <p className="hint">사용자 확인: {u.reported_count.toLocaleString('ko-KR')}회 / 월 {u.monthly_limit?.toLocaleString('ko-KR')}회 ({u.reported_date} 기준 · 자동 갱신 아님)</p>}
+          </div>)}</>}
           {integrationError && <p className="error">{integrationError}</p>}
         </details>
         {tab === 'map' && form}
         {tab === 'map' && selected && !creating && <Detail key={selected.id} survey={selected} />}
       </aside>
-      <main className="main-pane">
+      <main className={`main-pane${tab === 'map' ? ' map-pane' : ''}`}>
         {notice && <p role="status" className="notice">{notice}</p>}
-        {mapVisited && <div hidden={tab !== 'map'}><MapView shown={tab === 'map'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setMapFocus(pin) }} />
+        {mapVisited && <div className="map-workspace" hidden={tab !== 'map'}><MapView shown={tab === 'map'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setMapFocus(pin) }} />
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
           {!pins.length && <p className="hint">현재 검색 결과에 지도에 표시할 좌표가 없습니다.</p>}</div>}
         {tab === 'table' && (creating ? form : <>

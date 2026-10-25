@@ -20,6 +20,7 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   const [error, setError] = useState('')
   const [group, setGroup] = useState<string | null>(null)
   const [hidden, setHidden] = useState(false)
+  const [satellite, setSatellite] = useState(false)
   useEffect(() => {
     if (!shown || map.current) return
     let active = true
@@ -35,6 +36,11 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
     return () => { active = false }
   }, [shown])
   useEffect(() => onMapAuthFailure(() => setError('지도 인증에 실패했습니다. 등록 URL·키·한도를 확인해 주세요.')), [])
+  useEffect(() => {
+    if (ready && map.current && sdk.current) {
+      map.current.setMapTypeId(satellite ? sdk.current.MapTypeId.SATELLITE : sdk.current.MapTypeId.NORMAL)
+    }
+  }, [ready, satellite])
   useEffect(() => {
     if (!ready || !map.current || !sdk.current) return
     const api = sdk.current
@@ -78,7 +84,13 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   }, [])
   const grouped = hidden ? [] : pins.filter(p => `${p.latitude},${p.longitude}` === group)
   return <section className="map-view">
-    <div className="toolbar"><span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span><button type="button" aria-pressed={hidden} onClick={() => setHidden(v => !v)}>{hidden ? '핀 표시' : '핀 숨기기'}</button></div>
+    <div className="toolbar"><span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span><div className="map-actions">
+      <button type="button" aria-pressed={hidden} onClick={() => setHidden(v => !v)}>{hidden ? '핀 표시' : '핀 숨기기'}</button>
+      <div className="map-types" role="group" aria-label="지도 종류">
+        <button type="button" disabled={!ready || !!error} aria-pressed={!satellite} onClick={() => setSatellite(false)}>일반지도</button>
+        <button type="button" disabled={!ready || !!error} aria-pressed={satellite} onClick={() => setSatellite(true)}>위성지도</button>
+      </div>
+    </div></div>
     {error && <p role="alert" className="error">{error}</p>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
     <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>

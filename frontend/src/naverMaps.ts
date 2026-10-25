@@ -1,9 +1,10 @@
 // SDK를 페이지당 한 번만 로드하며 Secret을 브라우저로 가져오지 않습니다.
 export interface LatLng { lat(): number; lng(): number }
-export interface NaverMap { setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void }
+export interface NaverMap { setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void; setMapTypeId(type: string): void }
 export interface NaverMarker { setMap(map: NaverMap | null): void }
 export interface MapClick { coord: LatLng }
 export interface NaverMaps {
+  MapTypeId: { NORMAL: string; SATELLITE: string }
   LatLng: new (lat: number, lon: number) => LatLng
   Map: new (element: HTMLElement, options: { center: LatLng; zoom: number }) => NaverMap
   Marker: new (options: { map: NaverMap | null; position: LatLng; title: string }) => NaverMarker

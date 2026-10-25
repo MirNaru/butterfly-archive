@@ -176,6 +176,34 @@ def test_quota_concurrent_persistent_and_calendar_rollover(client, monkeypatch):
     assert api_usage.usage()[0]["month"] == 1
 
 
+@pytest.mark.parametrize("service,limit,period", [
+    ("map", 6_000_000, "monthly"), ("geocode", 3_000_000, "monthly"),
+    ("reverse", 3_000_000, "monthly"), ("kma", 20_000, "daily"),
+])
+def test_provider_limit_boundary(client, monkeypatch, service, limit, period):
+    monkeypatch.setattr(api_usage, "now_kst", lambda: datetime(2026, 10, 24, tzinfo=api_usage.KST))
+    assert api_usage.LIMITS[service] == ((None, limit) if period == "monthly" else (limit, None))
+    with connect_database() as connection:
+        connection.execute("INSERT INTO api_usage VALUES (?, ?, ?)", (service, "2026-10-24", limit - 1))
+        if period == "daily":
+            connection.execute("INSERT INTO api_usage VALUES (?, ?, ?)", (service, "2026-10-23", 500_000))
+    api_usage.reserve(service)
+    with pytest.raises(api_usage.UsageLimitError):
+        api_usage.reserve(service)
+    assert next(u for u in api_usage.usage() if u["service"] == service)["today"] == limit
+
+
+def test_provider_reference_is_dated_and_not_added_to_local_usage(client, monkeypatch):
+    monkeypatch.setenv("NAVER_USAGE_SNAPSHOT_DATE", "2026-10-24")
+    monkeypatch.setenv("NAVER_MAP_USAGE_SNAPSHOT", "7")
+    row = next(u for u in api_usage.usage() if u["service"] == "map")
+    assert row["reported_count"] == 7
+    assert row["reported_date"] == "2026-10-24"
+    assert row["month"] == 0
+    monkeypatch.setenv("NAVER_MAP_USAGE_SNAPSHOT", "invalid")
+    assert api_usage.reported_usage("map")["reported_count"] is None
+
+
 def test_failed_call_counted_once_and_secrets_redacted(client, monkeypatch):
     calls = []
     def fail(*args, **kwargs):
