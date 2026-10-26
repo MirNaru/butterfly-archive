@@ -17,6 +17,7 @@ class SpeciesInput(InputModel):
 
 class Species(SpeciesInput):
     id: int
+    host_plants: str = ''
 
 
 class Location(InputModel):

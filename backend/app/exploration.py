@@ -19,6 +19,12 @@ class Period(InputModel):
 
 
 class Reference(InputModel):
+    family: str = Field(default='', max_length=100)
+    subfamily: str = Field(default='', max_length=100)
+    display_order: Annotated[int, Field(strict=True, ge=1, le=1_000_000)] | None = None
+    taxonomy_source: str = Field(default='', max_length=2000)
+    host_plants: str = Field(default='', max_length=5000)
+    host_plants_source: str = Field(default='', max_length=2000)
     periods: list[Period] = Field(default_factory=list, max_length=36)
     regions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=100)
     north_only: bool | None = None
@@ -39,6 +45,10 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if (self.family or self.subfamily or self.display_order is not None) and not self.taxonomy_source:
+            raise ValueError('분류·표시 순서의 출처를 입력해 주세요.')
+        if self.host_plants and not self.host_plants_source:
+            raise ValueError('기주식물 자료의 출처를 입력해 주세요.')
         if (self.periods or self.regions or self.vagrant is not None or self.north_only is not None or self.sighting_years) and not self.source:
             raise ValueError('출현·분포·목격 자료의 출처를 입력해 주세요.')
         if self.capture_history != 'unknown' and not self.capture_source:
@@ -60,7 +70,7 @@ def reference_row(connection, species_id):
     if not connection.execute('SELECT 1 FROM species WHERE id=?', (species_id,)).fetchone():
         raise HTTPException(404, '종을 찾을 수 없습니다.')
     row = connection.execute('SELECT * FROM species_references WHERE species_id=?', (species_id,)).fetchone()
-    return {'reference': json.loads(row['payload_json']) if row else Reference().model_dump(mode='json'),
+    return {'reference': Reference.model_validate(json.loads(row['payload_json']) if row else {}).model_dump(mode='json'),
             'updated_at': row['updated_at'] if row else None}
 
 
@@ -113,12 +123,12 @@ def exploration(on: date, region: str = ''):
         captured = {r[0] for r in db.execute("SELECT DISTINCT species_id FROM observations WHERE result='observed' AND capture_status='captured' AND species_id IS NOT NULL")}
         result = []
         for row in db.execute('SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY s.korean_name'):
-            ref = json.loads(row['payload_json']) if row['payload_json'] else Reference().model_dump(mode='json')
+            ref = Reference.model_validate(json.loads(row['payload_json']) if row['payload_json'] else {}).model_dump(mode='json')
             permission = 'unknown'
             if region and region.casefold() == ref['permission_region'].casefold() and ref['permission_start'] and ref['permission_end'] and ref['permission_start'] <= on.isoformat() <= ref['permission_end']:
                 permission = ref['permission']
             result.append({'id': row['id'], 'korean_name': row['korean_name'], 'scientific_name': row['scientific_name'],
-                **season(ref['periods'], on), 'reference': ref,
+                'host_plants': ref['host_plants'], **season(ref['periods'], on), 'reference': ref,
                 'old_vagrant': ref['vagrant'] is True and bool(ref['sighting_years']) and max(ref['sighting_years']) < 2010,
                 'capture_history': 'captured' if row['id'] in captured else ref['capture_history'], 'permission': permission,
                 'region_match': not region or any(region.casefold() in item.casefold() for item in ref['regions'])})

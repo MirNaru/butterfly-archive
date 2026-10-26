@@ -6,7 +6,7 @@ export const CAPTURE = { unknown: '미상', not_captured: '채집하지 않음',
 export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 종', user_confirmed: '사용자 확인' } as const
 export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 조사' } as const
 export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
-export interface Species { id: number; korean_name: string; scientific_name: string | null }
+export interface Species { id: number; korean_name: string; scientific_name: string | null; host_plants: string }
 export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
 }
@@ -54,6 +54,8 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  family: string; subfamily: string; display_order: number | null; taxonomy_source: string
+  host_plants: string; host_plants_source: string
   periods: { start: number; end: number }[]; regions: string[]; north_only: boolean | null; vagrant: boolean | null
   sighting_years: number[]; protected: boolean | null; capture_history: 'unknown' | 'captured' | 'not_captured'
   source: string; capture_source: string; protection_source: string; protection_checked: string | null

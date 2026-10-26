@@ -4,7 +4,7 @@ import type { FormEvent } from 'react'
 import type { ReferenceDocument, Species, SpeciesReference } from './models'
 import { saveReference } from './api'
 const slotName = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
-export default function ReferenceEditor({ species, initial, onClose, onSaved }: { species: Species; initial: ReferenceDocument; onClose: () => void; onSaved: () => void }) {
+export default function ReferenceEditor({ species, initial, onClose, onSaved }: { species: Species; initial: ReferenceDocument; onClose: () => void; onSaved: (reference: SpeciesReference) => void }) {
   const [value, setValue] = useState(initial.reference)
   const [years, setYears] = useState(value.sighting_years.join(', '))
   const [regions, setRegions] = useState(value.regions.join(', '))
@@ -16,7 +16,7 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved }: 
     const parts = years.trim() ? years.split(/[,\s]+/).filter(Boolean) : []
     if (parts.some(p => !/^\d{4}$/.test(p))) { setError('목격 연도는 네 자리 숫자로 입력해 주세요.'); return }
     setBusy(true)
-    try { await saveReference(species.id, { ...value, regions: regions.split(',').map(s => s.trim()).filter(Boolean), sighting_years: [...new Set(parts.map(Number))] }, initial.updated_at); onSaved() }
+    try { const saved = await saveReference(species.id, { ...value, regions: regions.split(',').map(s => s.trim()).filter(Boolean), sighting_years: [...new Set(parts.map(Number))] }, initial.updated_at); onSaved(saved.reference) }
     catch (e) { setError(e instanceof Error ? e.message : '참고자료 저장에 실패했습니다.') }
     finally { setBusy(false) }
   }
@@ -24,6 +24,8 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved }: 
   const day = (key: 'protection_checked' | 'permission_start' | 'permission_end', label: string) => <label>{label}<input type="date" value={value[key] || ''} onChange={e => update(key, e.target.value || null)} /></label>
   const flag = (key: 'vagrant' | 'north_only' | 'protected', label: string) => <label>{label}<select value={value[key] === null ? '' : String(value[key])} onChange={e => update(key, e.target.value === '' ? null : e.target.value === 'true')}><option value="">미확인</option><option value="true">예</option><option value="false">아니요</option></select></label>
   return <form className="survey-form reference-editor" onSubmit={submit}><h2>{species.korean_name} · 나비 기본 정보</h2><p className="hint">실제 관찰 기록과 별도로 저장합니다. 구매 소장은 채집 이력이 아닙니다. 모르는 정보는 미확인으로 남겨 주세요.</p>{error && <p className="error" role="alert">{error}</p>}<fieldset disabled={busy}>
+    {(value.family || value.subfamily) && <p className="hint">분류: {value.family || '과 미확인'} / {value.subfamily || '아과 미확인'}<br />분류·표시 순서 출처: {value.taxonomy_source}</p>}
+    <h3>기주식물</h3><label>기주식물<textarea value={value.host_plants} maxLength={5000} rows={2} onChange={e => update('host_plants', e.target.value)} /></label><label>기주식물 자료 출처<input value={value.host_plants_source} maxLength={2000} onChange={e => update('host_plants_source', e.target.value)} /></label>
     <h3>성충 출현 참고 기간</h3><p className="hint">상순 1~10일 · 중순 11~20일 · 하순 21일~월말. 시작이 끝보다 뒤면 연말을 넘어갑니다.</p>
     {value.periods.map((p, index) => <div className="period-input" key={index}>{(['start', 'end'] as const).map(key => <label key={key}>{key === 'start' ? '시작 구간' : '끝 구간'}<select value={p[key]} onChange={e => update('periods', value.periods.map((x, i) => i === index ? { ...x, [key]: Number(e.target.value) } : x))}>{Array.from({ length: 36 }, (_, i) => <option value={i + 1} key={i}>{slotName(i + 1)}</option>)}</select></label>)}<button type="button" onClick={() => update('periods', value.periods.filter((_, i) => i !== index))}>구간 제거</button></div>)}
     <button type="button" disabled={value.periods.length >= 36} onClick={() => update('periods', [...value.periods, { start: 1, end: 1 }])}>출현 구간 추가</button>

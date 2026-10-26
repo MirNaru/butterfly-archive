@@ -34,6 +34,24 @@ def new_species(client, name='탐사 시험 종'):
     return client.post('/api/species', json={'korean_name': name}).json()['id']
 
 
+def test_host_plants_roundtrip_validation_and_legacy(client):
+    key = new_species(client)
+    assert client.get('/api/species').json()[0]['host_plants'] == ''
+    assert client.put(f'/api/species/{key}/reference', json={'host_plants': '시험 식물'}).status_code == 422
+    saved = client.put(f'/api/species/{key}/reference', json={
+        'host_plants': '시험 식물, 다른 시험 식물', 'host_plants_source': '사용자 제공 시험 자료'})
+    assert saved.status_code == 200
+    assert client.get('/api/species').json()[0]['host_plants'] == '시험 식물, 다른 시험 식물'
+    payload = saved.json()['reference']
+    payload.update(source='분포 시험 자료', regions=['시험 지역'], expected_updated_at=saved.json()['updated_at'])
+    assert client.put(f'/api/species/{key}/reference', json=payload).status_code == 200
+    assert client.get(f'/api/species/{key}/reference').json()['reference']['host_plants'] == '시험 식물, 다른 시험 식물'
+    with connect_database() as db:
+        db.execute("UPDATE species_references SET payload_json=json_remove(payload_json,'$.host_plants','$.host_plants_source') WHERE species_id=?", (key,))
+    assert client.get(f'/api/species/{key}/reference').json()['reference']['host_plants'] == ''
+    assert client.get('/api/exploration?on=2026-10-26').json()[0]['reference']['host_plants'] == ''
+
+
 def test_reference_roundtrip_and_conflict(client):
     key = new_species(client)
     original = client.get(f'/api/species/{key}/reference').json()
@@ -49,6 +67,26 @@ def test_reference_roundtrip_and_conflict(client):
     payload.update(expected_updated_at=saved.json()['updated_at'], sighting_years=[2009, 2010])
     assert client.put(f'/api/species/{key}/reference', json=payload).status_code == 200
     assert not client.get('/api/exploration?on=2026-10-26').json()[0]['old_vagrant']
+
+
+def test_species_display_order_survives_edit_and_new_species(client):
+    unclassified = new_species(client, '가나다 시험 종')
+    second = new_species(client, '나중에 보일 시험 종')
+    first = new_species(client, '처음에 보일 시험 종')
+    for key, order in ((second, 2), (first, 1)):
+        response = client.put(f'/api/species/{key}/reference', json={
+            'family': '시험 과', 'subfamily': '시험 아과', 'display_order': order,
+            'taxonomy_source': '시험 표시 순서'})
+        assert response.status_code == 200
+    assert [r['id'] for r in client.get('/api/species').json()] == [first, second, unclassified]
+    doc = client.get(f'/api/species/{first}/reference').json()
+    payload = {**doc['reference'], 'host_plants': '시험 식물', 'host_plants_source': '시험 출처', 'expected_updated_at': doc['updated_at']}
+    assert client.put(f'/api/species/{first}/reference', json=payload).status_code == 200
+    assert client.get(f'/api/species/{first}/reference').json()['reference']['display_order'] == 1
+    new = new_species(client, '가장 앞 이름이지만 신규 종')
+    assert [r['id'] for r in client.get('/api/species').json()] == [first, second, unclassified, new]
+    assert client.put(f'/api/species/{new}/reference', json={'display_order': 0, 'taxonomy_source': '시험'}).status_code == 422
+    assert client.put(f'/api/species/{new}/reference', json={'display_order': 1}).status_code == 422
 
 
 @pytest.mark.parametrize('invalid', [

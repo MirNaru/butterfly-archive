@@ -1,5 +1,6 @@
 """종과 조사를 하나의 트랜잭션으로 저장하고 관계를 재조회합니다."""
 import sqlite3
+import json
 from datetime import datetime, timezone
 from app.database import connect_database
 from app.schemas import SpeciesInput, SurveyInput, SurveyUpdate
@@ -53,8 +54,13 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
 
 def list_species() -> list[dict]:
     with connect_database() as connection:
-        return [dict(r) for r in connection.execute(
-            "SELECT id, korean_name, scientific_name FROM species ORDER BY korean_name")]
+        return [{"id": r['id'], "korean_name": r['korean_name'], "scientific_name": r['scientific_name'],
+                 "host_plants": json.loads(r['payload_json']).get('host_plants', '') if r['payload_json'] else ''}
+                for r in connection.execute(
+                    "SELECT s.id, s.korean_name, s.scientific_name, r.payload_json FROM species s "
+                    "LEFT JOIN species_references r ON r.species_id=s.id "
+                    "ORDER BY json_extract(r.payload_json, '$.display_order') IS NULL, "
+                    "json_extract(r.payload_json, '$.display_order'), s.id")]
 
 
 def create_species(value: SpeciesInput) -> dict:

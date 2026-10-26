@@ -140,8 +140,8 @@ export default function App() {
       </aside>
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : ''}`}>
         {notice && <p role="status" className="notice">{notice}</p>}
-        {mode === 'info' && <ButterflyInfo species={species} onCreated={s => setSpecies(current => [...current, s].sort((a, b) => a.korean_name.localeCompare(b.korean_name)))} onEditing={setReferenceEditing} />}
-        {mode === 'exploration' && <Exploration sidebar={explorationSidebar} onEditing={setReferenceEditing} />}
+        {mode === 'info' && <ButterflyInfo species={species} onCreated={s => setSpecies(current => [...current, s])} onUpdated={s => setSpecies(current => current.map(item => item.id === s.id ? s : item))} onEditing={setReferenceEditing} />}
+        {mode === 'exploration' && <Exploration sidebar={explorationSidebar} onEditing={setReferenceEditing} onUpdated={(id, hostPlants) => setSpecies(current => current.map(item => item.id === id ? { ...item, host_plants: hostPlants } : item))} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView shown={tab === 'map' && mode === 'records'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setSelectedRecord(pin.id.startsWith('record-') ? Number(pin.id.slice(7)) : null); setMapFocus(pin) }} />
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
           {!pins.length && <p className="hint">현재 검색 결과에 지도에 표시할 좌표가 없습니다.</p>}</div>}

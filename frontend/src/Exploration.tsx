@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { findExploration, getReference } from './api'
 import type { ExplorationRow, ReferenceDocument } from './models'
 import ReferenceEditor from './ReferenceEditor'
-export default function Exploration({ sidebar, onEditing }: { sidebar: HTMLDivElement | null; onEditing: (editing: boolean) => void }) {
+export default function Exploration({ sidebar, onEditing, onUpdated }: { sidebar: HTMLDivElement | null; onEditing: (editing: boolean) => void; onUpdated: (id: number, hostPlants: string) => void }) {
   const [on, setOn] = useState(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()))
   const [region, setRegion] = useState('')
   const [query, setQuery] = useState('')
@@ -30,7 +30,7 @@ export default function Exploration({ sidebar, onEditing }: { sidebar: HTMLDivEl
     setOpening(true); setError('')
     try { setEditor({ row, doc: await getReference(row.id) }); onEditing(true) } catch (e) { setError(e instanceof Error ? e.message : '참고자료를 읽지 못했습니다.') } finally { setOpening(false) }
   }
-  if (editor) return <ReferenceEditor key={editor.row.id} species={editor.row} initial={editor.doc} onClose={() => { setEditor(null); onEditing(false) }} onSaved={() => { setEditor(null); onEditing(false); setLoading(true); setRevision(n => n + 1) }} />
+  if (editor) return <ReferenceEditor key={editor.row.id} species={editor.row} initial={editor.doc} onClose={() => { setEditor(null); onEditing(false) }} onSaved={reference => { onUpdated(editor.row.id, reference.host_plants); setEditor(null); onEditing(false); setLoading(true); setRevision(n => n + 1) }} />
   const controls = <div className="exploration-controls">    <div className="field-grid"><label>탐사 기준일<input type="date" required value={on} onChange={e => { setOn(e.target.value); setRows([]); setLoading(!!e.target.value) }} /></label><label>목표 지역<input value={region} onChange={e => { setRegion(e.target.value); setRows([]); setLoading(true) }} placeholder="참고자료에 등록한 지역" /></label><label>종 검색<input value={query} onChange={e => setQuery(e.target.value)} /></label><label>예상 출현 기간 정렬<select value={direction} onChange={e => setDirection(e.target.value)}><option value="asc">남은 기간 오름차순</option><option value="desc">남은 기간 내림차순</option></select></label></div>
     <div className="column-options">{Object.entries({ active: '현재 출현 참고 종만', captured: '이미 채집한 종 제외', north: '북한에만 분포하는 종 제외', old: '미갱신 미접 제외 · 2010년 이전', protected: '국가보호종 제외' }).map(([key, label]) => <label className="check" key={key}><input type="checkbox" checked={options[key as keyof typeof options]} onChange={e => setOptions({ ...options, [key]: e.target.checked })} />{label}</label>)}</div>
     <button onClick={() => { setQuery(''); setRegion(''); setOptions({ active: true, captured: false, north: false, old: false, protected: false }); setDirection('asc'); setRows([]); setLoading(true); setRevision(n => n + 1) }}>조건 초기화</button> <button disabled={loading} onClick={() => { setLoading(true); setRevision(n => n + 1) }}>새로고침</button>
