@@ -84,7 +84,7 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   }, [])
   const grouped = hidden ? [] : pins.filter(p => `${p.latitude},${p.longitude}` === group)
   return <section className="map-view">
-    <div className="toolbar"><span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span><div className="map-actions">
+    <div className="toolbar"><h2 className="map-title">지도</h2><div className="map-actions">
       <button type="button" aria-pressed={hidden} onClick={() => setHidden(v => !v)}>{hidden ? '핀 표시' : '핀 숨기기'}</button>
       <div className="map-types" role="group" aria-label="지도 종류">
         <button type="button" disabled={!ready || !!error} aria-pressed={!satellite} onClick={() => setSatellite(false)}>일반지도</button>

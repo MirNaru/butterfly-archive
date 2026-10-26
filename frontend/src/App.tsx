@@ -109,16 +109,18 @@ export default function App() {
     setCreating(false); setEditing(undefined); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '조사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
   }} />
   return <div className="app-shell">
-    <header className="app-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE</span><h1>나비 관찰 기록</h1></div><span className="local-label">개인 기록 · 로컬 저장</span></header>
     <div className="workspace">
       <aside className="sidebar">
-        <div className="toolbar"><h2>조사 목록</h2><button className="primary" disabled={referenceEditing || formOpen || loading || !!error} onClick={() => { setMode('records'); setCreating(true); setNotice('') }}>새 조사</button></div>
+        <header className="app-header"><span className="eyebrow">BUTTERFLY ARCHIVE</span><h1>나비 관찰 기록</h1></header>
+        <div className="sidebar-scroll">
+        <div className="sidebar-tools"><label className="sidebar-search"><span className="sr-only">기록 검색</span><input type="search" disabled={referenceEditing || formOpen || mode !== 'records'} placeholder="기록 검색" value={query} onChange={e => setQuery(e.target.value)} /></label><button className="icon-button has-tooltip" aria-label="새로고침" data-tooltip="새로고침" disabled={loading || formOpen || referenceEditing} onClick={() => { setLoading(true); void load() }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V3m0 4h-4m4 0a8 8 0 1 0 1 8" /></svg></button><button className="icon-button has-tooltip" aria-label="새 조사" data-tooltip="새 조사" disabled={referenceEditing || formOpen || loading || !!error} onClick={() => { setMode('records'); setCreating(true); setNotice('') }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4v16M4 12h16" /></svg></button></div>
         <div className="search-modes"><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'records'} onClick={() => setMode('records')}>관찰 기록 검색</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'exploration'} onClick={() => { setMode('exploration'); setTab('table') }}>탐사 대상 찾기</button></div>
+        <div className="sidebar-card">
         <div ref={setExplorationSidebar} hidden={mode !== 'exploration'} />
-        <div hidden={mode !== 'records'}><label>기록 검색<input type="search" disabled={referenceEditing || formOpen} placeholder="국명·학명·장소·날짜·메모" value={query} onChange={e => setQuery(e.target.value)} /></label>
+        <div hidden={mode !== 'records'}>
         <SearchFilters value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} reset={() => setQuery('')} />
         <p className="hint">종별 기록 {rows.length}건 · 좌표 있음 {rows.filter(r => r.record.effective_latitude !== null).length}건 · 좌표 없음 {rows.filter(r => r.record.effective_latitude === null).length}건</p>
-        <div className="toolbar"><small>조사 {filtered.length}건</small><button className="quiet" disabled={loading || formOpen} onClick={() => { setLoading(true); void load() }}>새로고침</button></div>
+        <div className="toolbar"><h2>조사 목록</h2><small>{filtered.length}건</small></div>
         {loading && <p role="status">목록을 불러오는 중입니다.</p>}
         {error && <p role="alert" className="error">{error}</p>}
         {!loading && !error && filtered.length === 0 && <p className="empty">{surveys.length ? '검색 결과가 없습니다.' : '첫 조사를 등록해 주세요.'}</p>}
@@ -127,7 +129,7 @@ export default function App() {
         </button>)}</nav></div>
         <details className="integration-status"><summary onClick={() => void showIntegration()}>연동 상태·로컬 사용량</summary>
           <p className="hint">네이버 무료 대표 계정과 콘솔 사용 제한을 유지해야 합니다. 아래 숫자는 이 DB의 호출 시도이며 제공자 전체 사용량과 다를 수 있습니다.</p>
-          {integration && <><p>지도 {integration.maps_ready ? '설정됨' : '비활성'} · 기상 {integration.weather_ready ? '설정됨' : '비활성'}</p>{integration.usage.map(u => <div key={u.service}>
+          {integration && <><p>지도 {integration.maps_ready ? '설정됨' : '비활성'} · 기상 {integration.weather_ready ? '설정됨' : '비활성'}</p>{[...integration.usage].sort((a, b) => (a.service === 'map' ? 0 : 1) - (b.service === 'map' ? 0 : 1)).map(u => <div key={u.service}>
             <p><strong>{({ map: 'Dynamic Map', geocode: 'Geocoding', reverse: 'Reverse Geocoding', kma: '기상청' })[u.service] || u.service}</strong><br />
               앱 집계: 오늘 {u.today.toLocaleString('ko-KR')}{u.daily_limit !== null && ` / ${u.daily_limit.toLocaleString('ko-KR')}`}회 · 이번 달 {u.month.toLocaleString('ko-KR')}{u.monthly_limit !== null && ` / ${u.monthly_limit.toLocaleString('ko-KR')}`}회<br />
               한도: {u.daily_limit !== null ? `일 ${u.daily_limit.toLocaleString('ko-KR')}회` : `월 ${u.monthly_limit?.toLocaleString('ko-KR')}회`}
@@ -137,7 +139,11 @@ export default function App() {
           {integrationError && <p className="error">{integrationError}</p>}
         </details>
         {tab === 'map' && selected && <Detail key={`${selected.id}-${selected.updated_at}`} survey={selected} selectedRecord={selectedRecord} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setEditing(selected); setNotice('') }} />}
+        </div>
+        </div>
+        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode !== 'info'} onClick={() => { setMode('records'); setTab('table') }}>표</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 기본 정보</button></nav>
       </aside>
+      <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : ''}`}>
         {notice && <p role="status" className="notice">{notice}</p>}
         {mode === 'info' && <ButterflyInfo species={species} onCreated={s => setSpecies(current => [...current, s])} onUpdated={s => setSpecies(current => current.map(item => item.id === s.id ? s : item))} onEditing={setReferenceEditing} />}
@@ -150,8 +156,9 @@ export default function App() {
           {selected ? <Detail key={`${selected.id}-${selected.updated_at}`} survey={selected} selectedRecord={selectedRecord} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setEditing(selected); setNotice('') }} /> : <section className="welcome"><h2>한 번의 조사, 여러 나비의 기록</h2><p>조사 날짜와 장소를 정하고 관찰한 종을 추가해 주세요.<br />찾았지만 발견하지 못한 종도 구분해서 남길 수 있습니다.</p></section>}
         </>}
       </main>
+      <footer className="workspace-status"><span>개인 기록 · 로컬 저장</span><span>기상은 저장 후 재사용 · 자동 갱신 없음</span>{tab === 'map' && mode === 'records' && <span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span>}</footer>
+      </div>
     </div>
     {form}
-    <footer className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode !== 'info'} onClick={() => { setMode('records'); setTab('table') }}>표</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 기본 정보</button><span>기상은 저장 후 재사용 · 자동 갱신 없음</span></footer>
   </div>
 }
