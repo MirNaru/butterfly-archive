@@ -24,6 +24,10 @@ export interface Observation extends ObservationInput {
   id: number; species_name: string | null; effective_date: string; effective_place: string
   effective_latitude: number | null; effective_longitude: number | null
 }
+export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
+  expected_updated_at: string
+  observations: (ObservationInput & { id: number | null })[]
+}
 export interface Survey extends Omit<SurveyInput, 'observations'> {
   id: number; created_at: string; updated_at: string; observations: Observation[]
 }
@@ -47,4 +51,16 @@ export interface SavedWeather {
 export interface IntegrationStatus {
   maps_ready: boolean; weather_ready: boolean
   usage: { service: string; today: number; month: number; daily_limit: number | null; monthly_limit: number | null; reported_count: number | null; reported_date: string | null }[]
+}
+
+export interface SpeciesReference {
+  periods: { start: number; end: number }[]; regions: string[]; north_only: boolean | null; vagrant: boolean | null
+  sighting_years: number[]; protected: boolean | null; capture_history: 'unknown' | 'captured' | 'not_captured'
+  source: string; capture_source: string; protection_source: string; protection_checked: string | null
+  permission: 'unknown' | 'permitted' | 'prohibited'; permission_region: string; permission_start: string | null; permission_end: string | null; permission_source: string
+}
+export interface ReferenceDocument { reference: SpeciesReference; updated_at: string | null }
+export interface ExplorationRow extends Species {
+  reference: SpeciesReference; active: boolean | null; days_left: number | null; next_period: boolean; year_round: boolean
+  old_vagrant: boolean; capture_history: SpeciesReference['capture_history']; permission: SpeciesReference['permission']; region_match: boolean
 }

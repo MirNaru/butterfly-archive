@@ -1,5 +1,5 @@
 // 모든 기록 요청의 통신 오류와 서버 검증 오류를 한곳에서 처리합니다.
-import type { Species, Survey, SurveyInput, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
+import type { Species, Survey, SurveyInput, SurveyUpdate, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -33,6 +33,7 @@ export const listSpecies = () => request<Species[]>('/species')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))
 export const listSurveys = () => request<Survey[]>('/surveys')
 export const addSurvey = (value: SurveyInput) => request<Survey>('/surveys', post(value))
+export const updateSurvey = (id: number, value: SurveyUpdate) => request<Survey>(`/surveys/${id}`, { ...post(value), method: 'PUT' })
 export const integrationStatus = () => request<IntegrationStatus>('/integrations/status')
 export const mapPermit = () => request<{ client_id: string }>('/maps/permit', post({}))
 export const findAddress = (query: string) => request<AddressCandidate[]>('/maps/geocode', post({ query }))
@@ -40,3 +41,7 @@ export const findCoordinateAddress = (point: Coordinate) => request<{ address: s
 export const getWeather = (type: 'survey' | 'observation', id: number) => request<SavedWeather>(`/weather/${type}/${id}`)
 export const findStations = (target_type: 'survey' | 'observation', target_id: number) => request<Station[]>('/weather/stations', post({ target_type, target_id }))
 export const queryWeather = (target_type: 'survey' | 'observation', target_id: number, station_id: number, refresh = false) => request<SavedWeather>('/weather/query', post({ target_type, target_id, station_id, refresh }))
+export const recordWeather = () => request<Record<number, SavedWeather>>('/record-weather')
+export const getReference = (id: number) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`)
+export const saveReference = (id: number, value: import('./models').SpeciesReference, version: string | null) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`, { ...post({ ...value, expected_updated_at: version }), method: 'PUT' })
+export const findExploration = (on: string, region: string) => request<import('./models').ExplorationRow[]>(`/exploration?${new URLSearchParams({ on, region })}`)

@@ -6,7 +6,7 @@ import type { SavedWeather, Station } from './models'
 function displayTime(value: string) {
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}${value.length > 8 ? ` ${value.slice(8, 10)}:${value.slice(10, 12)} KST` : ' 일자료'}`
 }
-export default function WeatherPanel({ targetType, targetId }: { targetType: 'survey' | 'observation'; targetId: number }) {
+export default function WeatherPanel({ targetType, targetId, onChanged }: { targetType: 'survey' | 'observation'; targetId: number; onChanged?: () => void }) {
   const [data, setData] = useState<SavedWeather | null>(null)
   const [stations, setStations] = useState<Station[]>([])
   const [station, setStation] = useState('')
@@ -27,16 +27,17 @@ export default function WeatherPanel({ targetType, targetId }: { targetType: 'su
     const id = refresh ? data?.weather?.station.id : Number(station)
     if (!id || (refresh && !window.confirm('기상청에 다시 조회하여 이 기록의 연결을 변경하시겠습니까? 실패하면 기존 자료를 유지합니다.'))) return
     setBusy(true); setError('')
-    try { setData(await queryWeather(targetType, targetId, id, refresh)) }
+    try { setData(await queryWeather(targetType, targetId, id, refresh)); onChanged?.() }
     catch (e) { setError(e instanceof Error ? e.message : '기상 조회에 실패했습니다.') }
     finally { setBusy(false) }
   }
   const saved = data?.weather
-  return <details className="weather-panel"><summary>기상 · {saved ? '저장된 자료' : '미연결'}</summary>
+  return <details className="weather-panel"><summary>기상 · {saved ? saved.stale ? '이전 조건의 저장 자료' : '저장된 자료' : '미연결'}</summary>
     <p className="hint">관측소의 기상자료이며 현장 실측값은 아닙니다. 한 번 저장한 값은 자동 갱신하지 않습니다.</p>
     {data && <p>연결 기준: {displayTime(data.context.target_time)}{data.context.time && ` · 관찰 ${data.context.time}`}</p>}
     {saved && <>
       {saved.stale && <p className="error">기록 조건이 달라졌습니다. 아래는 이전 조건으로 저장한 자료입니다.</p>}
+      {saved.stale && <p className="hint">저장 당시: {saved.linked_context.date} · {saved.linked_context.time || '시각 미상'} · {saved.linked_context.place || '장소명 없음'}{saved.linked_context.latitude !== null && ` · ${saved.linked_context.latitude}, ${saved.linked_context.longitude}`} · 아래 거리는 저장 당시 위치 기준입니다.</p>}
       <p><strong>{saved.station.name} 관측소 ({saved.station.id})</strong>{saved.distance_km !== null ? ` · 직선거리 ${saved.distance_km} km` : ' · 기록 좌표가 없어 거리 미상'}</p>
       <p>{displayTime(saved.target_time)}</p>
       <dl>{saved.values.map(v => <div className="weather-value" key={v.code}><dt>{v.label}</dt><dd>{v.value === null ? '자료 없음' : `${v.value} ${v.unit}`}</dd></div>)}</dl>

@@ -80,3 +80,65 @@ dt { color: #657362; } dd { margin: 0; }
 .tabs span { margin-left: auto; color: #6c7b66; font-size: 12px; }
 @media (max-width: 850px) { .sidebar { flex-basis: 285px; padding: 16px; } .main-pane { --pane-gap: 20px; padding: 20px; } .field-grid { grid-template-columns: 1fr; } .map-view .toolbar { flex-wrap: wrap; } }
 @media (max-width: 620px) { .workspace { flex-direction: column; overflow-y: auto; } .sidebar { flex: none; max-height: 300px; } .main-pane { overflow: visible; } .main-pane.map-pane { min-height: 380px; } .local-label { display: none; } .app-header { padding: 5.5px 20px; } }
+/* 기록 검색·선택 열·탐사 참고자료 입력 영역입니다. */
+.search-modes, .table-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.search-modes button[aria-pressed='true'] { background: #e6efdd; font-weight: 700; }
+.search-filters { margin: 12px 0; }
+.filter-group { margin: 10px 0; padding: 6px; background: #f6f8f2; }
+.column-options { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0; }
+.column-options label { margin: 4px 0; }
+.table-controls label { margin: 0; }
+.record-table th:first-child, .record-table td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
+.record-table th:first-child { background: #edf2e9; }
+.record-table .selected td:first-child { background: #eef4e7; }
+.record-table tbody tr { cursor: pointer; }
+.weather-cell { white-space: normal; min-width: 180px; max-width: 300px; }
+td small { display: block; color: #637562; font-size: 12px; }
+.memo-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.exploration .memo-cell button { display: block; }
+.period-input { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.reference-editor { max-width: 950px; }
+/* 지도와 표의 배경을 유지하는 중앙 조사 입력 레이어입니다. */
+.survey-dialog { border: 1px solid #cad7c5; border-radius: 16px; padding: 0; width: min(1420px, calc(100vw - 48px)); max-width: none; max-height: calc(100dvh - 40px); color: #24392f; box-shadow: 0 22px 80px #142e3538; overflow: auto; }
+.survey-dialog::backdrop, .location-dialog::backdrop { background: #172b2447; }
+.survey-dialog .survey-modal-form { border: 0; border-radius: 0; margin: 0; padding: 20px 24px 0; max-width: none; }
+.survey-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #e0e7dd; padding-bottom: 12px; margin-bottom: 14px; }
+.survey-modal-header h2 { margin: 0; font-size: 22px; }
+.survey-modal-header p { margin: 0; }
+.survey-columns { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(560px, 1.5fr); gap: 24px; }
+.survey-common { padding-right: 22px; border-right: 1px solid #e0e7dd; }
+.survey-common h3 { margin: 0 0 8px; }
+.survey-dialog label { font-size: 13px; gap: 3px; margin: 5px 0; }
+.survey-dialog input:not([type='checkbox']), .survey-dialog select, .survey-dialog textarea { padding: 5px 8px; line-height: 1.35; min-height: 31px; }
+.survey-dialog textarea { resize: vertical; }
+.survey-dialog .field-grid { gap: 0 12px; }
+.survey-dialog .observation-grid, .survey-dialog .individual-location .location-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.survey-dialog .individual-location .wide { grid-column: 1 / -1; }
+.survey-dialog .record-fields { border: 0; margin: 5px 0 0; padding: 0; background: transparent; }
+.survey-dialog .record-fields legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.survey-dialog .individual-location { border-top: 1px solid #e0e7dd; margin-top: 8px; padding-top: 7px; }
+.survey-dialog .individual-location h3 { font-size: 13px; margin: 0; }
+.survey-dialog .location-picker { margin: 4px 0; }
+.survey-dialog button { font-size: 13px; padding: 6px 10px; }
+.survey-dialog .hint { font-size: 12px; margin: 8px 0; }
+.record-switcher { display: flex; gap: 10px; align-items: end; }
+.record-switcher label { flex: 1; }
+.record-switcher button { margin-bottom: 5px; }
+.record-switcher small { margin-bottom: 10px; white-space: nowrap; }
+.survey-modal-footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 12px 0; margin-top: 10px; border-top: 1px solid #dce4d7; position: sticky; bottom: 0; background: white; }
+.survey-modal-footer small, .survey-modal-footer span { margin-right: auto; font-size: 12px; }
+.survey-error { margin: 0 0 8px; padding: 8px 10px; font-size: 12px; max-height: 70px; overflow: auto; }
+.location-dialog { width: min(850px, calc(100vw - 64px)); max-height: calc(100dvh - 64px); border: 1px solid #cad7c5; border-radius: 12px; padding: 20px; color: #24392f; overflow: auto; }
+.location-dialog .map-frame { height: 300px; }
+.species-create { padding: 18px; background: white; border: 1px solid #dce4d7; border-radius: 10px; margin-bottom: 20px; }
+@media (max-width: 1050px) { .survey-columns { grid-template-columns: minmax(240px, .8fr) minmax(420px, 1.5fr); gap: 16px; } .survey-dialog .survey-modal-form { padding: 14px 16px 0; } .survey-common { padding-right: 14px; } }
+@media (max-width: 760px) { .survey-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); } .survey-columns { grid-template-columns: 1fr; } .survey-common { border-right: 0; padding: 0; } .survey-dialog .observation-grid, .survey-dialog .individual-location .location-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .survey-modal-header { align-items: start; flex-direction: column; gap: 4px; } .survey-modal-footer { flex-wrap: wrap; } }
+/* 표준 PC 높이에서 선택한 기록의 모든 필드를 동시에 보여줍니다. */
+.survey-dialog label { margin: 2px 0; gap: 2px; line-height: 1.3; }
+.survey-dialog .observation-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.survey-dialog .survey-modal-header { padding-bottom: 10px; margin-bottom: 10px; }
+.survey-dialog .survey-modal-header .hint { margin: 0; }
+.survey-dialog .survey-modal-footer { padding: 9px 0; margin-top: 8px; }
+.survey-dialog .record-fields > .quiet { padding: 2px 0; }
+@media (max-width: 1100px) { .survey-dialog .observation-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .survey-dialog .observation-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

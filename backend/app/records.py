@@ -2,11 +2,53 @@
 import sqlite3
 from datetime import datetime, timezone
 from app.database import connect_database
-from app.schemas import SpeciesInput, SurveyInput
+from app.schemas import SpeciesInput, SurveyInput, SurveyUpdate
 
 
 class UnknownSpecies(ValueError):
     pass
+
+
+class EditConflict(ValueError):
+    pass
+
+
+class InvalidObservation(ValueError):
+    pass
+
+
+def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
+    """기존 ID와 기상 연결을 보존하며 조사 전체를 원자적으로 수정합니다."""
+    with connect_database() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        original = read_survey(connection, survey_id)
+        if original is None:
+            return None
+        if original["updated_at"] != value.expected_updated_at:
+            raise EditConflict("다른 창에서 수정된 기록입니다. 입력은 유지됩니다. 변경 내용을 별도로 보관한 뒤 취소하고 목록을 새로고침해 주세요.")
+        existing = {item["id"] for item in original["observations"]}
+        supplied = [item.id for item in value.observations if item.id is not None]
+        if len(supplied) != len(set(supplied)) or set(supplied) != existing:
+            raise InvalidObservation("기존 종별 기록을 빠짐없이 한 번씩 포함해야 합니다. 삭제는 지원하지 않습니다.")
+        for item in value.observations:
+            if item.species_id and not connection.execute(
+                    "SELECT 1 FROM species WHERE id=?", (item.species_id,)).fetchone():
+                raise UnknownSpecies("선택한 종이 없습니다. 종 목록을 새로 확인해 주세요.")
+        fields = value.model_dump(mode="json", exclude={"observations", "expected_updated_at"})
+        fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        connection.execute(f"UPDATE surveys SET {', '.join(key + '=?' for key in fields)} WHERE id=?",
+                           (*fields.values(), survey_id))
+        for item in value.observations:
+            fields = item.model_dump(mode="json", exclude={"id"})
+            if item.id is None:
+                fields["survey_id"] = survey_id
+                connection.execute(
+                    f"INSERT INTO observations ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
+                    tuple(fields.values()))
+            else:
+                connection.execute(f"UPDATE observations SET {', '.join(key + '=?' for key in fields)} WHERE id=? AND survey_id=?",
+                                   (*fields.values(), item.id, survey_id))
+        return read_survey(connection, survey_id)
 
 
 def list_species() -> list[dict]:

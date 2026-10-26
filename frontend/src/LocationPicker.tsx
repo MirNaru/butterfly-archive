@@ -1,11 +1,13 @@
 // 명시적인 주소 검색과 지도 선택만 실행하며 적용 전 원래 입력값을 유지합니다.
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { findAddress, findCoordinateAddress } from './api'
 import MapView from './MapView'
 import type { AddressCandidate, Coordinate, LocationInput } from './models'
 
 export default function LocationPicker({ onApply }: { onApply: (value: LocationInput) => void }) {
   const [open, setOpen] = useState(false)
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close() }, [open])
   const [visited, setVisited] = useState(false)
   const [query, setQuery] = useState('')
   const [candidates, setCandidates] = useState<AddressCandidate[]>([])
@@ -30,7 +32,7 @@ export default function LocationPicker({ onApply }: { onApply: (value: LocationI
   }
   return <div className="location-picker wide">
     <button type="button" onClick={() => setOpen(v => !v)}>{open ? '위치 선택 닫기' : '지도·주소로 위치 선택'}</button>
-    <div hidden={!open}>
+    <dialog ref={dialog} className="location-dialog" aria-label="지도·주소로 위치 선택" onCancel={e => { e.preventDefault(); e.stopPropagation(); if (!busy) setOpen(false) }}><button type="button" disabled={busy} onClick={() => setOpen(false)}>위치 선택 닫기</button>
       <p className="hint">검색한 주소와 주소 확인을 요청한 좌표는 네이버로 전송됩니다. 지도 위치를 고른 뒤 적용해 주세요.</p>
       <label>주소 검색<input value={query} onChange={e => setQuery(e.target.value)} maxLength={200} placeholder="도로명 또는 지번 주소" /></label>
       <button type="button" disabled={busy || query.trim().length < 2} onClick={() => void search()}>주소 검색</button>
@@ -43,6 +45,6 @@ export default function LocationPicker({ onApply }: { onApply: (value: LocationI
       {busy && <p role="status">위치 정보를 조회하는 중입니다.</p>}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert" className="error">{error}</p>}
-    </div>
+    </dialog>
   </div>
 }

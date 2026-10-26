@@ -268,5 +268,5 @@ def test_v1_migration_backup_and_rollback(tmp_path, monkeypatch):
     migrations.initialize_database()
     assert len(list(tmp_path.glob("*.bak"))) == before
     with connect_database() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == migrations.SCHEMA_VERSION
         assert connection.execute("SELECT korean_name FROM species").fetchone()[0] == "보존 종"

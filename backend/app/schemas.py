@@ -83,6 +83,15 @@ class SurveyInput(Location):
         return self
 
 
+class ObservationUpdate(ObservationInput):
+    id: Annotated[int, Field(strict=True, gt=0)] | None = None
+
+
+class SurveyUpdate(SurveyInput):
+    expected_updated_at: str = Field(min_length=1, max_length=100)
+    observations: list[ObservationUpdate] = Field(max_length=100)
+
+
 class Observation(ObservationInput):
     id: int
     species_name: str | None

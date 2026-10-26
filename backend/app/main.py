@@ -7,10 +7,12 @@ from fastapi.responses import JSONResponse
 from app.database import connect_database
 from app.migrations import initialize_database
 from app import records
-from app.schemas import Species, SpeciesInput, Survey, SurveyInput
+from app.schemas import Species, SpeciesInput, Survey, SurveyInput, SurveyUpdate
 from app.integrations import router as integration_router
 from app.integration_settings import IntegrationError
 from app.api_usage import UsageLimitError
+from app.exploration import router as exploration_router
+from app import weather_store
 
 
 @asynccontextmanager
@@ -21,6 +23,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Butterfly Archive", version="0.3.0", lifespan=lifespan)
 app.include_router(integration_router)
+app.include_router(exploration_router)
+
+
+@app.get('/api/record-weather')
+def record_weather():
+    """종별 기록에 연결된 저장 기상을 읽습니다. 외부 조회는 하지 않습니다."""
+    with connect_database() as db:
+        ids = [r[0] for r in db.execute('SELECT observation_id FROM weather_links WHERE observation_id IS NOT NULL')]
+    return {key: weather_store.saved('observation', key) for key in ids}
 
 
 @app.exception_handler(IntegrationError)
@@ -87,3 +98,16 @@ def health() -> dict[str, str]:
     except sqlite3.Error as exc:
         raise HTTPException(status_code=503, detail="Database unavailable") from exc
     return {"status": "ok", "database": "ok"}
+
+
+@app.put("/api/surveys/{survey_id}", response_model=Survey)
+def survey_update(survey_id: int, value: SurveyUpdate):
+    try:
+        result = records.update_survey(survey_id, value)
+    except records.EditConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except (records.UnknownSpecies, records.InvalidObservation) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if result is None:
+        raise HTTPException(404, "조사 기록을 찾을 수 없습니다.")
+    return result
