@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { addSurvey, updateSurvey } from './api'
-import { CAPTURE, IDENTIFICATION, LOCATION, PURPOSE, RESULT, SEX, STAGE } from './models'
+import { CAPTURE, IDENTIFICATION, LOCATION, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { LocationInput, Observation, ObservationInput, Species, Survey, SurveyInput } from './models'
 import LocationPicker from './LocationPicker'
 
@@ -25,9 +25,12 @@ function LocationFields({ prefix, initial }: { prefix: string; initial?: Locatio
 function ObservationFields({ rowKey, index, species, remove, initial, active }: { active: boolean; rowKey: number; index: number; species: Species[]; remove: () => void; initial?: Observation }) {
   const [result, setResult] = useState<ObservationInput['result']>(initial?.result ?? 'observed')
   const [capture, setCapture] = useState<ObservationInput['capture_status']>(initial?.capture_status ?? 'unknown')
+  const [source, setSource] = useState<ObservationInput['source_type']>(initial?.source_type ?? 'direct')
+  const [sourceNote, setSourceNote] = useState(initial?.source_note ?? '')
   const prefix = `record-${rowKey}-`
   return <fieldset hidden={!active} data-row-key={rowKey} className="record-fields"><legend>종별 기록 {index + 1}</legend>
     <div className="field-grid observation-grid">
+      <label>관찰 출처<select name={`${prefix}source_type`} value={source} onChange={e => setSource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label>
       <label>결과<select name={`${prefix}result`} value={result} onChange={e => setResult(e.target.value as ObservationInput['result'])}><Options values={RESULT} /></select></label>
       <label>종<select name={`${prefix}species_id`} defaultValue={initial?.species_id ?? ''} required={result === 'not_found'}>
         <option value="">{result === 'not_found' ? '찾으려던 종 선택' : '동정 미확정'}</option>
@@ -45,6 +48,8 @@ function ObservationFields({ rowKey, index, species, remove, initial, active }: 
         {capture === 'captured' && <label>채집 개체 수<input name={`${prefix}captured_count`} defaultValue={initial?.captured_count ?? ''} type="number" min={1} max={1000000} step={1} placeholder="미상" /></label>}
       </>}
     </div>
+    {source === 'indirect' && <label>간접 관찰 출처<input name={`${prefix}source_note`} value={sourceNote} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
+    {source === 'direct' && <input type="hidden" name={`${prefix}source_note`} value={sourceNote} />}
     {result === 'not_found' && <p className="hint">실제로 찾았으나 발견하지 못한 종만 기록해 주세요.</p>}
     <div className="individual-location"><h3>개별 위치 · 선택</h3><LocationFields prefix={prefix} initial={initial} /></div>
     <label>기록 메모<textarea name={`${prefix}notes`} defaultValue={initial?.notes ?? ''} maxLength={5000} rows={1} /></label>
@@ -86,6 +91,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial }: { in
       const p = `record-${key}-`
       const result = str(`${p}result`) as ObservationInput['result']
       return { ...location(p), species_id: num(`${p}species_id`), result,
+        source_type: str(`${p}source_type`) as ObservationInput['source_type'], source_note: str(`${p}source_note`),
         observation_date: str(`${p}observation_date`) || null, observation_time: str(`${p}observation_time`) || null,
         stage: (str(`${p}stage`) || 'unknown') as ObservationInput['stage'],
         sex: (str(`${p}sex`) || 'unknown') as ObservationInput['sex'], count: num(`${p}count`),

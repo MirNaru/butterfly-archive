@@ -1,5 +1,6 @@
 // API 계약과 화면에서 공유하는 기록 분류입니다.
 export const RESULT = { observed: '관찰', not_found: '미발견' } as const
+export const SOURCE_TYPE = { direct: '직접 관찰', indirect: '간접 관찰' } as const
 export const STAGE = { unknown: '미상', egg: '알', larva: '유충', pupa: '번데기', adult: '성충' } as const
 export const SEX = { unknown: '미상', male: '수컷', female: '암컷', mixed: '혼합' } as const
 export const CAPTURE = { unknown: '미상', not_captured: '채집하지 않음', captured: '채집함' } as const
@@ -11,6 +12,7 @@ export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
 }
 export interface ObservationInput extends LocationInput {
+  source_type: keyof typeof SOURCE_TYPE; source_note: string
   species_id: number | null; result: keyof typeof RESULT
   observation_date: string | null; observation_time: string | null
   stage: keyof typeof STAGE; sex: keyof typeof SEX; count: number | null; count_estimated: boolean
@@ -54,6 +56,7 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  lifecycle: LifePeriod[]; habitat: string; habits: string; other_notes: string; ecology_source: string
   family: string; subfamily: string; display_order: number | null; taxonomy_source: string
   host_plants: string; host_plants_source: string
   periods: { start: number; end: number }[]; regions: string[]; north_only: boolean | null; vagrant: boolean | null
@@ -61,7 +64,11 @@ export interface SpeciesReference {
   source: string; capture_source: string; protection_source: string; protection_checked: string | null
   permission: 'unknown' | 'permitted' | 'prohibited'; permission_region: string; permission_start: string | null; permission_end: string | null; permission_source: string
 }
-export interface ReferenceDocument { reference: SpeciesReference; updated_at: string | null }
+export type LifeStage = 'egg' | 'larva' | 'pupa' | 'adult'
+export interface LifePeriod { id: string; stage: LifeStage; start: number; end: number; source: string; edition: string; region: string; notes: string; enabled: boolean }
+export interface LifeRevision { at: string | null; lifecycle: LifePeriod[]; adult_periods: { start: number; end: number }[]; adult_source: string }
+export interface ReferenceDocument { reference: SpeciesReference; updated_at: string | null; lifecycle_history: LifeRevision[] }
+export interface SpeciesCatalog extends Species { reference: SpeciesReference }
 export interface ExplorationRow extends Species {
   reference: SpeciesReference; active: boolean | null; days_left: number | null; next_period: boolean; year_round: boolean
   old_vagrant: boolean; capture_history: SpeciesReference['capture_history']; permission: SpeciesReference['permission']; region_match: boolean

@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 from app.database import connect_database, database_path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -51,6 +51,11 @@ REFERENCE_STATEMENTS = (
         payload_json TEXT NOT NULL, updated_at TEXT NOT NULL)""",
 )
 
+SOURCE_STATEMENTS = (
+    "ALTER TABLE observations ADD COLUMN source_type TEXT NOT NULL DEFAULT 'direct' CHECK(source_type IN ('direct','indirect'))",
+    "ALTER TABLE observations ADD COLUMN source_note TEXT NOT NULL DEFAULT ''",
+)
+
 
 def initialize_database() -> None:
     target = database_path()
@@ -59,10 +64,10 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        expected_new = {"species_references"}
+        expected_new = {"species_references"} if version < 3 else set()
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -81,6 +86,6 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + REFERENCE_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + SOURCE_STATEMENTS):
             connection.execute(statement)
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

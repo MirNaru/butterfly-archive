@@ -156,6 +156,7 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .sidebar-tools { display: grid; grid-template-columns: minmax(0, 1fr) 28px 28px; gap: 6px; align-items: center; padding-top: 4px; }
 .sidebar-search { min-width: 0; margin: 0; }
 .sidebar-search input { padding: 7px 8px; font-size: 13px; min-width: 0; height: 32px; background: var(--accent-soft); border-color: transparent; }
+.sidebar-search input:focus-visible { outline-offset: -2px; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; border: 0; border-radius: 50%; color: white; background: var(--accent); position: relative; flex-shrink: 0; }
 .icon-button svg { width: 21px; height: 21px; }
 .icon-button:hover:not(:disabled), .icon-button[aria-expanded='true'] { color: white; background: var(--accent); box-shadow: 0 0 0 2px #a66f00; }
@@ -205,3 +206,64 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .workspace-status { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 5px 20px; color: var(--muted); font-size: calc(11px - 1pt); }
 @media (max-width: 850px) { .workspace-status { padding: 4px 16px; } }
 @media (max-width: 620px) { .sidebar-scroll { min-height: 80px; } .sidebar-card { flex: none; } .sidebar .search-modes { max-width: 360px; } .filter-icons { max-width: 260px; } .sidebar-tools { grid-template-columns: minmax(0, 1fr) 28px 28px; } }
+/* 통합 검색 양식은 지도 아이콘과 같은 조건을 이름으로 보여줍니다. */
+.unified-filters h2 { font-size: 15px; margin: 0 0 10px; }
+.target-filter, .filter-section { border-bottom: 1px solid #e5dba9; padding: 4px 0; }
+.target-filter > summary, .filter-section > summary { font-size: 13px; font-weight: 600; }
+.unified-filters input:not([type='checkbox']), .unified-filters select, .target-filter input:not([type='checkbox']) { font-size: 13px; padding: 7px; min-width: 0; }
+.target-filter .check { align-items: start; gap: 5px; line-height: 1.5; margin: 8px 0; }
+.filter-section .filter-group { margin: 4px 0; padding: 3px; }
+.filter-section .check { align-items: start; gap: 5px; }
+.reference-row { color: #635b46; }
+.reference-row td { background: #fffdf7; }
+.record-table .reference-row td:first-child { background: #fffdf7; }
+.record-table .reference-row.selected td { background: #fff4cf; }
+/* 종 기본 정보 표와 한살이 도표의 단계별 낮은 채도 색상입니다. */
+.catalog-table { table-layout: fixed; min-width: 1560px; }
+.catalog-table th:nth-child(1) { width: 130px; }
+.catalog-table th:nth-child(2) { width: 210px; }
+.catalog-table th:nth-child(3) { width: 440px; }
+.catalog-table th:nth-child(4) { width: 180px; }
+.catalog-table th:nth-child(n+5) { width: 200px; }
+.catalog-table td { vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
+.catalog-table td:first-child { white-space: normal; }
+.catalog-table .link { padding: 3px 0; text-align: left; }
+.catalog-controls summary { font-weight: 600; }
+.catalog-controls .catalog-create label { font-size: 13px; }
+.catalog-controls input, .catalog-controls select { font-size: 13px; padding: 7px; min-width: 0; }
+.catalog-controls .notice, .catalog-controls .error { font-size: 12px; padding: 8px; }
+.catalog-graph-settings { border-top: 1px solid var(--border); padding-top: 6px; }
+.life-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; font-size: 12px; }
+.life-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.life-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; }
+.life-chart { min-width: 390px; }
+.life-axis, .life-stage { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 6px; align-items: center; }
+.life-stage > span:first-child { white-space: nowrap; }
+.life-axis { font-size: 10px; color: var(--muted); }
+.life-axis svg { width: 100%; height: 16px; }
+.life-axis text { font-size: 10px; fill: #706b60; }
+.life-stage { padding: 1px 2px; margin: 1px 0; border: 0; border-radius: 4px; background: transparent; width: 100%; height: 26px; font-size: 12px; color: var(--life-color); text-align: left; }
+.life-stage:focus-visible { outline-offset: -2px; }
+.life-stage svg { width: 100%; height: 24px; display: block; }
+.life-empty { color: #979185; font-size: 11px; border-bottom: 1px dashed #e5e0d6; }
+.life-grid { stroke: #e8e4dc; stroke-width: .6; }
+.life-reference { fill: var(--life-color); opacity: .24; }
+.life-box { fill: var(--life-color); fill-opacity: .55; stroke: var(--life-color); stroke-width: 1.5; }
+.life-point { fill: var(--life-color); }
+.life-outlier { fill: white; fill-opacity: 1; stroke: var(--life-color); }
+.reference-dialog, .life-detail-dialog { color: #292720; border: 1px solid var(--border); border-radius: 16px; padding: 0; width: min(1000px, calc(100vw - 40px)); max-width: none; max-height: calc(100dvh - 40px); overflow: auto; }
+.reference-dialog::backdrop, .life-detail-dialog::backdrop { background: #24221c55; }
+.reference-dialog .reference-editor { border: 0; margin: 0; max-width: none; padding: 24px; }
+.life-detail-dialog { padding: 24px; }
+.life-detail-dialog .toolbar { flex-wrap: wrap; }
+.life-detail-dialog .toolbar h2 { flex-shrink: 1; }
+.life-detail-dialog td { white-space: normal; overflow-wrap: anywhere; }
+.life-detail-dialog .table-wrap table { table-layout: fixed; min-width: 600px; }
+.life-detail-dialog p, .life-detail-dialog li, .life-history p { overflow-wrap: anywhere; }
+.life-detail-dialog li { margin: 10px 0; }
+.life-period-editor { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin: 14px 0; }
+.life-period-editor legend { font-weight: 600; padding: 0 6px; }
+.life-period-editor .check { align-self: end; }
+.life-history { margin: 14px 0; font-size: 13px; }
+.life-history section { border-top: 1px solid var(--border); padding-top: 10px; }
+@media (max-width: 620px) { .reference-dialog .reference-editor, .life-detail-dialog { padding: 16px; } }

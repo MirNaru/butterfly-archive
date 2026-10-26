@@ -143,7 +143,7 @@ def test_v2_backup_rollback_and_upgrade(tmp_path, monkeypatch):
         assert db.execute("SELECT name FROM sqlite_master WHERE name='species_references'").fetchone() is None
     migrations.initialize_database()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
+        assert db.execute('PRAGMA user_version').fetchone()[0] == migrations.SCHEMA_VERSION
         assert db.execute('SELECT korean_name FROM species').fetchone()[0] == '기존 종'
     for backup in tmp_path.glob('*.bak'):
         with sqlite3.connect(backup) as db: assert db.execute('PRAGMA user_version').fetchone()[0] == 2

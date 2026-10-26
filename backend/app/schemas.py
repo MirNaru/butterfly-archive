@@ -36,6 +36,8 @@ class Location(InputModel):
 
 
 class ObservationInput(Location):
+    source_type: Literal['direct', 'indirect'] = 'direct'
+    source_note: str = Field(default='', max_length=2000)
     species_id: Count | None = None
     result: Literal["observed", "not_found"] = "observed"
     observation_date: date | None = None
@@ -51,6 +53,8 @@ class ObservationInput(Location):
 
     @model_validator(mode="after")
     def coherent_record(self) -> Self:
+        if self.source_type == 'indirect' and not self.source_note:
+            raise ValueError('간접 관찰은 원문 주소나 자료명 등 출처를 입력해 주세요.')
         if self.observation_time and self.observation_time.tzinfo:
             raise ValueError("관찰 시각은 한국 현지 시각으로 입력해 주세요.")
         if self.species_id is None and self.identification != "unidentified":

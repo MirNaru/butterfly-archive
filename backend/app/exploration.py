@@ -18,7 +18,22 @@ class Period(InputModel):
     end: Slot
 
 
+class LifePeriod(Period):
+    id: str = Field(min_length=1, max_length=100)
+    stage: Literal['egg', 'larva', 'pupa', 'adult']
+    source: str = Field(min_length=1, max_length=1000)
+    edition: str = Field(default='', max_length=200)
+    region: str = Field(default='', max_length=200)
+    notes: str = Field(default='', max_length=2000)
+    enabled: bool = Field(default=True, strict=True)
+
+
 class Reference(InputModel):
+    lifecycle: list[LifePeriod] = Field(default_factory=list, max_length=100)
+    habitat: str = Field(default='', max_length=5000)
+    habits: str = Field(default='', max_length=5000)
+    other_notes: str = Field(default='', max_length=5000)
+    ecology_source: str = Field(default='', max_length=2000)
     family: str = Field(default='', max_length=100)
     subfamily: str = Field(default='', max_length=100)
     display_order: Annotated[int, Field(strict=True, ge=1, le=1_000_000)] | None = None
@@ -45,6 +60,10 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if len({p.id for p in self.lifecycle}) != len(self.lifecycle):
+            raise ValueError('한살이 기간 항목의 ID가 중복되었습니다.')
+        if (self.habitat or self.habits or self.other_notes) and not self.ecology_source:
+            raise ValueError('서식지·습성·기타 자료의 출처를 입력해 주세요.')
         if (self.family or self.subfamily or self.display_order is not None) and not self.taxonomy_source:
             raise ValueError('분류·표시 순서의 출처를 입력해 주세요.')
         if self.host_plants and not self.host_plants_source:
@@ -66,11 +85,30 @@ class ReferenceUpdate(Reference):
     expected_updated_at: str | None = Field(default=None, max_length=100)
 
 
+def normalized_reference(payload):
+    return Reference.model_validate({k: v for k, v in payload.items() if k != '_lifecycle_history'}).model_dump(mode='json')
+
+
+def life_snapshot(reference, timestamp):
+    return {'at': timestamp, 'lifecycle': reference['lifecycle'], 'adult_periods': reference['periods'], 'adult_source': reference['source']}
+
+
+@router.get('/species/catalog')
+def catalog():
+    with connect_database() as db:
+        result = []
+        for row in db.execute("SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY json_extract(r.payload_json,'$.display_order') IS NULL,json_extract(r.payload_json,'$.display_order'),s.id"):
+            ref = normalized_reference(json.loads(row['payload_json']) if row['payload_json'] else {})
+            result.append({'id': row['id'], 'korean_name': row['korean_name'], 'scientific_name': row['scientific_name'], 'host_plants': ref['host_plants'], 'reference': ref})
+        return result
+
+
 def reference_row(connection, species_id):
     if not connection.execute('SELECT 1 FROM species WHERE id=?', (species_id,)).fetchone():
         raise HTTPException(404, '종을 찾을 수 없습니다.')
     row = connection.execute('SELECT * FROM species_references WHERE species_id=?', (species_id,)).fetchone()
-    return {'reference': Reference.model_validate(json.loads(row['payload_json']) if row else {}).model_dump(mode='json'),
+    raw = json.loads(row['payload_json']) if row else {}
+    return {'reference': normalized_reference(raw), 'lifecycle_history': raw.get('_lifecycle_history', []),
             'updated_at': row['updated_at'] if row else None}
 
 
@@ -88,8 +126,17 @@ def save_reference(species_id: int, value: ReferenceUpdate):
         if old['updated_at'] != value.expected_updated_at:
             raise HTTPException(409, '다른 창에서 참고자료를 수정했습니다. 입력을 보관한 뒤 다시 열어 주세요.')
         payload = value.model_dump(mode='json', exclude={'expected_updated_at'})
+        stamp = datetime.now(timezone.utc).isoformat()
+        history = old['lifecycle_history']
+        snapshot = life_snapshot(payload, stamp)
+        previous = life_snapshot(old['reference'], old['updated_at'])
+        if any(snapshot[k] != previous[k] for k in ('lifecycle', 'adult_periods', 'adult_source')):
+            if not history:
+                history = [previous]
+            history = [*history, snapshot]
+        payload['_lifecycle_history'] = history
         db.execute('INSERT INTO species_references VALUES (?, ?, ?) ON CONFLICT(species_id) DO UPDATE SET payload_json=excluded.payload_json, updated_at=excluded.updated_at',
-                   (species_id, json.dumps(payload, ensure_ascii=False), datetime.now(timezone.utc).isoformat()))
+                   (species_id, json.dumps(payload, ensure_ascii=False), stamp))
         return reference_row(db, species_id)
 
 
@@ -120,15 +167,17 @@ def season(periods: list[dict], on: date) -> dict:
 def exploration(on: date, region: str = ''):
     region = region.strip()
     with connect_database() as db:
-        captured = {r[0] for r in db.execute("SELECT DISTINCT species_id FROM observations WHERE result='observed' AND capture_status='captured' AND species_id IS NOT NULL")}
+        captured = {r[0] for r in db.execute("SELECT DISTINCT species_id FROM observations WHERE result='observed' AND capture_status='captured' AND source_type='direct' AND species_id IS NOT NULL")}
         result = []
         for row in db.execute('SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY s.korean_name'):
-            ref = Reference.model_validate(json.loads(row['payload_json']) if row['payload_json'] else {}).model_dump(mode='json')
+            ref = normalized_reference(json.loads(row['payload_json']) if row['payload_json'] else {})
             permission = 'unknown'
             if region and region.casefold() == ref['permission_region'].casefold() and ref['permission_start'] and ref['permission_end'] and ref['permission_start'] <= on.isoformat() <= ref['permission_end']:
                 permission = ref['permission']
+            adult = [p for p in ref['lifecycle'] if p['enabled'] and p['stage'] == 'adult']
+            periods = [p for p in adult if not region or not p['region'] or region.casefold() in p['region'].casefold()] if adult else ref['periods']
             result.append({'id': row['id'], 'korean_name': row['korean_name'], 'scientific_name': row['scientific_name'],
-                'host_plants': ref['host_plants'], **season(ref['periods'], on), 'reference': ref,
+                'host_plants': ref['host_plants'], **season(periods, on), 'reference': ref,
                 'old_vagrant': ref['vagrant'] is True and bool(ref['sighting_years']) and max(ref['sighting_years']) < 2010,
                 'capture_history': 'captured' if row['id'] in captured else ref['capture_history'], 'permission': permission,
                 'region_match': not region or any(region.casefold() in item.casefold() for item in ref['regions'])})
