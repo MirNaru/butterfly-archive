@@ -8,7 +8,6 @@ import MapView from './MapView'
 import WeatherPanel from './WeatherPanel'
 import SearchFilters from './SearchFilters'
 import RecordTable from './RecordTable'
-import ReferenceDetails from './Exploration'
 import ButterflyInfo from './ButterflyInfo'
 import { emptyFilters, emptyTargets, rowsFor, matches, emptySurveyMatches, hasTargetConditions, targetMatches, referenceCandidates } from './recordSearch'
 import './App.css'
@@ -66,7 +65,6 @@ export default function App() {
   const [referenceLoading, setReferenceLoading] = useState(true)
   const [referenceError, setReferenceError] = useState('')
   const [referenceRevision, setReferenceRevision] = useState(0)
-  const [selectedSpeciesId, setSelectedSpeciesId] = useState<number | null>(null)
   const [selectedRecord, setSelectedRecord] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -115,13 +113,11 @@ export default function App() {
   const emptySurveys = hasTargetConditions(targets) ? [] : surveys.filter(s => emptySurveyMatches(s, filters, query))
   const filtered = surveys.filter(s => surveyIds.has(s.id) || emptySurveys.includes(s))
   const selected = filtered.find(s => s.id === selectedId)
-  const selectedReference = candidates.find(r => r.id === selectedSpeciesId)
   const pins: MapPin[] = [
     ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}` }] : []),
     ...emptySurveys.flatMap(s => s.latitude !== null && s.longitude !== null ? [{ id: `survey-${s.id}`, surveyId: s.id, latitude: s.latitude, longitude: s.longitude, label: `${s.survey_date} · ${s.place_name || '조사 위치'} · 종별 기록 없음` }] : []),
   ]
   function selectSurvey(s: Survey, recordId?: number) {
-    setSelectedSpeciesId(null)
     setSelectedId(s.id); setSelectedRecord(recordId ?? null)
     const point = recordId ? pins.find(p => p.id === `record-${recordId}`) : pins.find(p => p.surveyId === s.id)
     setMapFocus(point || null)
@@ -147,7 +143,7 @@ export default function App() {
   }
   const form = formOpen && <SurveyForm key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined) }} onSaved={saved => {
     setSurveys(current => [saved, ...current.filter(item => item.id !== saved.id)].sort((a, b) => b.survey_date.localeCompare(a.survey_date) || b.id - a.id))
-    setSelectedId(saved.id); setSelectedSpeciesId(null); refreshReferences(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
+    setSelectedId(saved.id); refreshReferences(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
     setCreating(false); setEditing(undefined); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '조사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
   }} />
   return <div className="app-shell">
@@ -182,21 +178,21 @@ export default function App() {
         {tab === 'map' && selected && <Detail key={`${selected.id}-${selected.updated_at}`} survey={selected} selectedRecord={selectedRecord} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setEditing(selected); setNotice('') }} />}
         </div>
         </div>
-        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode !== 'info'} onClick={() => { setMode('records'); setTab('table') }}>표</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 기본 정보</button></nav>
+        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode !== 'info'} onClick={() => { setMode('records'); setTab('table') }}>표</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button></nav>
       </aside>
       <div className="main-shell">
-      <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : ''}`}>
+      <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
         {mode === 'info' && <ButterflyInfo species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView shown={tab === 'map' && mode === 'records'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setSelectedRecord(pin.id.startsWith('record-') ? Number(pin.id.slice(7)) : null); setMapFocus(pin) }} />
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
           {!pins.length && <p className="hint">현재 검색 결과에 지도에 표시할 좌표가 없습니다.</p>}</div>}
         {mode === 'records' && tab === 'table' && <>
+          <div className="catalog-toolbar"><h2>관찰 기록표</h2></div>
+          {referencesReady && <div className="record-ratio" aria-label="미채집·채집 가능 확인 종 비율">{denominator > 0 && <>조건에 맞는 미채집·채집 가능 확인 종 {numerator} / 현재 출현 참고 종 {denominator} · {(numerator / denominator * 100).toFixed(1)}%</>}</div>}
           {referenceLoading && <p role="status">종 참고자료를 읽는 중입니다.</p>}
           {referenceError && <p role="alert" className="error">{referenceError}<button disabled={referenceEditing || formOpen} onClick={refreshReferences}>참고자료 다시 읽기</button></p>}
-          {referencesReady && <><p className="notice">조건에 맞는 미채집·채집 가능 확인 종 {numerator} / 현재 출현 참고 종 {denominator} · {denominator ? `${(numerator / denominator * 100).toFixed(1)}%` : '계산 대상 없음'}</p><p className="hint">분모는 등록 종 중 출현 기준일의 성충 참고 종입니다. 분자는 현재 검색 결과에서 미채집·보호종 아님·목표 지역과 기간의 채집 가능이 모두 확인된 종입니다. 미확인은 분자에 포함하지 않습니다.</p></>}
-          <RecordTable rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onReference={id => { setSelectedSpeciesId(id); setSelectedId(null) }} selectedId={selectedId} selectedReference={selectedSpeciesId} />
-          {selectedReference && <ReferenceDetails key={selectedReference.id} row={selectedReference} onEditing={setReferenceEditing} onUpdated={referenceUpdated} />}
+          <RecordTable rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} selectedId={selectedId} />
           {selected && <Detail key={`${selected.id}-${selected.updated_at}`} survey={selected} selectedRecord={selectedRecord} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setEditing(selected); setNotice('') }} />}
         </>}
       </main>

@@ -6,8 +6,21 @@
 .workspace { display: flex; flex: 1; min-height: 0; min-width: 0; gap: var(--space); }
 .sidebar { flex: 0 0 240px; min-width: 240px; background: #fff; padding: var(--space); border: 1px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; gap: var(--space); min-height: 0; }
 .main-shell { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 20px; background: white; overflow: hidden; }
-.main-pane { --pane-gap: 20px; flex: 1; min-width: 0; min-height: 0; padding: var(--pane-gap); overflow: auto; }
+.main-pane { --pane-gap: 20px; flex: 1; min-width: 0; min-height: 0; padding: var(--pane-gap) 12px; overflow: auto; }
 .main-pane.map-pane { --pane-gap: 12px; display: flex; flex-direction: column; overflow: hidden; padding: 10px var(--pane-gap); }
+.main-pane.catalog-pane, .main-pane.record-pane { padding-block: 10px; }
+.catalog-toolbar { display: flex; align-items: center; min-height: 29px; margin-bottom: 10px; }
+.catalog-toolbar h2 { margin: 0; padding-left: 8px; transform: translateY(2px); font-size: 18px; font-weight: 700; line-height: 1.4; }
+.record-controls { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.record-controls > select { width: 140px; flex-shrink: 0; }
+.record-sort { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
+.record-sort select { width: 200px; }
+.record-controls > button { white-space: nowrap; flex-shrink: 0; }
+.record-column-menu { position: relative; flex-shrink: 0; }
+.record-column-menu > summary { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; white-space: nowrap; background: white; }
+.record-column-menu .column-options { position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: min(480px, calc(100vw - 56px)); max-height: 280px; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 0; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: white; box-shadow: 0 6px 20px #302b2026; }
+.record-column-menu .column-options label { white-space: normal; }
+.record-ratio { margin-bottom: 10px; min-height: 42px; padding: 10px 16px; background: var(--accent-soft); border-radius: 6px; font-size: 13px; }
 .map-workspace { flex: 1; min-height: 0; position: relative; }
 .map-workspace > .map-view { height: 100%; display: flex; flex-direction: column; }
 .map-workspace > .map-view > .map-frame { flex: 1; height: 0; min-height: 0; overflow: hidden; }
@@ -98,7 +111,7 @@ dt { color: #706b60; } dd { margin: 0; }
 .record-table th:first-child, .record-table td:first-child { position: sticky; left: 0; background: #fff; z-index: 1; }
 .record-table th:first-child { background: #fffae9; }
 .record-table .selected td:first-child { background: #fff4cf; }
-.record-table tbody tr { cursor: pointer; }
+.record-table tbody tr:not(.reference-row) { cursor: pointer; }
 .weather-cell { white-space: normal; min-width: 180px; max-width: 300px; }
 td small { display: block; color: #706b60; font-size: 12px; }
 .memo-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
@@ -160,6 +173,9 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; padding: 0; width: 28px; height: 28px; border: 0; border-radius: 50%; color: white; background: var(--accent); position: relative; flex-shrink: 0; }
 .icon-button svg { width: 21px; height: 21px; }
 .icon-button:hover:not(:disabled), .icon-button[aria-expanded='true'] { color: white; background: var(--accent); box-shadow: 0 0 0 2px #a66f00; }
+/* 검색 행의 끝 버튼도 스크롤 경계에서 강조 테두리가 잘리지 않게 합니다. */
+.sidebar-tools .icon-button:hover:not(:disabled) { box-shadow: inset 0 0 0 2px #a66f00; }
+.sidebar-tools .icon-button:focus-visible { outline-offset: -2px; }
 .has-tooltip::after { content: attr(data-tooltip); position: absolute; top: calc(100% + 7px); right: 0; padding: 5px 8px; border-radius: 6px; background: #343027; color: white; font-size: 12px; font-weight: 400; line-height: 1.4; white-space: nowrap; opacity: 0; visibility: hidden; pointer-events: none; z-index: 20; }
 .has-tooltip:hover::after, .has-tooltip:focus-visible::after { opacity: 1; visibility: visible; }
 .sidebar .search-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0; }
