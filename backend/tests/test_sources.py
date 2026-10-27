@@ -56,11 +56,11 @@ def test_v3_source_upgrade_is_atomic_and_preserves_existing_data(tmp_path, monke
     migrations.initialize_database()
     migrations.initialize_database()
     with sqlite3.connect(path) as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 4
+        assert db.execute('PRAGMA user_version').fetchone()[0] == migrations.SCHEMA_VERSION
         for table, rows in originals.items():
             actual = db.execute(f'SELECT * FROM {table}').fetchall()
             if table == 'observations':
                 assert actual == [rows[0] + ('direct', '')]
             else:
                 assert actual == rows
-    assert list(tmp_path.glob('*.before-v4-*.bak'))
+    assert list(tmp_path.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'))

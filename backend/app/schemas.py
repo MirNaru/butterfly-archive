@@ -1,7 +1,7 @@
 """조사·종별 기록의 입력과 응답을 검증합니다."""
 from datetime import date, time
 from typing import Annotated, Literal, Self
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
 
 Count = Annotated[int, Field(strict=True, gt=0, le=1_000_000)]
 
@@ -35,7 +35,16 @@ class Location(InputModel):
         return self
 
 
-class ObservationInput(Location):
+class TaggedInput(Location):
+    tags: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(default_factory=list, max_length=60)
+
+    @field_validator('tags')
+    @classmethod
+    def unique_tags(cls, values):
+        return list(dict.fromkeys(values))
+
+
+class ObservationInput(TaggedInput):
     source_type: Literal['direct', 'indirect'] = 'direct'
     source_note: str = Field(default='', max_length=2000)
     species_id: Count | None = None
@@ -75,7 +84,7 @@ class ObservationInput(Location):
         return self
 
 
-class SurveyInput(Location):
+class SurveyInput(TaggedInput):
     survey_date: date
     purpose: Literal["general", "target", "host_plant", "exploration"] = "general"
     notes: str = Field(default="", max_length=5000)
@@ -98,6 +107,7 @@ class SurveyUpdate(SurveyInput):
 
 
 class Observation(ObservationInput):
+    effective_tags: list[str]
     id: int
     species_name: str | None
     effective_date: date

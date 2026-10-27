@@ -45,6 +45,23 @@ test('직접·간접 관찰 출처 필터와 빈 조사 구분', () => {
 const reference = (id, values = {}) => ({ id, korean_name: `시험 종 ${id}`, scientific_name: `Test species ${id}`, active: true, days_left: 4, year_round: false, region_match: true, old_vagrant: false, capture_history: 'not_captured', permission: 'unknown', reference: { north_only: null, protected: null }, ...values })
 const { emptyTargets, targetMatches, referenceCandidates, sortEntries } = await import('../src/recordSearch.ts')
 
+test('공통·개별 태그 합집합 검색과 다른 필터의 조합', () => {
+ const tagged={...row,survey:{...survey,tags:['태풍']},record:{...row.record,tags:['하천 범람'],source_type:'indirect',source_note:'시험 출처'}}
+ assert(matches(tagged,{...emptyFilters(),tags:['태풍']},''))
+ assert(matches(tagged,{...emptyFilters(),tags:['하천 범람','벌초']},''))
+ assert(matches(tagged,{...emptyFilters(),tags:['태풍'],source:['indirect']},'하천 범람'))
+ assert(!matches(tagged,{...emptyFilters(),tags:['태풍'],source:['direct']},''))
+ assert(!matches(tagged,{...emptyFilters(),tags:['벌초']},''))
+ assert.equal(referenceCandidates([reference(1)],[],{...emptyFilters(),tags:['태풍']},emptyTargets(),'').length,0)
+})
+
+test('미발견 기록과 종별 기록 없는 조사에도 외부 조건 태그 적용', () => {
+ const tagged={...row,survey:{...survey,tags:['관찰 전 강우']},record:{...row.record,result:'not_found',tags:[]}}
+ assert(matches(tagged,{...emptyFilters(),tags:['관찰 전 강우'],result:['not_found']},''))
+ assert(emptySurveyMatches({...survey,tags:['태풍']},{...emptyFilters(),tags:['태풍']},'태풍'))
+ assert(!emptySurveyMatches({...survey,tags:[]},{...emptyFilters(),tags:['태풍']},''))
+})
+
 test('종 참고 행은 원래 기록의 필터 탈락을 대신하지 않음', () => {
  const refs = [reference(1), reference(2)]
  const stored = [{ ...row, record: { ...row.record, species_id: 1 } }]

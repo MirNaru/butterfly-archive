@@ -2,8 +2,9 @@
 import sqlite3
 from datetime import datetime, timezone
 from app.database import connect_database, database_path
+from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -56,6 +57,14 @@ SOURCE_STATEMENTS = (
     "ALTER TABLE observations ADD COLUMN source_note TEXT NOT NULL DEFAULT ''",
 )
 
+TAG_STATEMENTS = (
+    'CREATE TABLE tags(id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE CHECK(length(name) BETWEEN 1 AND 60))',
+    'CREATE TABLE survey_tags(survey_id INTEGER NOT NULL REFERENCES surveys(id), tag_id INTEGER NOT NULL REFERENCES tags(id), PRIMARY KEY(survey_id,tag_id))',
+    'CREATE TABLE observation_tags(observation_id INTEGER NOT NULL REFERENCES observations(id), tag_id INTEGER NOT NULL REFERENCES tags(id), PRIMARY KEY(observation_id,tag_id))',
+    'CREATE INDEX survey_tags_tag ON survey_tags(tag_id)',
+    'CREATE INDEX observation_tags_tag ON observation_tags(tag_id)',
+)
+
 
 def initialize_database() -> None:
     target = database_path()
@@ -64,10 +73,11 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version not in (0, 1, 2, 3):
+        if version not in (0, 1, 2, 3, 4):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         expected_new = {"species_references"} if version < 3 else set()
+        expected_new.update({'tags', 'survey_tags', 'observation_tags'})
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -86,6 +96,7 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + SOURCE_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + TAG_STATEMENTS):
             connection.execute(statement)
+        connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

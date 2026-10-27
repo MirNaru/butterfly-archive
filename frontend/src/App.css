@@ -245,6 +245,17 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .catalog-table td:first-child { white-space: normal; }
 .catalog-table .link { padding: 3px 0; text-align: left; }
 .catalog-controls summary { font-weight: 600; }
+.tag-picker { border: 1px solid var(--border); border-radius: 8px; padding: 0 8px; margin: 8px 0; background: #fffcf2; }
+.tag-picker > summary { font-size: 13px; font-weight: 600; }
+.survey-dialog .tag-picker { margin: 4px 0; }
+.survey-dialog .tag-picker > summary { padding: 4px 0; }
+.tag-picker .tag-options { max-height: 130px; overflow-y: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 4px 0; }
+.tag-picker .tag-options .check { margin: 2px 0; white-space: normal; }
+.tag-create { display: flex; align-items: end; gap: 8px; }
+.tag-create label { flex: 1; min-width: 0; }
+.tag-create button { flex-shrink: 0; margin-bottom: 5px; }
+.tag-picker .hint { font-size: 11px; margin: 6px 0; }
+.tag-summary { font-size: 13px; color: #65552c; padding: 6px 8px; background: var(--accent-faint); border-radius: 6px; }
 .catalog-controls .catalog-create label { font-size: 13px; }
 .catalog-controls input, .catalog-controls select { font-size: 13px; padding: 7px; min-width: 0; }
 .catalog-controls .notice, .catalog-controls .error { font-size: 12px; padding: 8px; }

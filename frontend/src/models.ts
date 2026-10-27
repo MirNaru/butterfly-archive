@@ -8,10 +8,12 @@ export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 �
 export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 조사' } as const
 export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
 export interface Species { id: number; korean_name: string; scientific_name: string | null; host_plants: string }
+export interface Tag { id: number; name: string; usage?: number }
 export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
 }
 export interface ObservationInput extends LocationInput {
+  tags: string[]
   source_type: keyof typeof SOURCE_TYPE; source_note: string
   species_id: number | null; result: keyof typeof RESULT
   observation_date: string | null; observation_time: string | null
@@ -20,9 +22,11 @@ export interface ObservationInput extends LocationInput {
   captured_count: number | null; notes: string
 }
 export interface SurveyInput extends LocationInput {
+  tags: string[]
   survey_date: string; purpose: keyof typeof PURPOSE; notes: string; observations: ObservationInput[]
 }
 export interface Observation extends ObservationInput {
+  effective_tags: string[]
   id: number; species_name: string | null; effective_date: string; effective_place: string
   effective_latitude: number | null; effective_longitude: number | null
 }

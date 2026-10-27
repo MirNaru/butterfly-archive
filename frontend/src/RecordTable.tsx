@@ -4,7 +4,7 @@ import { CAPTURE, IDENTIFICATION, LOCATION, RESULT, SEX, STAGE, SOURCE_TYPE } fr
 import type { Survey, ExplorationRow } from './models'
 import { sortEntries, weatherState } from './recordSearch'
 import type { RecordRow, TableEntry } from './recordSearch'
-const extras = { result: '관찰·미발견', source: '관찰 출처', sourceNote: '출처 근거', stage: '발육 단계', sex: '성별', count: '관찰 개체 수', capture: '채집 여부', captured: '채집 개체 수', coords: '좌표', method: '위치 입력 방식', identification: '동정 상태', notes: '메모', updated: '최근 수정', period: '성충 출현 참고 기간', days: '예상 출현 기간 남은 일수', history: '내 채집 이력', regions: '분포 참고', evidence: '참고자료 출처' }
+const extras = { tags: '환경 태그', result: '관찰·미발견', source: '관찰 출처', sourceNote: '출처 근거', stage: '발육 단계', sex: '성별', count: '관찰 개체 수', capture: '채집 여부', captured: '채집 개체 수', coords: '좌표', method: '위치 입력 방식', identification: '동정 상태', notes: '메모', updated: '최근 수정', period: '성충 출현 참고 기간', days: '예상 출현 기간 남은 일수', history: '내 채집 이력', regions: '분포 참고', evidence: '참고자료 출처' }
 type Extra = keyof typeof extras
 const slot = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
 export default function RecordTable({ rows, surveys, references, candidates, ranks, onSelect, selectedId }: { rows: RecordRow[]; surveys: Survey[]; references: Map<number, ExplorationRow>; candidates: ExplorationRow[]; ranks: Map<number, number>; onSelect: (s: Survey, id?: number) => void; selectedId: number | null }) {
@@ -25,6 +25,7 @@ export default function RecordTable({ rows, surveys, references, candidates, ran
     if (e.kind === 'reference') return key === 'source' ? '종 참고 · 관찰 기록 아님' : '해당 없음'
     const r = e.row.record
     switch (key) {
+      case 'tags': return r.effective_tags.join(', ') || '미기재'
       case 'result': return RESULT[r.result]
       case 'source': return SOURCE_TYPE[r.source_type]
       case 'sourceNote': return r.source_note || '미등록'

@@ -29,6 +29,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+export const listTags = () => request<import('./models').Tag[]>('/tags')
+export const addTag = (name: string) => request<import('./models').Tag>('/tags', post({ name }))
 export const listSpecies = () => request<Species[]>('/species')
 export const listCatalog = () => request<import('./models').SpeciesCatalog[]>('/species/catalog')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))

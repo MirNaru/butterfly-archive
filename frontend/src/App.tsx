@@ -1,8 +1,8 @@
 // 조사 등록과 지도·표 보기의 선택 상태를 관리합니다.
 import { useEffect, useState } from 'react'
-import { listSpecies, listSurveys, integrationStatus, recordWeather, findExploration } from './api'
+import { listSpecies, listSurveys, integrationStatus, recordWeather, findExploration, listTags } from './api'
 import { CAPTURE, IDENTIFICATION, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
-import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow } from './models'
+import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
 import SurveyForm from './SurveyForm'
 import MapView from './MapView'
 import WeatherPanel from './WeatherPanel'
@@ -17,6 +17,7 @@ function Detail({ survey, onEdit, onWeatherChanged, selectedRecord }: { survey: 
     <button type="button" onClick={onEdit}>기록 수정</button><h2>{survey.place_name || '좌표로 등록한 장소'}</h2>
     <p>{survey.survey_date} · {PURPOSE[survey.purpose]}</p>
     <p className="hint">{survey.latitude === null ? '조사 좌표 미지정' : `위도 ${survey.latitude} · 경도 ${survey.longitude}`}</p>
+    {(survey.tags || []).length > 0 && <p className="tag-summary">조사 공통 태그: {survey.tags.join(', ')}</p>}
     {survey.notes && <p className="memo">{survey.notes}</p>}
     <WeatherPanel key={`survey-${survey.id}`} targetType="survey" targetId={survey.id} />
     <h3>종별 기록 {survey.observations.length}건</h3>
@@ -32,6 +33,7 @@ function Detail({ survey, onEdit, onWeatherChanged, selectedRecord }: { survey: 
         <dt>채집</dt><dd>{CAPTURE[record.capture_status]}{record.capture_status === 'captured' && ` · ${record.captured_count === null ? '수량 미상' : `${record.captured_count}마리`}`}</dd>
         <dt>동정 상태</dt><dd>{IDENTIFICATION[record.identification]}</dd>
       </dl>}
+      {(record.tags || []).length > 0 && <p className="tag-summary">종별 추가 태그: {record.tags.join(', ')}</p>}
       {record.notes && <p className="memo">{record.notes}</p>}
       <WeatherPanel key={`observation-${record.id}`} targetType="observation" targetId={record.id} onChanged={onWeatherChanged} />
     </section>)}
@@ -42,6 +44,8 @@ function Detail({ survey, onEdit, onWeatherChanged, selectedRecord }: { survey: 
 
 export default function App() {
   const [species, setSpecies] = useState<Species[]>([])
+  const [tags, setTags] = useState<Tag[]>([])
+  const [tagsError, setTagsError] = useState('')
   const [surveys, setSurveys] = useState<Survey[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [tab, setTab] = useState<'map' | 'table'>('table')
@@ -69,11 +73,22 @@ export default function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
+  function rememberTag(tag: Tag) { setTags(current => current.some(t => t.name === tag.name) ? current : [...current, tag]) }
+  async function refreshTags() {
+    try { setTags(await listTags()); setTagsError('') }
+    catch (e) { setTagsError(e instanceof Error ? e.message : '태그 목록을 읽지 못했습니다.') }
+  }
+  useEffect(() => {
+    let active = true
+    listTags().then(values => { if (active) { setTags(values); setTagsError('') } })
+      .catch((e: unknown) => { if (active) setTagsError(e instanceof Error ? e.message : '태그 목록을 읽지 못했습니다.') })
+    return () => { active = false }
+  }, [])
   async function load() {
     try {
       const [nextSpecies, nextSurveys, nextWeather] = await Promise.all([listSpecies(), listSurveys(), recordWeather()])
       setSpecies(nextSpecies); setSurveys(nextSurveys); setWeather(nextWeather); setError('')
-      refreshReferences()
+      refreshReferences(); void refreshTags()
     } catch (error) { setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.') }
     finally { setLoading(false) }
   }
@@ -141,9 +156,9 @@ export default function App() {
     try { setIntegration(await integrationStatus()); setIntegrationError('') }
     catch (e) { setIntegrationError(e instanceof Error ? e.message : '연동 상태를 확인하지 못했습니다.') }
   }
-  const form = formOpen && <SurveyForm key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined) }} onSaved={saved => {
+  const form = formOpen && <SurveyForm tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined) }} onSaved={saved => {
     setSurveys(current => [saved, ...current.filter(item => item.id !== saved.id)].sort((a, b) => b.survey_date.localeCompare(a.survey_date) || b.id - a.id))
-    setSelectedId(saved.id); refreshReferences(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
+    setSelectedId(saved.id); refreshReferences(); void refreshTags(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
     setCreating(false); setEditing(undefined); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '조사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
   }} />
   return <div className="app-shell">
@@ -155,7 +170,7 @@ export default function App() {
         <div className="sidebar-card">
         <div ref={setInfoSidebar} hidden={mode !== 'info'} />
         <div hidden={mode !== 'records'}>
-        <SearchFilters value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} reset={() => setQuery('')} expanded={tab === 'table'} targets={targets} onTargets={changeTargets} />
+        <SearchFilters tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} reset={() => setQuery('')} expanded={tab === 'table'} targets={targets} onTargets={changeTargets} />
         <p className="hint">종별 기록 {rows.length}건 · 좌표 있음 {rows.filter(r => r.record.effective_latitude !== null).length}건 · 좌표 없음 {rows.filter(r => r.record.effective_latitude === null).length}건</p>
         <div className="toolbar"><h2>조사 목록</h2><small>{filtered.length}건</small></div>
         {loading && <p role="status">목록을 불러오는 중입니다.</p>}
