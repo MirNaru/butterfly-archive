@@ -5,8 +5,9 @@ const ROOT = '/api'
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${ROOT}${path}`, { ...init, signal: AbortSignal.timeout(30000) })
-  } catch {
+    response = await fetch(`${ROOT}${path}`, { ...init, signal: init?.signal || AbortSignal.timeout(30000) })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
     throw new Error('서버에 연결할 수 없습니다. 입력은 유지됩니다. 연결을 확인한 뒤 저장 여부를 조회해 주세요.')
   }
   const body: unknown = await response.json().catch(() => null)
@@ -31,6 +32,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 export const listTags = () => request<import('./models').Tag[]>('/tags')
 export const addTag = (name: string) => request<import('./models').Tag>('/tags', post({ name }))
+export const inspectPhoto = (file: File, signal: AbortSignal) => request<import('./models').PhotoPreview>(`/photos/inspect?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
+export const registerPhotoMetadata = (ticket: string, signal: AbortSignal) => request<import('./models').Photo>('/photos/metadata', { ...post({ ticket }), signal })
+export const registerPhotoOriginal = (file: File, signal: AbortSignal) => request<import('./models').Photo>(`/photos/original?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
+export const lookupPhotos = (ids: number[]) => request<import('./models').Photo[]>('/photos/lookup', post({ ids }))
+export const photoLibrary = (page: number) => request<{ total: number; items: import('./models').Photo[] }>(`/photos/library?offset=${page * 12}&limit=12`)
 export const listSpecies = () => request<Species[]>('/species')
 export const listCatalog = () => request<import('./models').SpeciesCatalog[]>('/species/catalog')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))

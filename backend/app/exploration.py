@@ -28,7 +28,28 @@ class LifePeriod(Period):
     enabled: bool = Field(default=True, strict=True)
 
 
+class Protection(InputModel):
+    kind: Literal['endangered_i', 'endangered_ii', 'monument', 'regional']
+    region: str = Field(default='', max_length=100)
+    designation: str = Field(default='', max_length=100)
+    source: str = Field(min_length=1, max_length=2000)
+    checked: date
+
+    @model_validator(mode='after')
+    def region_scope(self) -> Self:
+        if (self.kind == 'regional') != bool(self.region):
+            raise ValueError('지역보호에는 지역을 입력하고 국가보호에는 지역을 비워 주세요.')
+        return self
+
+
 class Reference(InputModel):
+    domestic_extinct: bool | None = None
+    extinction_source: str = Field(default='', max_length=2000)
+    protections: list[Protection] = Field(default_factory=list, max_length=100)
+    status_notes: str = Field(default='', max_length=5000)
+    protection_review: str = Field(default='', max_length=2000)
+    identification_points: str = Field(default='', max_length=5000)
+    identification_source: str = Field(default='', max_length=2000)
     lifecycle: list[LifePeriod] = Field(default_factory=list, max_length=100)
     habitat: str = Field(default='', max_length=5000)
     habits: str = Field(default='', max_length=5000)
@@ -60,6 +81,17 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if self.domestic_extinct is not None and not self.extinction_source:
+            raise ValueError('국내 절멸 분류의 출처를 입력해 주세요.')
+        if len({(p.kind, p.region, p.designation) for p in self.protections}) != len(self.protections):
+            raise ValueError('같은 보호 지정이 중복되었습니다.')
+        national = [p for p in self.protections if p.kind != 'regional']
+        if national:
+            self.protected = True
+            self.protection_source = '\n'.join(dict.fromkeys(p.source for p in national))[:1000]
+            self.protection_checked = max(p.checked for p in national)
+        if self.identification_points and not self.identification_source:
+            raise ValueError('동정 포인트의 출처를 입력해 주세요.')
         if len({p.id for p in self.lifecycle}) != len(self.lifecycle):
             raise ValueError('한살이 기간 항목의 ID가 중복되었습니다.')
         if (self.habitat or self.habits or self.other_notes) and not self.ecology_source:
@@ -126,6 +158,11 @@ def save_reference(species_id: int, value: ReferenceUpdate):
         if old['updated_at'] != value.expected_updated_at:
             raise HTTPException(409, '다른 창에서 참고자료를 수정했습니다. 입력을 보관한 뒤 다시 열어 주세요.')
         payload = value.model_dump(mode='json', exclude={'expected_updated_at'})
+        # 기존 화면이 새 항목을 생략해도 상태 자료와 원문은 보존합니다.
+        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source'):
+            if key not in value.model_fields_set:
+                payload[key] = old['reference'][key]
+        payload = normalized_reference(payload)
         stamp = datetime.now(timezone.utc).isoformat()
         history = old['lifecycle_history']
         snapshot = life_snapshot(payload, stamp)

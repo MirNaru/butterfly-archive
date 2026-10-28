@@ -14,6 +14,7 @@ from app.api_usage import UsageLimitError
 from app.exploration import router as exploration_router
 from app import weather_store
 from app.tags import router as tags_router
+from app.photos import router as photos_router
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ app = FastAPI(title="Butterfly Archive", version="0.3.0", lifespan=lifespan)
 app.include_router(integration_router)
 app.include_router(exploration_router)
 app.include_router(tags_router)
+app.include_router(photos_router)
 
 
 @app.get('/api/record-weather')

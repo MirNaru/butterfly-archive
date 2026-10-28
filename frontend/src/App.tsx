@@ -6,6 +6,7 @@ import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeath
 import SurveyForm from './SurveyForm'
 import MapView from './MapView'
 import WeatherPanel from './WeatherPanel'
+import { PhotoGallery } from './PhotoPicker'
 import SearchFilters from './SearchFilters'
 import RecordTable from './RecordTable'
 import ButterflyInfo from './ButterflyInfo'
@@ -19,6 +20,7 @@ function Detail({ survey, onEdit, onWeatherChanged, selectedRecord }: { survey: 
     <p className="hint">{survey.latitude === null ? '조사 좌표 미지정' : `위도 ${survey.latitude} · 경도 ${survey.longitude}`}</p>
     {(survey.tags || []).length > 0 && <p className="tag-summary">조사 공통 태그: {survey.tags.join(', ')}</p>}
     {survey.notes && <p className="memo">{survey.notes}</p>}
+    <PhotoGallery ids={survey.photo_ids || []} />
     <WeatherPanel key={`survey-${survey.id}`} targetType="survey" targetId={survey.id} />
     <h3>종별 기록 {survey.observations.length}건</h3>
     {survey.observations.length === 0 && <p className="empty">종별 기록이 없는 조사입니다. 특정 종의 미발견을 뜻하지 않습니다.</p>}
@@ -35,6 +37,7 @@ function Detail({ survey, onEdit, onWeatherChanged, selectedRecord }: { survey: 
       </dl>}
       {(record.tags || []).length > 0 && <p className="tag-summary">종별 추가 태그: {record.tags.join(', ')}</p>}
       {record.notes && <p className="memo">{record.notes}</p>}
+      <PhotoGallery ids={record.photo_ids || []} />
       <WeatherPanel key={`observation-${record.id}`} targetType="observation" targetId={record.id} onChanged={onWeatherChanged} />
     </section>)}
     <p className="hint">등록 {new Date(survey.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · 로컬 보관</p>

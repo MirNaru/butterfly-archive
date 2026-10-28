@@ -13,6 +13,7 @@ export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
 }
 export interface ObservationInput extends LocationInput {
+  photo_ids: number[]
   tags: string[]
   source_type: keyof typeof SOURCE_TYPE; source_note: string
   species_id: number | null; result: keyof typeof RESULT
@@ -22,6 +23,7 @@ export interface ObservationInput extends LocationInput {
   captured_count: number | null; notes: string
 }
 export interface SurveyInput extends LocationInput {
+  photo_ids: number[]
   tags: string[]
   survey_date: string; purpose: keyof typeof PURPOSE; notes: string; observations: ObservationInput[]
 }
@@ -37,6 +39,13 @@ export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
 export interface Survey extends Omit<SurveyInput, 'observations'> {
   id: number; created_at: string; updated_at: string; observations: Observation[]
 }
+export interface PhotoMetadata {
+  filename: string; size_bytes: number; sha256: string; format: 'JPEG' | 'PNG'; width: number; height: number
+  orientation: number; camera: string; taken_at_raw: string; offset_raw: string; date_candidate: string | null; time_candidate: string | null
+  latitude: number | null; longitude: number | null; gps_datum: string; warnings: string[]
+}
+export interface PhotoPreview { metadata: PhotoMetadata; ticket: string }
+export interface Photo extends PhotoMetadata { id: number; original_stored: boolean; thumbnail_url: string | null }
 
 export interface Coordinate { latitude: number; longitude: number }
 export interface AddressCandidate extends Coordinate { address: string }
@@ -60,6 +69,9 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  domestic_extinct: boolean | null; extinction_source: string
+  protections: Protection[]; status_notes: string; protection_review: string
+  identification_points: string; identification_source: string
   lifecycle: LifePeriod[]; habitat: string; habits: string; other_notes: string; ecology_source: string
   family: string; subfamily: string; display_order: number | null; taxonomy_source: string
   host_plants: string; host_plants_source: string
@@ -68,6 +80,7 @@ export interface SpeciesReference {
   source: string; capture_source: string; protection_source: string; protection_checked: string | null
   permission: 'unknown' | 'permitted' | 'prohibited'; permission_region: string; permission_start: string | null; permission_end: string | null; permission_source: string
 }
+export interface Protection { kind: 'endangered_i' | 'endangered_ii' | 'monument' | 'regional'; region: string; designation: string; source: string; checked: string }
 export type LifeStage = 'egg' | 'larva' | 'pupa' | 'adult'
 export interface LifePeriod { id: string; stage: LifeStage; start: number; end: number; source: string; edition: string; region: string; notes: string; enabled: boolean }
 export interface LifeRevision { at: string | null; lifecycle: LifePeriod[]; adult_periods: { start: number; end: number }[]; adult_source: string }

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -66,6 +66,18 @@ TAG_STATEMENTS = (
 )
 
 
+PHOTO_STATEMENTS = (
+    '''CREATE TABLE photos(id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL UNIQUE,
+       metadata_json TEXT NOT NULL, original_path TEXT, thumbnail_path TEXT, created_at TEXT NOT NULL)''',
+    '''CREATE TABLE photo_links(photo_id INTEGER NOT NULL REFERENCES photos(id),
+       survey_id INTEGER REFERENCES surveys(id), observation_id INTEGER REFERENCES observations(id),
+       CHECK((survey_id IS NULL) != (observation_id IS NULL)),
+       UNIQUE(photo_id,survey_id), UNIQUE(photo_id,observation_id))''',
+    'CREATE INDEX photo_links_survey ON photo_links(survey_id)',
+    'CREATE INDEX photo_links_observation ON photo_links(observation_id)',
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -73,11 +85,13 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version not in (0, 1, 2, 3, 4):
+        if version not in (0, 1, 2, 3, 4, 5):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         expected_new = {"species_references"} if version < 3 else set()
-        expected_new.update({'tags', 'survey_tags', 'observation_tags'})
+        if version < 5:
+            expected_new.update({'tags', 'survey_tags', 'observation_tags'})
+        expected_new.update({'photos', 'photo_links'})
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -96,7 +110,8 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + TAG_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + PHOTO_STATEMENTS):
             connection.execute(statement)
-        connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])
+        if version < 5:
+            connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

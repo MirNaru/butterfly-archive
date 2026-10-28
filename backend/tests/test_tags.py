@@ -89,11 +89,11 @@ def test_v4_upgrade_backup_and_rollback(tmp_path,monkeypatch):
     migrations.initialize_database()
     migrations.initialize_database()
     with connect_database() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==5
+        assert db.execute('PRAGMA user_version').fetchone()[0]==migrations.SCHEMA_VERSION
         assert [tuple(r) for r in db.execute('SELECT * FROM surveys')]==before
         assert db.execute('SELECT COUNT(*) FROM tags').fetchone()[0]==len(DEFAULT_TAGS)
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    for backup in tmp_path.glob('*.before-v5-*.bak'):
+    for backup in tmp_path.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'):
         with sqlite3.connect(backup) as db:
             assert db.execute('PRAGMA user_version').fetchone()[0]==4
             assert db.execute('SELECT * FROM surveys').fetchall()==before

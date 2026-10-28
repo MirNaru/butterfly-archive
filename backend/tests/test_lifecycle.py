@@ -58,3 +58,24 @@ def test_legacy_adult_is_preserved_and_stage_is_not_copied(client):
     assert client.put(f'/api/species/{sid}/reference', json=body).status_code == 200
     assert client.get('/api/exploration?on=2026-04-15').json()[0]['active'] is False
     assert client.get('/api/exploration?on=2026-05-15&region=다른지역').json()[0]['active'] is None
+
+
+def test_identification_points_source_validation_and_preservation(client):
+    sid=client.post('/api/species',json={'korean_name':'동정 참고 시험 종'}).json()['id']
+    initial=client.get(f'/api/species/{sid}/reference').json()
+    assert initial['reference']['identification_points']==''
+    invalid={'identification_points':'가상 구별 특징'}
+    assert client.put(f'/api/species/{sid}/reference',json=invalid).status_code==422
+    assert client.put(f'/api/species/{sid}/reference',json={**invalid,'identification_source':'x'*2001}).status_code==422
+    body={**initial['reference'],'host_plants':'가상 식물 A, 가상 식물 B(시험, 참고)',
+          'host_plants_source':'가상 목록','identification_points':'가상 윗면 특징\n가상 아랫면 특징',
+          'identification_source':'화면 시험 도감 · 시험판 · 10쪽'}
+    saved=client.put(f'/api/species/{sid}/reference',json=body)
+    assert saved.status_code==200,saved.text
+    doc=saved.json()
+    assert doc['reference']['host_plants']==body['host_plants']
+    assert client.get(f'/api/species/{sid}/reference').json()==doc
+    catalog=client.get('/api/species/catalog').json()[0]['reference']
+    assert catalog['identification_points']==body['identification_points']
+    assert catalog['identification_source']==body['identification_source']
+    assert client.put(f'/api/species/{sid}/reference',json={**doc['reference'],'identification_points':'x'*5001,'expected_updated_at':doc['updated_at']}).status_code==422

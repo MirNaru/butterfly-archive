@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from app.database import connect_database
 from app.schemas import SpeciesInput, SurveyInput, SurveyUpdate
 from app.tags import names as tag_names, save_links
+from app.photos import linked_ids, save_photo_links
 
 
 class UnknownSpecies(ValueError):
@@ -36,14 +37,16 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
             if item.species_id and not connection.execute(
                     "SELECT 1 FROM species WHERE id=?", (item.species_id,)).fetchone():
                 raise UnknownSpecies("선택한 종이 없습니다. 종 목록을 새로 확인해 주세요.")
-        fields = value.model_dump(mode="json", exclude={"observations", "expected_updated_at", "tags"})
+        fields = value.model_dump(mode="json", exclude={"observations", "expected_updated_at", "tags", "photo_ids"})
         fields["updated_at"] = datetime.now(timezone.utc).isoformat()
         connection.execute(f"UPDATE surveys SET {', '.join(key + '=?' for key in fields)} WHERE id=?",
                            (*fields.values(), survey_id))
         if 'tags' in value.model_fields_set:
             save_links(connection, 'survey', survey_id, value.tags)
+        if 'photo_ids' in value.model_fields_set:
+            save_photo_links(connection, 'survey', survey_id, value.photo_ids)
         for item in value.observations:
-            fields = item.model_dump(mode="json", exclude={"id", "tags"})
+            fields = item.model_dump(mode="json", exclude={"id", "tags", "photo_ids"})
             if item.id is None:
                 fields["survey_id"] = survey_id
                 cursor = connection.execute(
@@ -56,6 +59,8 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
                 record_id = item.id
             if item.id is None or 'tags' in item.model_fields_set:
                 save_links(connection, 'observation', record_id, item.tags)
+            if item.id is None or 'photo_ids' in item.model_fields_set:
+                save_photo_links(connection, 'observation', record_id, item.photo_ids)
         return read_survey(connection, survey_id)
 
 
@@ -84,6 +89,7 @@ def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
         return None
     survey = dict(row)
     survey['tags'] = tag_names(connection, 'survey', survey_id)
+    survey['photo_ids'] = linked_ids(connection, 'survey', survey_id)
     observations = []
     for row in connection.execute(
         """SELECT o.*, s.korean_name AS species_name FROM observations o
@@ -91,6 +97,7 @@ def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
         record = dict(row)
         record.pop("survey_id")
         record['tags'] = tag_names(connection, 'observation', record['id'])
+        record['photo_ids'] = linked_ids(connection, 'observation', record['id'])
         record['effective_tags'] = list(dict.fromkeys([*survey['tags'], *record['tags']]))
         record["count_estimated"] = bool(record["count_estimated"])
         has_location = bool(record["place_name"]) or record["latitude"] is not None
@@ -116,7 +123,7 @@ def list_surveys() -> list[dict]:
 
 
 def create_survey(value: SurveyInput) -> dict:
-    values = value.model_dump(mode="json", exclude={"observations", "tags"})
+    values = value.model_dump(mode="json", exclude={"observations", "tags", "photo_ids"})
     now = datetime.now(timezone.utc).isoformat()
     values.update(created_at=now, updated_at=now)
     with connect_database() as connection:
@@ -126,13 +133,15 @@ def create_survey(value: SurveyInput) -> dict:
             f"INSERT INTO surveys ({columns}) VALUES ({', '.join('?' for _ in values)})", tuple(values.values()))
         survey_id = cursor.lastrowid
         save_links(connection, 'survey', survey_id, value.tags)
+        save_photo_links(connection, 'survey', survey_id, value.photo_ids)
         for item in value.observations:
             if item.species_id and not connection.execute(
                     "SELECT 1 FROM species WHERE id=?", (item.species_id,)).fetchone():
                 raise UnknownSpecies("선택한 종이 없습니다. 종 목록을 새로 확인해 주세요.")
-            fields = {"survey_id": survey_id, **item.model_dump(mode="json", exclude={'tags'})}
+            fields = {"survey_id": survey_id, **item.model_dump(mode="json", exclude={'tags', 'photo_ids'})}
             record_cursor = connection.execute(
                 f"INSERT INTO observations ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})",
                 tuple(fields.values()))
             save_links(connection, 'observation', record_cursor.lastrowid, item.tags)
+            save_photo_links(connection, 'observation', record_cursor.lastrowid, item.photo_ids)
         return read_survey(connection, survey_id)

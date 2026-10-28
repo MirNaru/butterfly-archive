@@ -36,11 +36,17 @@ class Location(InputModel):
 
 
 class TaggedInput(Location):
+    photo_ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(default_factory=list, max_length=2000)
     tags: list[Annotated[str, Field(min_length=1, max_length=60)]] = Field(default_factory=list, max_length=60)
 
     @field_validator('tags')
     @classmethod
     def unique_tags(cls, values):
+        return list(dict.fromkeys(values))
+
+    @field_validator('photo_ids')
+    @classmethod
+    def unique_photos(cls, values):
         return list(dict.fromkeys(values))
 
 
