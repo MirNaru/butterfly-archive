@@ -2,6 +2,8 @@
 import type { Species, Survey, SurveyInput, SurveyUpdate, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
+export const collectionItems = (page: number) => request<{ total: number; items: import('./models').CollectedItem[] }>(`/collection?offset=${page * 25}`)
+export const createCollectionConnection = () => request<{ token: string }>('/collection/connection', { method: 'POST', headers: { 'X-Butterfly-Client': 'app' } })
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
@@ -30,6 +32,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+export const registerCollected = (ids: number[]) => request<{results: {id: number; status: 'registered' | 'already_registered' | 'skipped'; reason?: string}[]}>('/collection/register', { ...post({ids}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
+export const discardCollected = (ids: number[]) => request<{ids: number[]}>('/collection/discard', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const restoreCollected = (ids: number[]) => request<{ids: number[]}>('/collection/restore', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const listTags = () => request<import('./models').Tag[]>('/tags')
 export const addTag = (name: string) => request<import('./models').Tag>('/tags', post({ name }))
 export const inspectPhoto = (file: File, signal: AbortSignal) => request<import('./models').PhotoPreview>(`/photos/inspect?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
@@ -37,10 +42,16 @@ export const registerPhotoMetadata = (ticket: string, signal: AbortSignal) => re
 export const registerPhotoOriginal = (file: File, signal: AbortSignal) => request<import('./models').Photo>(`/photos/original?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
 export const lookupPhotos = (ids: number[]) => request<import('./models').Photo[]>('/photos/lookup', post({ ids }))
 export const photoLibrary = (page: number) => request<{ total: number; items: import('./models').Photo[] }>(`/photos/library?offset=${page * 12}&limit=12`)
+export const listHoldings = () => request<import('./models').Holding[]>('/holdings')
+export const addHolding = (value: import('./models').HoldingInput) => request<import('./models').Holding>('/holdings', post(value))
+export const updateHolding = (id: number, value: import('./models').HoldingInput, expected_updated_at: string) => request<import('./models').Holding>(`/holdings/${id}`, { ...post({ ...value, expected_updated_at }), method: 'PUT' })
 export const listSpecies = () => request<Species[]>('/species')
 export const listCatalog = () => request<import('./models').SpeciesCatalog[]>('/species/catalog')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))
 export const listSurveys = () => request<Survey[]>('/surveys')
+export const listTrash = () => request<import('./models').TrashEntry[]>('/trash')
+export const trashSurvey = (survey: Survey, observationId: number | null) => request<{ id: number }>(`/surveys/${survey.id}${observationId === null ? '' : `/observations/${observationId}`}`, { ...post({ expected_updated_at: survey.updated_at }), method: 'DELETE' })
+export const restoreTrash = (entry: import('./models').TrashEntry) => request<{ survey_id: number }>(`/trash/${entry.id}/restore`, post({ expected_deleted_at: entry.deleted_at }))
 export const addSurvey = (value: SurveyInput) => request<Survey>('/surveys', post(value))
 export const updateSurvey = (id: number, value: SurveyUpdate) => request<Survey>(`/surveys/${id}`, { ...post(value), method: 'PUT' })
 export const integrationStatus = () => request<IntegrationStatus>('/integrations/status')

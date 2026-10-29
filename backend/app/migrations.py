@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 11
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -78,6 +78,44 @@ PHOTO_STATEMENTS = (
 )
 
 
+HOLDING_STATEMENTS = (
+    '''CREATE TABLE holdings(id INTEGER PRIMARY KEY, species_id INTEGER NOT NULL REFERENCES species(id),
+       sex TEXT NOT NULL, possession TEXT NOT NULL, quantity INTEGER CHECK(quantity>0),
+       acquisition TEXT NOT NULL, acquired_date TEXT, observation_id INTEGER REFERENCES observations(id),
+       source_note TEXT NOT NULL, notes TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)''',
+    'CREATE INDEX holdings_observation ON holdings(observation_id)',
+    '''CREATE TABLE holding_photos(holding_id INTEGER NOT NULL REFERENCES holdings(id),
+       photo_id INTEGER NOT NULL REFERENCES photos(id), PRIMARY KEY(holding_id,photo_id))''',
+)
+
+HOLDING_SEX_STATEMENTS = (
+    'ALTER TABLE holdings ADD COLUMN male_quantity INTEGER CHECK(male_quantity>0)',
+    'ALTER TABLE holdings ADD COLUMN female_quantity INTEGER CHECK(female_quantity>0)',
+)
+
+TRASH_STATEMENTS = (
+    '''CREATE TABLE record_trash(id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('survey','observation')),
+       survey_id INTEGER NOT NULL REFERENCES surveys(id), observation_id INTEGER REFERENCES observations(id),
+       deleted_at TEXT NOT NULL, restored_at TEXT,
+       CHECK((kind='survey' AND observation_id IS NULL) OR (kind='observation' AND observation_id IS NOT NULL)))''',
+    "CREATE UNIQUE INDEX trash_active_survey ON record_trash(survey_id) WHERE kind='survey' AND restored_at IS NULL",
+    "CREATE UNIQUE INDEX trash_active_observation ON record_trash(observation_id) WHERE kind='observation' AND restored_at IS NULL",
+)
+
+
+COLLECTION_STATEMENTS = (
+    "CREATE TABLE collected_observations(id INTEGER PRIMARY KEY, source TEXT NOT NULL, source_id TEXT NOT NULL, payload_json TEXT NOT NULL, review_status TEXT NOT NULL DEFAULT 'pending', first_received_at TEXT NOT NULL, last_received_at TEXT NOT NULL, collected_at TEXT NOT NULL, UNIQUE(source,source_id))",
+    "CREATE TABLE collection_revisions(id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES collected_observations(id), payload_json TEXT NOT NULL, replaced_at TEXT NOT NULL)",
+    'CREATE TABLE collection_connection(id INTEGER PRIMARY KEY CHECK(id=1),token_hash TEXT NOT NULL)',
+)
+
+COLLECTION_IMPORT_STATEMENTS = (
+    '''CREATE TABLE collection_imports(item_id INTEGER PRIMARY KEY REFERENCES collected_observations(id),
+       observation_id INTEGER NOT NULL UNIQUE REFERENCES observations(id), imported_at TEXT NOT NULL,
+       payload_json TEXT NOT NULL, inference_json TEXT NOT NULL)''',
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -85,13 +123,21 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version not in (0, 1, 2, 3, 4, 5):
+        if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         expected_new = {"species_references"} if version < 3 else set()
         if version < 5:
             expected_new.update({'tags', 'survey_tags', 'observation_tags'})
-        expected_new.update({'photos', 'photo_links'})
+        if version < 6:
+            expected_new.update({'photos', 'photo_links'})
+        if version < 7:
+            expected_new.update({'holdings', 'holding_photos'})
+        if version < 9:
+            expected_new.add('record_trash')
+        if version < 10:
+            expected_new.update({'collected_observations', 'collection_revisions', 'collection_connection'})
+        expected_new.add('collection_imports')
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -110,7 +156,7 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + PHOTO_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + COLLECTION_IMPORT_STATEMENTS):
             connection.execute(statement)
         if version < 5:
             connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])

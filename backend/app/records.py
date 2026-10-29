@@ -1,4 +1,4 @@
-"""종과 조사를 하나의 트랜잭션으로 저장하고 관계를 재조회합니다."""
+"""종과 탐사를 하나의 트랜잭션으로 저장하고 관계를 재조회합니다."""
 import sqlite3
 import json
 from datetime import datetime, timezone
@@ -6,6 +6,9 @@ from app.database import connect_database
 from app.schemas import SpeciesInput, SurveyInput, SurveyUpdate
 from app.tags import names as tag_names, save_links
 from app.photos import linked_ids, save_photo_links
+from app.holdings import validate_observation_links
+from app.trash import ACTIVE_SURVEY, ACTIVE_OBSERVATION, survey_active
+from app.collection_import import observed_datetime, STAGES
 
 
 class UnknownSpecies(ValueError):
@@ -21,7 +24,7 @@ class InvalidObservation(ValueError):
 
 
 def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
-    """기존 ID와 기상 연결을 보존하며 조사 전체를 원자적으로 수정합니다."""
+    """기존 ID와 기상 연결을 보존하며 탐사 전체를 원자적으로 수정합니다."""
     with connect_database() as connection:
         connection.execute("BEGIN IMMEDIATE")
         original = read_survey(connection, survey_id)
@@ -30,9 +33,10 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
         if original["updated_at"] != value.expected_updated_at:
             raise EditConflict("다른 창에서 수정된 기록입니다. 입력은 유지됩니다. 변경 내용을 별도로 보관한 뒤 취소하고 목록을 새로고침해 주세요.")
         existing = {item["id"] for item in original["observations"]}
+        originals = {item['id']: item for item in original['observations']}
         supplied = [item.id for item in value.observations if item.id is not None]
         if len(supplied) != len(set(supplied)) or set(supplied) != existing:
-            raise InvalidObservation("기존 종별 기록을 빠짐없이 한 번씩 포함해야 합니다. 삭제는 지원하지 않습니다.")
+            raise InvalidObservation("기존 종별 기록을 빠짐없이 한 번씩 포함해야 합니다. 삭제는 상세 화면의 관찰 삭제 버튼을 사용해 주세요.")
         for item in value.observations:
             if item.species_id and not connection.execute(
                     "SELECT 1 FROM species WHERE id=?", (item.species_id,)).fetchone():
@@ -61,6 +65,20 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
                 save_links(connection, 'observation', record_id, item.tags)
             if item.id is None or 'photo_ids' in item.model_fields_set:
                 save_photo_links(connection, 'observation', record_id, item.photo_ids)
+            validate_observation_links(connection, record_id)
+            if item.id is not None and item.stage != originals[item.id]['stage']:
+                imported = connection.execute('SELECT inference_json FROM collection_imports WHERE observation_id=?', (record_id,)).fetchone()
+                if imported:
+                    inference = json.loads(imported['inference_json'])
+                    inference['manual_stage_override'] = True
+                    inference['manual_stage_history'] = [*inference.get('manual_stage_history', []), {'at':datetime.now(timezone.utc).isoformat(), 'from':originals[item.id]['stage'], 'to':item.stage}]
+                    connection.execute('UPDATE collection_imports SET inference_json=? WHERE observation_id=?', (json.dumps(inference,ensure_ascii=False),record_id))
+                    label = f"- 발육 단계: {STAGES.get(item.stage, '미확인')} · 사용자가 직접 수정"
+                    lines = item.notes.splitlines()
+                    updated = [label if line.startswith('- 발육 단계:') and '도감 기간으로 추정' in line else line for line in lines]
+                    if updated == lines:
+                        updated.append(label)
+                    connection.execute('UPDATE observations SET notes=? WHERE id=?', ('\n'.join(updated),record_id))
         return read_survey(connection, survey_id)
 
 
@@ -85,16 +103,21 @@ def create_species(value: SpeciesInput) -> dict:
 
 def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
     row = connection.execute("SELECT * FROM surveys WHERE id=?", (survey_id,)).fetchone()
-    if row is None:
+    if row is None or not survey_active(connection, survey_id):
         return None
     survey = dict(row)
     survey['tags'] = tag_names(connection, 'survey', survey_id)
     survey['photo_ids'] = linked_ids(connection, 'survey', survey_id)
     observations = []
     for row in connection.execute(
-        """SELECT o.*, s.korean_name AS species_name FROM observations o
-        LEFT JOIN species s ON s.id=o.species_id WHERE survey_id=? ORDER BY o.id""", (survey_id,)):
+        f"""SELECT o.*, s.korean_name AS species_name, ci.payload_json AS imported_payload, ci.inference_json AS imported_inference FROM observations o
+        LEFT JOIN species s ON s.id=o.species_id LEFT JOIN collection_imports ci ON ci.observation_id=o.id
+        WHERE survey_id=? AND {ACTIVE_OBSERVATION} ORDER BY o.id""", (survey_id,)):
         record = dict(row)
+        imported_payload = record.pop('imported_payload')
+        imported_inference = record.pop('imported_inference')
+        record['collection_accepted'] = bool(imported_inference)
+        record['stage_inferred'] = bool(imported_inference and record['stage'] != 'unknown' and not json.loads(imported_inference).get('manual_stage_override') and json.loads(imported_inference).get('stage') == record['stage'])
         record.pop("survey_id")
         record['tags'] = tag_names(connection, 'observation', record['id'])
         record['photo_ids'] = linked_ids(connection, 'observation', record['id'])
@@ -107,6 +130,18 @@ def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
             effective_latitude=record["latitude"] if has_location else survey["latitude"],
             effective_longitude=record["longitude"] if has_location else survey["longitude"],
         )
+        record['source_weather'] = None
+        if imported_payload:
+            payload = json.loads(imported_payload)
+            weather_text = payload.get('weather_raw', '').strip()
+            if weather_text and weather_text != '정보가 없습니다.':
+                original_date, original_time = observed_datetime(payload['observed_raw'])
+                stale = (record['effective_date'] != original_date.isoformat()
+                         or record['observation_time'] != (original_time.isoformat() if original_time else None)
+                         or record['effective_place'] != payload.get('place_raw', '')
+                         or record['effective_latitude'] != payload.get('latitude')
+                         or record['effective_longitude'] != payload.get('longitude'))
+                record['source_weather'] = dict(text=weather_text, source='네이처링', url=payload['url'], stale=stale)
         observations.append(record)
     return {**survey, "observations": observations}
 
@@ -118,7 +153,7 @@ def get_survey(survey_id: int) -> dict | None:
 
 def list_surveys() -> list[dict]:
     with connect_database() as connection:
-        ids = [r[0] for r in connection.execute("SELECT id FROM surveys ORDER BY survey_date DESC, id DESC")]
+        ids = [r[0] for r in connection.execute(f"SELECT s.id FROM surveys s WHERE {ACTIVE_SURVEY} ORDER BY s.survey_date DESC, s.id DESC")]
         return [read_survey(connection, key) for key in ids]
 
 

@@ -1,4 +1,4 @@
-"""조사·종별 기록의 입력과 응답을 검증합니다."""
+"""탐사·종별 기록의 입력과 응답을 검증합니다."""
 from datetime import date, time
 from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
@@ -99,7 +99,7 @@ class SurveyInput(TaggedInput):
     @model_validator(mode="after")
     def survey_location(self) -> Self:
         if not self.place_name and self.latitude is None:
-            raise ValueError("조사 장소명 또는 좌표를 입력해 주세요.")
+            raise ValueError("탐사 장소명 또는 좌표를 입력해 주세요.")
         return self
 
 
@@ -112,7 +112,17 @@ class SurveyUpdate(SurveyInput):
     observations: list[ObservationUpdate] = Field(max_length=100)
 
 
+class SourceWeather(InputModel):
+    text: str
+    source: str
+    url: str
+    stale: bool
+
+
 class Observation(ObservationInput):
+    collection_accepted: bool = False
+    stage_inferred: bool = False
+    source_weather: SourceWeather | None = None
     effective_tags: list[str]
     id: int
     species_name: str | None

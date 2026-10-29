@@ -1,13 +1,13 @@
 // 한살이 그림의 날짜 축, 관찰 집계, 구간별 사분위수와 수염을 계산합니다.
 import type { LifePeriod, LifeStage, SpeciesReference, Survey } from './models'
 export const LIFE_STAGES: { key: LifeStage; label: string; color: string }[] = [
-  { key: 'egg', label: '알', color: '#6b8ca8' }, { key: 'larva', label: '유충', color: '#718b67' },
-  { key: 'pupa', label: '번데기', color: '#b08c5e' }, { key: 'adult', label: '성충', color: '#917ba3' },
+  { key: 'egg', label: '알', color: '#6b8ca8' }, { key: 'larva', label: '애벌레', color: '#718b67' },
+  { key: 'pupa', label: '번데기', color: '#b08c5e' }, { key: 'adult', label: '어른벌레', color: '#917ba3' },
 ]
 export interface LifeFilter { year: string; region: string; source: '' | 'direct' | 'indirect' }
-export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[] }
+export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[]; stageEstimated?: boolean }
 export interface BoxStats { n: number; q1: number; median: number; q3: number; low: number; high: number; outliers: number[] }
-export const BOX_MINIMUM = 5
+export const BOX_MINIMUM = 20
 const DAY = 86400000
 export const dayOfYear = (date: string) => {
   const [, month, day] = date.split('-').map(Number)
@@ -23,6 +23,11 @@ export function dayLabel(day: number) {
   const d = new Date(Date.UTC(2000, 0, 1) + ((Math.round(day) - 1) % 366 + 366) % 366 * DAY)
   return `${d.getUTCMonth() + 1}월 ${d.getUTCDate()}일`
 }
+export function periodBounds(p: LifePeriod) {
+  const start = p.start_day ?? slotStart(p.start), end = p.end_day ?? slotEnd(p.end)
+  return { start, end: end + (start > end ? 366 : 0) }
+}
+export function periodLabel(p: LifePeriod) { const range = periodBounds(p); return `${dayLabel(range.start)} ~ ${dayLabel(range.end)}${range.end > 366 ? ' · 연말·연초 연결' : ''}` }
 export function boxStats(values: number[]): BoxStats | null {
   if (values.length < BOX_MINIMUM) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -34,34 +39,35 @@ export function boxStats(values: number[]): BoxStats | null {
 export function collectLifeSamples(surveys: Survey[]): LifeSample[] {
   const groups = new Map<string, LifeSample>()
   for (const survey of surveys) for (const record of survey.observations) {
-    if (!record.species_id || record.result !== 'observed' || record.stage === 'unknown' || record.identification !== 'user_confirmed') continue
+    const accepted = record.identification === 'user_confirmed' || record.identification === 'candidate' && record.source_type === 'indirect' && (record.collection_accepted || record.stage_inferred)
+    if (!record.species_id || record.result !== 'observed' || record.stage === 'unknown' || !accepted) continue
     const origin = record.source_type === 'indirect' ? record.source_note.trim() : `survey-${survey.id}`
     const key = JSON.stringify([record.species_id, record.stage, record.effective_date, record.effective_place, record.effective_latitude, record.effective_longitude, record.source_type, origin])
     const previous = groups.get(key)
     if (previous) previous.observationIds.push(record.id)
-    else groups.set(key, { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id] })
+    else groups.set(key, { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id], stageEstimated: record.stage_inferred || false })
   }
   return [...groups.values()]
 }
 export function lifeWindows(reference: SpeciesReference, stage: LifeStage, region: string): LifePeriod[] {
   const active = reference.lifecycle.filter(p => p.enabled && p.stage === stage)
-  const periods: LifePeriod[] = stage === 'adult' && !active.length ? reference.periods.map((p, index) => ({ ...p, id: `legacy-${index}`, stage, source: reference.source || '기존 성충 참고자료', edition: '', region: '', notes: '기존 성충 참고 구간', enabled: true })) : active
+  const periods: LifePeriod[] = stage === 'adult' && !active.length ? reference.periods.map((p, index) => ({ ...p, id: `legacy-${index}`, stage, source: reference.source || '기존 어른벌레 참고자료', edition: '', region: '', notes: '기존 어른벌레 참고 구간', enabled: true })) : active
   return periods.filter(p => !region.trim() || !p.region || p.region.toLowerCase().includes(region.trim().toLowerCase()))
 }
 export function coverageGroups(windows: LifePeriod[]) {
-  const slots = new Set<number>()
-  for (const p of windows) for (let i = p.start; ; i = i % 36 + 1) { slots.add(i); if (i === p.end) break }
+  const days = new Set<number>()
+  for (const p of windows) { const range=periodBounds(p); for (let i=range.start; i<=range.end; i++) days.add((i-1)%366+1) }
   const runs: { start: number; end: number }[] = []
-  for (let s = 1; s <= 36; s++) if (slots.has(s)) {
+  for (let s = 1; s <= 366; s++) if (days.has(s)) {
     const last = runs[runs.length - 1]
     if (last?.end === s - 1) last.end = s
     else runs.push({ start: s, end: s })
   }
-  if (runs.length > 1 && runs[0].start === 1 && runs[runs.length - 1].end === 36) {
+  if (runs.length > 1 && runs[0].start === 1 && runs[runs.length - 1].end === 366) {
     const first = runs.shift()!, last = runs.pop()!
-    runs.push({ start: last.start, end: first.end + 36 })
+    runs.push({ start: last.start, end: first.end + 366 })
   }
-  return runs.map(r => ({ start: slotStart(r.start), end: slotEnd((r.end - 1) % 36 + 1) + (r.end > 36 ? 366 : 0) }))
+  return runs
 }
 export function stageData(reference: SpeciesReference, allSamples: LifeSample[], stage: LifeStage, filter: LifeFilter) {
   const windows = lifeWindows(reference, stage, filter.region)

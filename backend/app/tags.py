@@ -1,4 +1,4 @@
-"""외부 환경 태그 목록과 조사·종별 연결을 로컬 DB에서 관리합니다."""
+"""외부 환경 태그 목록과 탐사·종별 연결을 로컬 DB에서 관리합니다."""
 from typing import Literal
 from fastapi import APIRouter
 from pydantic import Field

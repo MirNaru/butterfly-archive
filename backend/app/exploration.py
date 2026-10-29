@@ -1,7 +1,7 @@
 """종 참고자료를 보존하고 성충 출현 기간과 탐사 조건을 계산합니다. 외부 호출은 없습니다."""
 import calendar
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Literal, Self
 from fastapi import APIRouter, HTTPException
 from pydantic import Field, model_validator
@@ -19,6 +19,8 @@ class Period(InputModel):
 
 
 class LifePeriod(Period):
+    start_day: Annotated[int, Field(strict=True, ge=1, le=366)] | None = None
+    end_day: Annotated[int, Field(strict=True, ge=1, le=366)] | None = None
     id: str = Field(min_length=1, max_length=100)
     stage: Literal['egg', 'larva', 'pupa', 'adult']
     source: str = Field(min_length=1, max_length=1000)
@@ -26,6 +28,12 @@ class LifePeriod(Period):
     region: str = Field(default='', max_length=200)
     notes: str = Field(default='', max_length=2000)
     enabled: bool = Field(default=True, strict=True)
+
+    @model_validator(mode='after')
+    def exact_pair(self) -> Self:
+        if (self.start_day is None) != (self.end_day is None):
+            raise ValueError('일 단위 시작과 끝을 함께 입력해 주세요.')
+        return self
 
 
 class Protection(InputModel):
@@ -180,6 +188,23 @@ def save_reference(species_id: int, value: ReferenceUpdate):
 def season(periods: list[dict], on: date) -> dict:
     if not periods:
         return {'active': None, 'days_left': None, 'next_period': False, 'year_round': False}
+    if any(p.get('start_day') is not None for p in periods):
+        days = set()
+        for p in periods:
+            start_month, end_month = (p['start']-1)//3+1, (p['end']-1)//3+1
+            start = p.get('start_day') or (date(2000,start_month,(p['start']-1)%3*10+1)-date(2000,1,1)).days+1
+            end = p.get('end_day') or (date(2000,end_month,[10,20,calendar.monthrange(2000,end_month)[1]][(p['end']-1)%3])-date(2000,1,1)).days+1
+            days.update((d-1)%366+1 for d in range(start,end+1 if end>=start else end+367))
+        def ordinal(d): return (date(2000,d.month,d.day)-date(2000,1,1)).days+1
+        point=ordinal(on)
+        if point not in days:
+            return {'active':False,'days_left':None,'next_period':any(d>point for d in days),'year_round':False}
+        if len(days)==366:
+            return {'active':True,'days_left':None,'next_period':False,'year_round':True}
+        end_date=on
+        while ordinal(end_date+timedelta(days=1)) in days:
+            end_date+=timedelta(days=1)
+        return {'active':True,'days_left':(end_date-on).days,'next_period':end_date.year==on.year and any(d>ordinal(end_date) for d in days),'year_round':False}
     slots = set()
     for p in periods:
         start, end = p['start'], p['end']
@@ -204,7 +229,9 @@ def season(periods: list[dict], on: date) -> dict:
 def exploration(on: date, region: str = ''):
     region = region.strip()
     with connect_database() as db:
-        captured = {r[0] for r in db.execute("SELECT DISTINCT species_id FROM observations WHERE result='observed' AND capture_status='captured' AND source_type='direct' AND species_id IS NOT NULL")}
+        from app.trash import ACTIVE_OBSERVATION
+        captured = {r[0] for r in db.execute(f"SELECT DISTINCT o.species_id FROM observations o WHERE o.result='observed' AND o.capture_status='captured' AND o.source_type='direct' AND o.species_id IS NOT NULL AND {ACTIVE_OBSERVATION}")}
+        captured.update(row[0] for row in db.execute("SELECT DISTINCT species_id FROM holdings WHERE acquisition='own_capture'"))
         result = []
         for row in db.execute('SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY s.korean_name'):
             ref = normalized_reference(json.loads(row['payload_json']) if row['payload_json'] else {})

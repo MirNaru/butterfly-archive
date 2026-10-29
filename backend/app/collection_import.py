@@ -1,0 +1,88 @@
+"""지정 종의 선택 등록과 도감 기간에 따른 단계 추정을 처리합니다."""
+import json
+import re
+from datetime import date, datetime, time, timezone
+from app.schemas import ObservationInput, SurveyInput
+
+EXEMPT_SPECIES = frozenset('''호랑나비 산호랑나비 제비나비 산제비나비 긴꼬리제비나비 청띠제비나비 무늬박이제비나비
+배추흰나비 큰줄흰나비 대만흰나비 남방노랑나비 극남노랑나비 노랑나비 갈구리나비
+뿔나비 큰멋쟁이나비 작은멋쟁이나비 청띠신선나비 네발나비 먹그림나비 대왕나비 은판나비 홍점알락나비 암끝검은표범나비 어리세줄나비
+줄점팔랑나비 뾰족부전나비 남방부전나비 푸른부전나비 암먹부전나비 큰주홍부전나비'''.split())
+STAGES = {'egg': '알', 'larva': '애벌레', 'pupa': '번데기', 'adult': '어른벌레'}
+DATE_PATTERN = re.compile(r'\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(오전|오후)\s*(\d{1,2})시(?:\s*(\d{1,2})분)?)?\s*')
+
+def observed_datetime(raw):
+    match = DATE_PATTERN.fullmatch(raw)
+    if not match:
+        raise ValueError('관찰 날짜·시각을 해석하지 못했습니다.')
+    year, month, day, am_pm, hour, minute = match.groups()
+    observed = date(int(year), int(month), int(day))
+    clock = None
+    if am_pm:
+        h = int(hour)
+        if not 1 <= h <= 12:
+            raise ValueError('관찰 시각이 올바르지 않습니다.')
+        clock = time(h % 12 + (12 if am_pm == '오후' else 0), int(minute or 0))
+    return observed, clock
+
+def infer_stage(reference, observed, place):
+    slot = (observed.month - 1) * 3 + min((observed.day - 1) // 10, 2) + 1
+    day = (date(2000, observed.month, observed.day) - date(2000,1,1)).days + 1
+    periods = reference.get('lifecycle', [])
+    # 기존 어른벌레 출현 참고 기간도 동일한 36구간 기준입니다.
+    if not periods:
+        periods = [{**p, 'stage':'adult', 'source':reference.get('source', ''), 'enabled':True} for p in reference.get('periods', [])]
+    matched = []
+    for period in periods:
+        if not period.get('enabled', True) or period['stage'] not in STAGES:
+            continue
+        if period.get('region') and period['region'] not in place:
+            continue
+        exact = period.get('start_day') is not None and period.get('end_day') is not None
+        start, end, point = (period['start_day'], period['end_day'], day) if exact else (period['start'], period['end'], slot)
+        if (start <= point <= end) if start <= end else (point >= start or point <= end):
+            matched.append(period)
+    stage = max((p['stage'] for p in matched), key=lambda s: list(STAGES).index(s), default='unknown')
+    return {'stage':stage, 'method':'reference_period_later_stage', 'slot':slot, 'day':day,
+            'matched_periods':matched, 'reference_snapshot':reference}
+
+def registration_info(db, payload):
+    # 원문은 보존하며 줄바꿈 전 첫 국명만 완전 일치에 사용합니다.
+    name = payload['korean_name'].splitlines()[0].strip()
+    species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', (name,)).fetchone()
+    reason = ''
+    observed = clock = None
+    if not species:
+        reason = '도감에서 종을 찾지 못했습니다.'
+    try:
+        observed, clock = observed_datetime(payload.get('observed_raw', ''))
+    except ValueError:
+        reason = reason or '관찰 날짜·시각 확인 필요'
+    if not payload.get('place_raw') and payload.get('latitude') is None:
+        reason = reason or '관찰 위치 확인 필요'
+    if len(payload.get('place_raw', '')) > 200:
+        reason = reason or '장소명 길이 확인 필요'
+    ref = db.execute('SELECT payload_json FROM species_references WHERE species_id=?', (species['id'],)).fetchone() if species else None
+    inference = infer_stage(json.loads(ref[0]) if ref else {}, observed, payload.get('place_raw', '')) if observed else {'stage':'unknown'}
+    return {'eligible': not reason, 'reason':reason, 'exempt':name in EXEMPT_SPECIES,
+            'inference':inference, 'species_id':species['id'] if species else None, 'date':observed, 'time':clock}
+
+def import_item(db, row, info):
+    payload = json.loads(row['payload_json'])
+    stage = info['inference']['stage']
+    stage_label = STAGES.get(stage, '미확인')
+    review = '사용자 지정 검수 생략 종' if info['exempt'] else '사용자가 체크하여 검수 완료'
+    note = f"- 발육 단계: {stage_label} · 도감 기간으로 추정, 겹치면 뒤 단계 적용\n- 동정 검수: {review}\n- 원문 관찰 시각: {payload['observed_raw']}\n- 원문 기상: {payload.get('weather_raw', '')}\n- 위치 정확도: 미상"
+    location = dict(place_name=payload.get('place_raw', ''), latitude=payload.get('latitude'), longitude=payload.get('longitude'), location_method='unknown')
+    observation = ObservationInput(**location, source_type='indirect', source_note=payload['url'], species_id=info['species_id'], observation_date=info['date'], observation_time=info['time'], stage=stage, identification='candidate' if info['exempt'] else 'user_confirmed', notes=note)
+    survey = SurveyInput(**location, survey_date=info['date'], notes=f"외부 관찰 자료 · {payload['url']}", observations=[observation])
+    now = datetime.now(timezone.utc).isoformat()
+    fields = survey.model_dump(mode='json', exclude={'observations','tags','photo_ids'})
+    fields.update(created_at=now, updated_at=now)
+    cursor = db.execute(f"INSERT INTO surveys ({', '.join(fields)}) VALUES ({', '.join('?' for _ in fields)})", tuple(fields.values()))
+    values = observation.model_dump(mode='json', exclude={'tags','photo_ids'})
+    values['survey_id'] = cursor.lastrowid
+    cursor = db.execute(f"INSERT INTO observations ({', '.join(values)}) VALUES ({', '.join('?' for _ in values)})", tuple(values.values()))
+    db.execute('INSERT INTO collection_imports(item_id,observation_id,imported_at,payload_json,inference_json) VALUES(?,?,?,?,?)',
+               (row['id'], cursor.lastrowid, now, row['payload_json'], json.dumps(info['inference'],ensure_ascii=False)))
+    return cursor.lastrowid

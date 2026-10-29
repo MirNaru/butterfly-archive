@@ -15,7 +15,7 @@ def context(target_type: str, target_id: int) -> dict:
     if target_type == "survey":
         survey = records.get_survey(target_id)
         if survey is None:
-            raise IntegrationError("조사 기록을 찾을 수 없습니다.", 404)
+            raise IntegrationError("탐사 기록을 찾을 수 없습니다.", 404)
         result = {"date": survey["survey_date"], "time": None, "latitude": survey["latitude"],
                   "longitude": survey["longitude"], "place": survey["place_name"]}
     else:
@@ -24,7 +24,9 @@ def context(target_type: str, target_id: int) -> dict:
         if row is None:
             raise IntegrationError("종별 기록을 찾을 수 없습니다.", 404)
         survey = records.get_survey(row[0])
-        record = next(r for r in survey["observations"] if r["id"] == target_id)
+        record = next((r for r in survey['observations'] if r['id'] == target_id), None) if survey else None
+        if record is None:
+            raise IntegrationError('관찰 기록이 없거나 휴지통에 있습니다.', 404)
         result = {"date": record["effective_date"], "time": record["observation_time"],
                   "latitude": record["effective_latitude"], "longitude": record["effective_longitude"],
                   "place": record["effective_place"]}

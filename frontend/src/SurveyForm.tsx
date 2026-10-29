@@ -1,4 +1,4 @@
-// 한 조사와 여러 종별 기록을 입력하고 실패 시 작성 내용을 유지합니다.
+// 한 탐사와 여러 종별 기록을 입력하고 실패 시 작성 내용을 유지합니다.
 import { useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { FormEvent, Ref } from 'react'
 import { addSurvey, updateSurvey } from './api'
@@ -67,10 +67,11 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
   </fieldset>
 }
 
-export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags }: { tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
+export interface SurveyFormHandle { requestClose(): void }
+export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef }: { tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
   const [keys, setKeys] = useState(initial ? initial.observations.map((_, index) => index) : [0])
   const [nextKey, setNextKey] = useState(initial ? initial.observations.length : 1)
-  const [activeKey, setActiveKey] = useState(0)
+  const [activeKey, setActiveKey] = useState(() => Math.max(0, initial?.observations.findIndex(record => record.id === selectedObservationId) ?? 0))
   const [confirmClose, setConfirmClose] = useState(false)
   const [commonTags, setCommonTags] = useState(initial?.tags || [])
   const [tagRequests, setTagRequests] = useState(0)
@@ -81,12 +82,14 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
   const tagBusy = (active: boolean) => setTagRequests(count => count + (active ? 1 : -1))
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
+  useImperativeHandle(closeRef, () => ({requestClose() { if (!busy && !tagRequests && !photoRequests) setConfirmClose(true) }}), [busy, tagRequests, photoRequests])
   useEffect(() => {
+    if (embedded) return
     const element = dialog.current
     const previous = document.activeElement
     element?.showModal()
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus() }
-  }, [])
+  }, [embedded])
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -130,30 +133,29 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     }
     finally { setBusy(false) }
   }
-  return <dialog ref={dialog} className="survey-dialog" aria-labelledby="survey-dialog-title" onCancel={e => { e.preventDefault(); if (!busy && tagRequests === 0 && photoRequests === 0) setConfirmClose(true) }}>
-    <form onSubmit={submit} noValidate className="survey-form survey-modal-form">
-      <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 조사 기록</span><h2 id="survey-dialog-title">{initial ? '조사 기록 수정' : '새 조사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />개별 날짜·위치를 비우면 조사 값을 사용합니다. 기상은 저장 후 연결합니다.</p></header>
+  const content = <form onSubmit={submit} noValidate className="survey-form survey-modal-form">
+      <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 탐사 기록</span><h2 id="survey-dialog-title">{initial ? '탐사 기록 수정' : '새 탐사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />개별 날짜·위치를 비우면 탐사 값을 사용합니다. 기상은 저장 후 연결합니다.</p></header>
       {error && <p role="alert" className="error survey-error">{error}</p>}
       <fieldset disabled={busy || tagRequests > 0} className="survey-modal-fields">
         <div className="survey-columns">
-          <section className="survey-common"><h3>조사 공통 정보</h3><div className="field-grid">
-            <label>조사 날짜<input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
-            <label>조사 목적<select name="purpose" defaultValue={initial?.purpose}><Options values={PURPOSE} /></select></label>
+          <section className="survey-common"><h3>탐사 공통 정보</h3><div className="field-grid">
+            <label>탐사 날짜<input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
+            <label>탐사 목적<select name="purpose" defaultValue={initial?.purpose}><Options values={PURPOSE} /></select></label>
           </div><LocationFields prefix="survey-" initial={initial} photoRef={photoLocation} />
-            <PhotoPicker name="survey-photos" initialIds={initial?.photo_ids || []} onBusy={photoBusy} dateLabel="조사 날짜 적용" onDate={p => setSurveyDate(p.date_candidate || '')} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />
+            <PhotoPicker name="survey-photos" initialIds={initial?.photo_ids || []} onBusy={photoBusy} dateLabel="탐사 날짜 적용" onDate={p => setSurveyDate(p.date_candidate || '')} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />
             {tagsError && <p className="error" role="alert">{tagsError}<button type="button" onClick={onRetryTags}>태그 목록 다시 읽기</button></p>}
-            <TagPicker label="조사 공통 태그" name="survey-tags" value={commonTags} onChange={setCommonTags} options={tagOptions} onCreated={onTagCreated} onBusyChange={tagBusy} />
-            <label>조사 메모<textarea name="notes" defaultValue={initial?.notes} maxLength={5000} rows={3} /></label>
-            <p className="hint">개별 장소명만 입력하면 조사 좌표를 복사하지 않습니다. 모르는 수량·시각은 비워 두세요.</p>
+            <TagPicker label="탐사 공통 태그" name="survey-tags" value={commonTags} onChange={setCommonTags} options={tagOptions} onCreated={onTagCreated} onBusyChange={tagBusy} />
+            <label>탐사 메모<textarea name="notes" defaultValue={initial?.notes} maxLength={5000} rows={3} /></label>
+            <p className="hint">개별 장소명만 입력하면 탐사 좌표를 복사하지 않습니다. 모르는 수량·시각은 비워 두세요.</p>
             {initial && <p className="hint">기존 개별 지정 값과 기상자료는 보존합니다. 기상을 자동 재조회하지 않습니다.</p>}
           </section>
           <section className="survey-observations"><div className="record-switcher"><label>종별 입력 항목<select value={keys.includes(activeKey) ? activeKey : ''} onChange={e => setActiveKey(Number(e.target.value))}>{!keys.length && <option value="">종별 기록 없음</option>}{keys.map((key, index) => <option key={key} value={key}>종별 기록 {index + 1}{initial?.observations[key]?.species_name ? ` · ${initial.observations[key].species_name}` : ''}</option>)}</select></label><button type="button" disabled={keys.length >= 100} onClick={() => { setKeys([...keys, nextKey]); setActiveKey(nextKey); setNextKey(nextKey + 1) }}>종별 기록 추가</button><small>총 {keys.length}건</small></div>
             {keys.map((key, index) => <ObservationFields key={key} rowKey={key} index={index} active={key === activeKey} initial={initial?.observations[key]} species={species} tagOptions={tagOptions} onTagCreated={onTagCreated} commonTags={commonTags} onTagBusy={tagBusy} onPhotoBusy={photoBusy} remove={() => { const remaining = keys.filter(k => k !== key); setKeys(remaining); setActiveKey(remaining[0] ?? 0) }} />)}
-            {!keys.length && <p className="empty">종별 기록 없이 조사만 저장할 수 있습니다. 미발견 기록을 자동 생성하지 않습니다.</p>}
+            {!keys.length && <p className="empty">종별 기록 없이 탐사만 저장할 수 있습니다. 미발견 기록을 자동 생성하지 않습니다.</p>}
           </section>
         </div>
-        <footer className="survey-modal-footer">{confirmClose ? <><span>작성 중인 내용을 저장하지 않고 닫으시겠습니까?</span><button type="button" onClick={() => setConfirmClose(false)}>계속 작성</button><button type="button" onClick={onCancel}>저장하지 않고 닫기</button></> : <><small>전환한 종별 항목의 입력도 함께 저장됩니다.</small><button type="button" disabled={photoRequests > 0} onClick={() => setConfirmClose(true)}>취소</button><button type="submit" className="primary" disabled={photoRequests > 0}>{busy ? '저장 중…' : initial ? '수정 저장' : '조사 저장'}</button></>}</footer>
+        <footer className="survey-modal-footer">{confirmClose ? <><span>작성 중인 내용을 저장하지 않고 닫으시겠습니까?</span><button type="button" onClick={() => setConfirmClose(false)}>계속 작성</button><button type="button" onClick={onCancel}>저장하지 않고 닫기</button></> : <><small>전환한 종별 항목의 입력도 함께 저장됩니다.</small><button type="button" disabled={photoRequests > 0} onClick={() => setConfirmClose(true)}>취소</button><button type="submit" className="primary" disabled={photoRequests > 0}>{busy ? '저장 중…' : initial ? '수정 저장' : '탐사 저장'}</button></>}</footer>
       </fieldset>
     </form>
-  </dialog>
+  return embedded ? content : <dialog ref={dialog} className="survey-dialog" aria-labelledby="survey-dialog-title" onCancel={e => { e.preventDefault(); if (!busy && tagRequests === 0 && photoRequests === 0) setConfirmClose(true) }}>{content}</dialog>
 }

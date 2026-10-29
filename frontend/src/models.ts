@@ -1,11 +1,18 @@
 // API 계약과 화면에서 공유하는 기록 분류입니다.
+export interface CollectedItem {
+  id: number; source_id: string; url: string; korean_name: string; scientific_name: string
+  observed_raw: string; place_raw: string; weather_raw: string; latitude: number | null; longitude: number | null
+  review_status: 'pending'; last_received_at: string
+  eligible: boolean; exempt: boolean; reason: string; inferred_stage: keyof typeof STAGE
+  observation_id: number | null; source_changed: boolean
+}
 export const RESULT = { observed: '관찰', not_found: '미발견' } as const
 export const SOURCE_TYPE = { direct: '직접 관찰', indirect: '간접 관찰' } as const
-export const STAGE = { unknown: '미상', egg: '알', larva: '유충', pupa: '번데기', adult: '성충' } as const
+export const STAGE = { unknown: '미상', egg: '알', larva: '애벌레', pupa: '번데기', adult: '어른벌레' } as const
 export const SEX = { unknown: '미상', male: '수컷', female: '암컷', mixed: '혼합' } as const
 export const CAPTURE = { unknown: '미상', not_captured: '채집하지 않음', captured: '채집함' } as const
 export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 종', user_confirmed: '사용자 확인' } as const
-export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 조사' } as const
+export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 탐사' } as const
 export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
 export interface Species { id: number; korean_name: string; scientific_name: string | null; host_plants: string }
 export interface Tag { id: number; name: string; usage?: number }
@@ -28,16 +35,24 @@ export interface SurveyInput extends LocationInput {
   survey_date: string; purpose: keyof typeof PURPOSE; notes: string; observations: ObservationInput[]
 }
 export interface Observation extends ObservationInput {
+  collection_accepted?: boolean
+  stage_inferred?: boolean
+  source_weather?: SourceWeather | null
   effective_tags: string[]
   id: number; species_name: string | null; effective_date: string; effective_place: string
   effective_latitude: number | null; effective_longitude: number | null
 }
+export interface SourceWeather { text: string; source: string; url: string; stale: boolean }
 export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
   expected_updated_at: string
   observations: (ObservationInput & { id: number | null })[]
 }
 export interface Survey extends Omit<SurveyInput, 'observations'> {
   id: number; created_at: string; updated_at: string; observations: Observation[]
+}
+export interface TrashEntry {
+  id: number; kind: 'survey' | 'observation'; survey_id: number; observation_id: number | null
+  deleted_at: string; survey_date: string; place_name: string; species_name: string | null; parent_deleted: boolean
 }
 export interface PhotoMetadata {
   filename: string; size_bytes: number; sha256: string; format: 'JPEG' | 'PNG'; width: number; height: number
@@ -46,10 +61,20 @@ export interface PhotoMetadata {
 }
 export interface PhotoPreview { metadata: PhotoMetadata; ticket: string }
 export interface Photo extends PhotoMetadata { id: number; original_stored: boolean; thumbnail_url: string | null }
+export const ACQUISITION = { unknown: '미확인', own_capture: '직접 채집', purchase: '구매', other: '기타' } as const
+export const POSSESSION = { unknown: '미확인', owned: '소지함', not_owned: '소지하지 않음' } as const
+export interface HoldingInput {
+  species_id: number; sex: keyof typeof SEX; possession: keyof typeof POSSESSION; quantity: number | null
+  male_quantity: number | null; female_quantity: number | null
+  acquisition: keyof typeof ACQUISITION; acquired_date: string | null; observation_id: number | null
+  source_note: string; notes: string; photo_ids: number[]
+}
+export interface Holding extends HoldingInput { id: number; korean_name: string; scientific_name: string | null; created_at: string; updated_at: string }
 
 export interface Coordinate { latitude: number; longitude: number }
 export interface AddressCandidate extends Coordinate { address: string }
-export interface MapPin extends Coordinate { id: string; surveyId: number; label: string }
+export type PinSource = 'direct' | 'naturing' | 'inaturalist' | 'other'
+export interface MapPin extends Coordinate { id: string; surveyId: number; label: string; source?: PinSource }
 export interface Station extends Coordinate { id: number; name: string; distance_km: number | null; as_of: string }
 export interface WeatherContext {
   date: string; time: string | null; latitude: number | null; longitude: number | null
@@ -82,7 +107,7 @@ export interface SpeciesReference {
 }
 export interface Protection { kind: 'endangered_i' | 'endangered_ii' | 'monument' | 'regional'; region: string; designation: string; source: string; checked: string }
 export type LifeStage = 'egg' | 'larva' | 'pupa' | 'adult'
-export interface LifePeriod { id: string; stage: LifeStage; start: number; end: number; source: string; edition: string; region: string; notes: string; enabled: boolean }
+export interface LifePeriod { id: string; stage: LifeStage; start: number; end: number; start_day?: number | null; end_day?: number | null; source: string; edition: string; region: string; notes: string; enabled: boolean }
 export interface LifeRevision { at: string | null; lifecycle: LifePeriod[]; adult_periods: { start: number; end: number }[]; adult_source: string }
 export interface ReferenceDocument { reference: SpeciesReference; updated_at: string | null; lifecycle_history: LifeRevision[] }
 export interface SpeciesCatalog extends Species { reference: SpeciesReference }

@@ -187,10 +187,10 @@ def test_v5_upgrade_backup_rollback_and_existing_rows(tmp_path, monkeypatch):
     migrations.initialize_database()
     migrations.initialize_database()
     with connect_database() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 6
+        assert db.execute('PRAGMA user_version').fetchone()[0] == migrations.SCHEMA_VERSION
         assert db.execute('SELECT korean_name FROM species').fetchone()[0] == '가상 기존 종'
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    backups = list(tmp_path.glob('*.before-v6-*.bak'))
+    backups = list(tmp_path.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'))
     assert backups
     for backup in backups:
         with sqlite3.connect(backup) as db:

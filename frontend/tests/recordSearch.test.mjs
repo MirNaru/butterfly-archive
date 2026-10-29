@@ -23,6 +23,13 @@ test('기상·좌표·시각 미상과 빈 조사 구분', () => {
  assert(emptySurveyMatches(survey, emptyFilters(), '조사 메모'))
  assert(!emptySurveyMatches(survey, { ...emptyFilters(), result: ['not_found'] }, ''))
 })
+test('외부 출처 기상도 저장됨 필터에 연결하고 기상청 연결을 우선', () => {
+ const source = { ...row, record: { ...row.record, source_weather: {text:'기온 20℃',stale:false} } }
+ assert(matches(source, {...emptyFilters(),weather:'current'},''))
+ assert(!matches(source, {...emptyFilters(),weather:'none'},''))
+ assert(matches({...source,record:{...source.record,source_weather:{...source.record.source_weather,stale:true}}},{...emptyFilters(),weather:'stale'},''))
+ assert(matches({...source,weather:{weather:{stale:true}}},{...emptyFilters(),weather:'stale'},''))
+})
 test('미상 수량은 정렬 방향과 무관하게 마지막', () => {
  const known = { ...row, record: { ...row.record, id: 2, count: 3 } }
  for(const dir of ['asc','desc']) assert.equal(sortRows([row,known], 'count', dir)[1].record.id, 1)

@@ -17,7 +17,10 @@ export function referenceCandidates(references: ExplorationRow[], allRecords: Re
   const recorded = new Set(allRecords.map(r => r.record.species_id))
   return references.filter(r => !recorded.has(r.id) && targetMatches(r, t) && member(f.species, String(r.id)) && contains(`${r.korean_name} ${r.scientific_name || ''}`, query))
 }
-export function weatherState(row: RecordRow) { return !row.weather?.weather ? 'none' : row.weather.weather.stale ? 'stale' : 'current' }
+export function weatherState(row: RecordRow) {
+  const saved = row.weather?.weather || row.record.source_weather
+  return !saved ? 'none' : saved.stale ? 'stale' : 'current'
+}
 const contains = (text: string, query: string) => text.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())
 const member = (values: string[], value: string) => !values.length || values.includes(value)
 export function rowsFor(surveys: Survey[], species: Species[], weather: Record<number, SavedWeather>): RecordRow[] {

@@ -1,0 +1,2 @@
+/* 확장 프로그램 미리보기와 제어 버튼을 표시합니다. */
+body{width:350px;margin:0;padding:18px;font:14px/1.6 system-ui,sans-serif;color:#332e23;background:#fff}h1{font-size:18px;margin:0 0 10px}button{padding:9px 12px;margin:4px 4px 4px 0;border:1px solid #dfca8a;border-radius:8px;background:#fff3ca;color:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:default}dl{max-height:330px;overflow:auto;overflow-wrap:anywhere}dt{font-weight:700;margin-top:10px}dd{margin:0}.hint{font-size:12px;color:#766e5d}#status{white-space:pre-wrap}

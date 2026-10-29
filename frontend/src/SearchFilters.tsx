@@ -1,4 +1,4 @@
-// 관찰 조건과 성충 탐사 조건을 한곳에서 설정하며 지도에서는 아이콘을 사용합니다.
+// 관찰 조건과 어른벌레 탐사 조건을 한곳에서 설정하며 지도에서는 아이콘을 사용합니다.
 import { useState } from 'react'
 import { CAPTURE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Tag } from './models'
@@ -27,7 +27,7 @@ export default function SearchFilters({ value, onChange, species, disabled, rese
     {index === 4 && <><label>관찰 장소 필터<input value={value.place} onChange={e => onChange({ ...value, place: e.target.value })} /></label>{presence('coordinates', '위치 좌표')}</>}
     {index === 5 && presence('weather', '기상자료')}
   </>
-  const targetFields = <details className="target-filter" open={expanded || undefined}><summary>출현·탐사 조건</summary><label>출현 기준일<input type="date" required value={targets.on} onChange={e => onTargets({ ...targets, on: e.target.value })} /></label><label>목표 분포 지역<input value={targets.region} onChange={e => onTargets({ ...targets, region: e.target.value })} placeholder="등록된 분포 지역" /></label><p className="hint">관찰 날짜와 별개인 성충 출현 참고 기준입니다.</p>{Object.entries({ active: '현재 출현 참고 종만', captured: '이미 채집한 종 제외', north: '북한 서식 종 제외', old: '미갱신 미접 제외 · 2010년 이전', protected: '국가보호종 제외', includeUnrecorded: '관찰 기록 없는 종 포함' }).map(([key, label]) => <label className="check" key={key}><input type="checkbox" checked={targets[key as 'active' | 'captured' | 'north' | 'old' | 'protected' | 'includeUnrecorded']} onChange={e => onTargets({ ...targets, [key]: e.target.checked })} />{label}</label>)}</details>
+  const targetFields = <details className="target-filter" open={expanded || undefined}><summary>출현·탐사 조건</summary><label>출현 기준일<input type="date" required value={targets.on} onChange={e => onTargets({ ...targets, on: e.target.value })} /></label><label>목표 분포 지역<input value={targets.region} onChange={e => onTargets({ ...targets, region: e.target.value })} placeholder="등록된 분포 지역" /></label><p className="hint">관찰 날짜와 별개인 어른벌레 출현 참고 기준입니다.</p>{Object.entries({ active: '현재 출현 참고 종만', captured: '이미 채집한 종 제외', north: '북한 서식 종 제외', old: '미갱신 미접 제외 · 2010년 이전', protected: '국가보호종 제외', includeUnrecorded: '관찰 기록 없는 종 포함' }).map(([key, label]) => <label className="check" key={key}><input type="checkbox" checked={targets[key as 'active' | 'captured' | 'north' | 'old' | 'protected' | 'includeUnrecorded']} onChange={e => onTargets({ ...targets, [key]: e.target.checked })} />{label}</label>)}</details>
   return <fieldset disabled={disabled} className={`search-filters${expanded ? ' unified-filters' : ''}`}>
     {expanded && <h2>검색 조건</h2>}
     {expanded && targetFields}

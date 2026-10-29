@@ -15,6 +15,9 @@ from app.exploration import router as exploration_router
 from app import weather_store
 from app.tags import router as tags_router
 from app.photos import router as photos_router
+from app.holdings import router as holdings_router
+from app.collection import router as collection_router
+from app.trash import router as trash_router, ACTIVE_OBSERVATION
 
 
 @asynccontextmanager
@@ -28,13 +31,16 @@ app.include_router(integration_router)
 app.include_router(exploration_router)
 app.include_router(tags_router)
 app.include_router(photos_router)
+app.include_router(holdings_router)
+app.include_router(collection_router)
+app.include_router(trash_router)
 
 
 @app.get('/api/record-weather')
 def record_weather():
     """종별 기록에 연결된 저장 기상을 읽습니다. 외부 조회는 하지 않습니다."""
     with connect_database() as db:
-        ids = [r[0] for r in db.execute('SELECT observation_id FROM weather_links WHERE observation_id IS NOT NULL')]
+        ids = [r[0] for r in db.execute(f'SELECT o.id FROM weather_links l JOIN observations o ON o.id=l.observation_id WHERE {ACTIVE_OBSERVATION}')]
     return {key: weather_store.saved('observation', key) for key in ids}
 
 
@@ -90,7 +96,7 @@ def survey_create(value: SurveyInput):
 def survey_detail(survey_id: int):
     result = records.get_survey(survey_id)
     if result is None:
-        raise HTTPException(404, "조사 기록을 찾을 수 없습니다.")
+        raise HTTPException(404, "탐사 기록을 찾을 수 없습니다.")
     return result
 
 
@@ -113,5 +119,5 @@ def survey_update(survey_id: int, value: SurveyUpdate):
     except (records.UnknownSpecies, records.InvalidObservation) as exc:
         raise HTTPException(422, str(exc)) from exc
     if result is None:
-        raise HTTPException(404, "조사 기록을 찾을 수 없습니다.")
+        raise HTTPException(404, "탐사 기록을 찾을 수 없습니다.")
     return result

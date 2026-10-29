@@ -1,12 +1,12 @@
 // 저장한 기상만 자동으로 읽고 외부 조회와 재조회는 버튼으로만 실행합니다.
 import { useEffect, useState } from 'react'
 import { findStations, getWeather, queryWeather } from './api'
-import type { SavedWeather, Station } from './models'
+import type { SavedWeather, Station, SourceWeather } from './models'
 
 function displayTime(value: string) {
   return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}${value.length > 8 ? ` ${value.slice(8, 10)}:${value.slice(10, 12)} KST` : ' 일자료'}`
 }
-export default function WeatherPanel({ targetType, targetId, onChanged }: { targetType: 'survey' | 'observation'; targetId: number; onChanged?: () => void }) {
+export default function WeatherPanel({ targetType, targetId, onChanged, sourceWeather }: { targetType: 'survey' | 'observation'; targetId: number; onChanged?: () => void; sourceWeather?: SourceWeather | null }) {
   const [data, setData] = useState<SavedWeather | null>(null)
   const [stations, setStations] = useState<Station[]>([])
   const [station, setStation] = useState('')
@@ -32,7 +32,8 @@ export default function WeatherPanel({ targetType, targetId, onChanged }: { targ
     finally { setBusy(false) }
   }
   const saved = data?.weather
-  return <details className="weather-panel"><summary>기상 · {saved ? saved.stale ? '이전 조건의 저장 자료' : '저장된 자료' : '미연결'}</summary>
+  return <details className="weather-panel"><summary>기상 · {saved ? saved.stale ? '이전 조건의 저장 자료' : '저장된 자료' : sourceWeather ? `${sourceWeather.source} 저장 자료${sourceWeather.stale ? ' · 이전 조건' : ''}` : '미연결'}</summary>
+    {sourceWeather && <div><p><strong>{sourceWeather.source}에서 가져온 기상</strong>{sourceWeather.stale && ' · 관찰 조건 변경 전 자료'}</p><p>{sourceWeather.text}</p><p className="hint">가져온 원문을 보존한 값입니다. <a href={sourceWeather.url} target="_blank" rel="noopener noreferrer">관찰 원문</a></p></div>}
     <p className="hint">관측소의 기상자료이며 현장 실측값은 아닙니다. 한 번 저장한 값은 자동 갱신하지 않습니다.</p>
     {data && <p>연결 기준: {displayTime(data.context.target_time)}{data.context.time && ` · 관찰 ${data.context.time}`}</p>}
     {saved && <>

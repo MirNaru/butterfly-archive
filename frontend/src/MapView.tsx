@@ -4,6 +4,7 @@ import { mapPermit } from './api'
 import { loadMaps, onMapAuthFailure } from './naverMaps'
 import type { NaverMap, NaverMarker, NaverMaps } from './naverMaps'
 import type { Coordinate, MapPin } from './models'
+import { PIN_STYLE, pinAppearance } from './mapPinStyle'
 
 export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   shown: boolean; pins: MapPin[]; focus?: Coordinate | null
@@ -16,6 +17,7 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   const latest = useRef({ pins, onSelect, onPick, focus })
   useEffect(() => { latest.current = { pins, onSelect, onPick, focus } }, [pins, onSelect, onPick, focus])
   const markers = useRef(new Map<string, NaverMarker>())
+  const appearances = useRef(new Map<string, string>())
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [group, setGroup] = useState<string | null>(null)
@@ -50,16 +52,26 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
       groups.set(key, [...(groups.get(key) || []), pin])
     }
     for (const [key, marker] of markers.current) if (!groups.has(key)) {
-      marker.setMap(null); api.Event.clearInstanceListeners(marker); markers.current.delete(key)
+      marker.setMap(null); api.Event.clearInstanceListeners(marker); markers.current.delete(key); appearances.current.delete(key)
     }
-    for (const [key, values] of groups) if (!markers.current.has(key)) {
-      const marker = new api.Marker({ map: hidden ? null : map.current, position: new api.LatLng(values[0].latitude, values[0].longitude), title: '기록 위치 선택' })
+    for (const [key, values] of groups) {
+      const appearance = pinAppearance(values.map(pin => pin.source || 'direct'))
+      if (markers.current.has(key)) {
+        if (appearances.current.get(key) !== appearance.signature) {
+          markers.current.get(key)!.setIcon({content: appearance.content, anchor: new api.Point(15, 33)})
+          markers.current.get(key)!.setTitle(appearance.title)
+          appearances.current.set(key, appearance.signature)
+        }
+        continue
+      }
+      const marker = new api.Marker({ map: hidden ? null : map.current, position: new api.LatLng(values[0].latitude, values[0].longitude), title: appearance.title, icon: {content: appearance.content, anchor: new api.Point(15, 33)} })
       api.Event.addListener(marker, 'click', () => {
         setGroup(key)
         const first = latest.current.pins.find(p => `${p.latitude},${p.longitude}` === key)
         if (first) latest.current.onSelect?.(first)
       })
       markers.current.set(key, marker)
+      appearances.current.set(key, appearance.signature)
     }
     for (const marker of markers.current.values()) marker.setMap(hidden ? null : map.current)
   }, [pins, hidden, ready])
@@ -80,6 +92,7 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   useEffect(() => () => {
     for (const marker of markers.current.values()) { marker.setMap(null); sdk.current?.Event.clearInstanceListeners(marker) }
     markers.current.clear()
+    appearances.current.clear()
     if (map.current) sdk.current?.Event.clearInstanceListeners(map.current)
   }, [])
   const grouped = hidden ? [] : pins.filter(p => `${p.latitude},${p.longitude}` === group)
@@ -94,6 +107,6 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
     {error && <p role="alert" className="error">{error}</p>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
     <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>
-    {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)}>{pin.label}</button>)}</div>}
+    {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)}><span style={{color:PIN_STYLE[pin.source || 'direct'].color}}>●</span> {PIN_STYLE[pin.source || 'direct'].label} · {pin.label}</button>)}</div>}
   </section>
 }

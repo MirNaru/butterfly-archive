@@ -21,7 +21,7 @@ export default function TagPicker({ label, name, value, onChange, options, onCre
   }
   return <details className="tag-picker"><summary>{label} · {value.length}개</summary>
     {value.map(tag => <input type="hidden" key={tag} name={name} value={tag} />)}
-    {inherited.length > 0 && <p className="hint">조사 공통에서 적용: {inherited.join(', ')}</p>}
+    {inherited.length > 0 && <p className="hint">탐사 공통에서 적용: {inherited.join(', ')}</p>}
     <div className="tag-create"><label>{label} 찾기·추가<input value={query} maxLength={60} onChange={e => setQuery(e.target.value)} placeholder="목록 검색 또는 새 이름" onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void create() } }} /></label><button type="button" disabled={busy || !query.trim()} onClick={() => void create()}>{busy ? '추가 중…' : '태그 추가'}</button></div>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="tag-options">{visible.map(tag => <label className="check" key={tag}><input type="checkbox" checked={value.includes(tag)} onChange={e => onChange(e.target.checked ? [...value, tag] : value.filter(n => n !== tag))} />{tag}</label>)}{!visible.length && <p className="hint">일치하는 태그가 없습니다. 직접 추가할 수 있습니다.</p>}</div>
