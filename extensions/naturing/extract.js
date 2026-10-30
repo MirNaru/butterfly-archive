@@ -24,6 +24,10 @@ export function extractObservation() {
   if (/(?:게시자.*(?:요청|비공개)|(?:위치|위치정보).*(?:공개되지|비공개|숨겨|숨김))/.test(place.replace(/\s+/g, ''))) {
     return { source_id: match[1], skip_reason: 'private_location' };
   }
+  const placeText = place.replace(/[\s.]/g, '');
+  if (!placeText || /(?:위치|정보).*(?:없습니다|없음|미입력|미등록|입력하지않|입력되지않)|^(?:미입력|미등록|없음)$/.test(placeText)) {
+    return { source_id: match[1], skip_reason: 'missing_location' };
+  }
   const map = document.getElementById('map');
   function coordinate(name, min, max) {
     const raw = map?.getAttribute(name);
@@ -31,13 +35,24 @@ export function extractObservation() {
     const value = Number(raw);
     return Number.isFinite(value) && value >= min && value <= max ? value : null;
   }
+  const latitude = coordinate('data-lat', -90, 90), longitude = coordinate('data-lng', -180, 180);
+  if (latitude === null || longitude === null) return { source_id: match[1], skip_reason: 'missing_location' };
   const observed = field('관찰시각', ['지도 확대', '50m', '100m', 'Kakao']);
   const date = observed.match(/\d{4}년\s*\d{1,2}월\s*\d{1,2}일(?:\s*(?:오전|오후)\s*\d{1,2}시(?:\s*\d{1,2}분)?)?/);
-  return { source: 'naturing', source_id: match[1], url: `https://www.naturing.net/o/${match[1]}`, korean_name: korean, scientific_name: scientific, observed_raw: date?.[0] || '', place_raw: field('위치', ['고도', '날씨', '관찰시각']), altitude_raw: field('고도', ['날씨', '관찰시각']), weather_raw: field('날씨', ['관찰시각']), latitude: coordinate('data-lat', -90, 90), longitude: coordinate('data-lng', -180, 180), location_accuracy: 'unknown', review_status: 'pending', collected_at: new Date().toISOString() };
+  return { source: 'naturing', source_id: match[1], url: `https://www.naturing.net/o/${match[1]}`, korean_name: korean, scientific_name: scientific, observed_raw: date?.[0] || '', place_raw: place, altitude_raw: field('고도', ['날씨', '관찰시각']), weather_raw: field('날씨', ['관찰시각']), latitude, longitude, location_accuracy: 'unknown', review_status: 'pending', collected_at: new Date().toISOString() };
 }
 
 // 업데이트 이전에 확장 저장소에 보관한 자료에도 같은 제외 규칙을 적용합니다.
 export function hasPrivateLocation(record) {
   return record.skip_reason === 'private_location' || /(?:게시자.*(?:요청|비공개)|(?:위치|위치정보).*(?:공개되지|비공개|숨겨|숨김))/.test((record.place_raw || '').replace(/\s+/g, ''));
+}
+
+// 예전 보관 자료도 위치 미입력·좌표 누락을 확인한 뒤 전송합니다.
+export function hasExcludedLocation(record) {
+  const place = (record.place_raw || '').replace(/[\s.]/g, '');
+  return hasPrivateLocation(record) || record.skip_reason === 'missing_location' || !place
+    || /(?:위치|정보).*(?:없습니다|없음|미입력|미등록|입력하지않|입력되지않)|^(?:미입력|미등록|없음)$/.test(place)
+    || !Number.isFinite(record.latitude) || record.latitude < -90 || record.latitude > 90
+    || !Number.isFinite(record.longitude) || record.longitude < -180 || record.longitude > 180;
 }
 

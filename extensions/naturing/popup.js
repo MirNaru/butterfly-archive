@@ -1,4 +1,4 @@
-import { extractObservation, hasPrivateLocation } from './extract.js';
+import { extractObservation, hasPrivateLocation, hasExcludedLocation } from './extract.js';
 // 현재 탭의 공개 DOM을 읽고 사용자 확인 후 확장 로컬 저장소에 보관합니다.
 let current = null;
 const status = document.querySelector('#status');
@@ -19,13 +19,13 @@ async function transmit(records) {
   if (sending) return;
   sending = true; send.disabled = true; sendAll.disabled = true; read.disabled = true;
   let completed = 0;
-  const excluded = records.filter(hasPrivateLocation).length;
-  records = records.filter(record => !hasPrivateLocation(record));
+  const excluded = records.filter(hasExcludedLocation).length;
+  records = records.filter(record => !hasExcludedLocation(record));
   const counts = { created: 0, updated: 0, unchanged: 0 };
   try {
     const { connectionKey } = await chrome.storage.local.get('connectionKey');
     if (!connectionKey) throw new Error('앱에서 연결 키를 발급하고 연결 설정에 저장해 주세요.');
-    if (!records.length) throw new Error(`전송할 자료가 없습니다. 위치 비공개 ${excluded}건을 제외했습니다.`);
+    if (!records.length) throw new Error(`전송할 자료가 없습니다. 위치 비공개·미입력 ${excluded}건을 제외했습니다.`);
     for (const record of records) {
       const response = await fetch('http://127.0.0.1:8000/api/collection/naturing', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${connectionKey}` }, body: JSON.stringify(record), signal: AbortSignal.timeout(15000) });
       const result = await response.json();
@@ -34,7 +34,7 @@ async function transmit(records) {
       counts[result.outcome]++; completed++;
       status.textContent = `${completed} / ${records.length}건 전송 완료`;
     }
-    status.textContent = `DB 저장 완료: 신규 ${counts.created} · 변경 ${counts.updated} · 동일 ${counts.unchanged}건 · 위치 비공개 ${excluded}건 제외. 앱에서 목록을 새로고침하세요.`;
+    status.textContent = `DB 저장 완료: 신규 ${counts.created} · 변경 ${counts.updated} · 동일 ${counts.unchanged}건 · 위치 비공개·미입력 ${excluded}건 제외. 앱에서 목록을 새로고침하세요.`;
   } catch (error) { status.textContent = `${completed}건 전송 완료 후 중단. ${error.message}\n앱 실행과 연결 키를 확인한 뒤 다시 전송하세요. 보관 자료는 유지됩니다.`; }
   finally { sending = false; send.disabled = !current; sendAll.disabled = false; read.disabled = false; }
 }
@@ -53,7 +53,7 @@ read.addEventListener('click', async () => {
     if (url.origin !== 'https://www.naturing.net' || !/^\/o\/\d+\/?$/.test(url.pathname)) throw new Error('네이처링 관찰 상세 페이지에서 실행해 주세요.');
     const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: extractObservation });
     if (!result?.result) throw new Error('페이지를 읽지 못했습니다.');
-    if (hasPrivateLocation(result.result)) { status.textContent = '게시자 요청으로 위치가 비공개인 기록은 가져오지 않습니다.'; return; }
+    if (hasExcludedLocation(result.result)) { status.textContent = hasPrivateLocation(result.result) ? '게시자 요청으로 위치가 비공개인 기록은 가져오지 않습니다.' : '위치가 미입력이거나 공개 좌표가 없는 기록은 가져오지 않습니다.'; return; }
     current = result.result;
     for (const [key, label] of Object.entries({ korean_name:'국명', scientific_name:'학명', observed_raw:'관찰시각', place_raw:'장소', latitude:'공개 위도', longitude:'공개 경도', altitude_raw:'고도', weather_raw:'기상', url:'출처' })) {
       const dt = document.createElement('dt'), dd = document.createElement('dd');
@@ -74,7 +74,7 @@ save.addEventListener('click', async () => {
 document.querySelector('#export').addEventListener('click', async () => {
   try {
     const items = await chrome.storage.local.get(null);
-    const records = Object.entries(items).filter(([key]) => key.startsWith('observation:')).map(([, value]) => value);
+    const records = Object.entries(items).filter(([key]) => key.startsWith('observation:')).map(([, value]) => value).filter(record => !hasExcludedLocation(record));
     if (!records.length) { status.textContent = '보관된 자료가 없습니다.'; return; }
     const url = URL.createObjectURL(new Blob([JSON.stringify({ format: 'butterfly-naturing-v1', records }, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = 'naturing-observations.json'; link.click();

@@ -4,15 +4,15 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const extraction = readFileSync(__dirname + '/extract.js', 'utf8').replaceAll('export function', 'function');
-const code = extraction + '\n' + readFileSync(__dirname + '/background.js', 'utf8').replace("import { extractObservation, hasPrivateLocation } from './extract.js';", '').replace('export async function', 'async function');
-async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false } = {}) {
-  let listener, job, writes = 0, moves = 0, current = 10;
+const code = extraction + '\n' + readFileSync(__dirname + '/background.js', 'utf8').replace("import { extractObservation, hasExcludedLocation } from './extract.js';", '').replace('export async function', 'async function');
+async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false, missingRecords = false } = {}) {
+  let listener, job, writes = 0, stored = 0, moves = 0, current = 10;
   let resolveDone;
   const done = new Promise(resolve => { resolveDone = resolve; });
   const chrome = {
     storage: {
       session: { get: async () => ({}), set: async value => { job = value.autoJob; if (!job.running) resolveDone(); } },
-      local: { get: async () => ({ connectionKey: 'test' }), set: async () => {} },
+      local: { get: async () => ({ connectionKey: 'test' }), set: async () => {stored++;} },
     },
     runtime: { onMessage: { addListener: fn => { listener = fn; } } },
     tabs: {
@@ -21,7 +21,7 @@ async function scenario({ missing = false, repeat = false, fail = false, stop = 
     },
     scripting: { executeScript: async ({ func }) => {
       if (stop && func.name === 'nextObservation') await new Promise(resolve => listener({type:'auto-stop'}, {}, resolve));
-      return [{ result: func.name === 'nextObservation' ? (missing || current >= 15 ? null : `https://www.naturing.net/o/${repeat ? current : current + 1}`) : { source_id: String(current), ...(privateRecords && current <= 12 ? {skip_reason:'private_location'} : {}) } }];
+      return [{ result: func.name === 'nextObservation' ? (missing || current >= 15 ? null : `https://www.naturing.net/o/${repeat ? current : current + 1}`) : { source_id: String(current),place_raw:'경기 가평군',latitude:37,longitude:127, ...(privateRecords && current <= 12 ? {skip_reason:'private_location'} : {}), ...(missingRecords && current <= 12 ? {skip_reason:'missing_location'} : {}) } }];
     } },
   };
   vm.runInNewContext(code, {
@@ -32,7 +32,7 @@ async function scenario({ missing = false, repeat = false, fail = false, stop = 
   const response = await new Promise(resolve => listener({ type: 'auto-start', tabId: 1 }, {}, resolve));
   assert.equal(response.ok, true);
   await done;
-  return { job, writes, moves };
+  return { job, writes, stored, moves };
 }
 test('세 건을 넘겨 다섯 건 전송한 뒤 다음 관찰이 없을 때 종료', async () => {
   const result = await scenario();
@@ -41,6 +41,77 @@ test('세 건을 넘겨 다섯 건 전송한 뒤 다음 관찰이 없을 때 종
 test('위치 비공개 두 건은 전송하지 않고 다음 공개 관찰을 계속 수집', async () => {
   const result=await scenario({privateRecords:true});
   assert.equal(result.moves,5); assert.equal(result.writes,3); assert.equal(result.job.skipped,2);
+});
+
+test('위치 미입력 두 건은 전송하지 않고 다음 위치 있는 관찰을 계속 수집',async()=>{
+  const result=await scenario({missingRecords:true});
+  assert.equal(result.moves,5);assert.equal(result.writes,3);assert.equal(result.stored,3);assert.equal(result.job.skipped,2);
+});
+
+function popupHarness(records,extracted) {
+  const elements=new Map(),sent=[];
+  const element=id=>{if(!elements.has(id))elements.set(id,{disabled:false,value:'',textContent:'',handlers:{},addEventListener(name,fn){this.handlers[name]=fn;},replaceChildren(){},append(){}});return elements.get(id);};
+  const context=vm.createContext({document:{querySelector:element,createElement:()=>({})},URL,AbortSignal,
+    chrome:{storage:{local:{get:async key=>key==='connectionKey'?{connectionKey:'test'}:Object.fromEntries(records.map((r,i)=>[`observation:${i}`,r])),set:async()=>{}},session:{get:async()=>({})},onChanged:{addListener(){}}},
+      tabs:{query:async()=>[{id:1,url:'https://www.naturing.net/o/123'}]},scripting:{executeScript:async()=>[{result:extracted}]},runtime:{}},
+    fetch:async(_url,options)=>{sent.push(JSON.parse(options.body));return {ok:true,json:async()=>({outcome:'created'})};},
+  });
+  const popup=readFileSync(__dirname+'/popup.js','utf8').replace("import { extractObservation, hasPrivateLocation, hasExcludedLocation } from './extract.js';",'');
+  vm.runInContext(extraction+'\n'+popup,context);
+  return {element,sent};
+}
+
+test('보관 자료 일괄 전송도 실제 전송 직전에 위치 없는 자료를 제외',async()=>{
+  const valid={source_id:'1',place_raw:'경기 가평군',latitude:37,longitude:127};
+  const h=popupHarness([valid,{...valid,source_id:'2',place_raw:'정보가 없습니다.'},{...valid,source_id:'3',latitude:null}],null);
+  await h.element('#send-all').handlers.click();
+  assert.deepEqual(h.sent.map(r=>r.source_id),['1']);
+  assert.match(h.element('#status').textContent,/2건 제외/);
+});
+
+test('개별 가져오기에서 위치 미입력이면 저장과 전송 버튼을 열지 않음',async()=>{
+  const h=popupHarness([],{source_id:'123',skip_reason:'missing_location'});
+  await h.element('#read').handlers.click();
+  assert.equal(h.element('#save').disabled,true);
+  assert.equal(h.element('#send').disabled,true);
+  assert.match(h.element('#status').textContent,/가져오지 않습니다/);
+  assert.equal(h.sent.length,0);
+});
+
+test('기존 보관 자료도 위치 미입력·좌표 누락·잘못된 좌표는 전송 제외',()=>{
+  const context=vm.createContext({});vm.runInContext(extraction,context);
+  for(const place of ['', '정보가 없습니다.', '위치 정보가 없습니다.', '위치를 입력하지 않았습니다.', '미입력']) {
+    context.record={place_raw:place,latitude:37,longitude:127};
+    assert.equal(vm.runInContext('hasExcludedLocation(record)',context),true,place);
+  }
+  for(const coords of [{latitude:null,longitude:127},{latitude:37,longitude:null},{latitude:NaN,longitude:127},{latitude:91,longitude:127}]) {
+    context.record={place_raw:'경기 가평군',...coords};
+    assert.equal(vm.runInContext('hasExcludedLocation(record)',context),true);
+  }
+  context.record={place_raw:'경기 가평군',latitude:37,longitude:127};
+  assert.equal(vm.runInContext('hasExcludedLocation(record)',context),false);
+});
+
+test('위치 미입력 안내에서는 지도 기본 좌표도 읽지 않음',()=>{
+  for(const place of ['', '정보가 없습니다.', '위치가 없습니다.']) {
+    const context=vm.createContext({location:{pathname:'/o/123',hostname:'www.naturing.net'},document:{
+      querySelectorAll:selector=>selector==='h1'?[{innerText:'모시나비 Parnassius stubbendorfii',querySelector:()=>null}]:[{innerText:'관찰정보',parentElement:{innerText:`위치\n${place}\n고도\n정보가 없습니다.`}}],
+      getElementById:()=>{throw Error('미입력 위치의 지도 접근 시도');},
+    }});
+    vm.runInContext(extraction,context);
+    assert.equal(vm.runInContext('extractObservation().skip_reason',context),'missing_location');
+  }
+});
+
+test('실제 추출에서 공개 좌표 쌍을 확인하고 위치 있는 자료는 유지',()=>{
+  for(const coords of [[null,null],['37',null],['37','127']]) {
+    const context=vm.createContext({location:{pathname:'/o/123',hostname:'www.naturing.net'},document:{
+      querySelectorAll:selector=>selector==='h1'?[{innerText:'모시나비 Parnassius stubbendorfii',querySelector:()=>null}]:[{innerText:'관찰정보',parentElement:{innerText:'위치\n경기 가평군\n고도\n10m\n관찰시각\n2026년 5월 10일 오전 10시'}}],
+      getElementById:()=>({getAttribute:name=>name==='data-lat'?coords[0]:coords[1]}),
+    }});
+    vm.runInContext(extraction,context);
+    assert.equal(vm.runInContext('extractObservation().skip_reason',context),coords.every(v=>v!==null)?undefined:'missing_location');
+  }
 });
 test('기존 보관 자료의 위치 비공개 안내도 판별하고 단순 좌표 누락은 구분', () => {
   const context=vm.createContext({}); vm.runInContext(extraction,context);

@@ -17,13 +17,20 @@ import CollectionInbox from './CollectionInbox'
 import { emptyFilters, emptyTargets, rowsFor, matches, emptySurveyMatches, hasTargetConditions, targetMatches, referenceCandidates } from './recordSearch'
 import './App.css'
 
+// 원문 텍스트를 유지하고 HTTP·HTTPS 주소만 새 탭 링크로 표시합니다.
+function SourceText({ text }: { text: string }) {
+  return <>{text.split(/(https?:\/\/[^\s<>"']+)/g).map((part, index) => index % 2
+    ? <a key={index} href={part} target="_blank" rel="noopener noreferrer">{part}</a>
+    : part)}</>
+}
+
 function Detail({ survey, onEdit, onDelete, onWeatherChanged, selectedRecord }: { survey: Survey; onEdit: () => void; onDelete: (observationId: number | null) => void; onWeatherChanged: () => void; selectedRecord: number | null }) {
   return <article className="detail"><span className="eyebrow">탐사 기록 #{survey.id}</span>
     <div className="detail-actions"><button type="button" onClick={onEdit}>기록 수정</button><button type="button" className="danger" onClick={() => onDelete(null)}>탐사 전체 삭제</button></div><h2>{survey.place_name || '좌표로 등록한 장소'}</h2>
     <p>{survey.survey_date} · {PURPOSE[survey.purpose]}</p>
     <p className="hint">{survey.latitude === null ? '탐사 좌표 미지정' : `위도 ${survey.latitude} · 경도 ${survey.longitude}`}</p>
     {(survey.tags || []).length > 0 && <p className="tag-summary">탐사 공통 태그: {survey.tags.join(', ')}</p>}
-    {survey.notes && <p className="memo">{survey.notes}</p>}
+    {survey.notes && <p className="memo"><SourceText text={survey.notes} /></p>}
     <PhotoGallery ids={survey.photo_ids || []} />
     <WeatherPanel key={`survey-${survey.id}`} targetType="survey" targetId={survey.id} />
     <h3>종별 기록 {survey.observations.length}건</h3>
@@ -33,7 +40,7 @@ function Detail({ survey, onEdit, onDelete, onWeatherChanged, selectedRecord }: 
       <button type="button" className="danger" onClick={() => onDelete(record.id)}>이 관찰 삭제</button>
       <p>{record.effective_date} · {record.observation_time || '시각 미상'}</p>
       <p>{record.effective_place || '좌표 지정 위치'}{record.effective_latitude !== null && ` · ${record.effective_latitude}, ${record.effective_longitude}`}</p>
-      <p className="hint">{SOURCE_TYPE[record.source_type]}{record.source_note && ` · ${record.source_note}`}</p>
+      <p className="hint">{SOURCE_TYPE[record.source_type]}{record.source_note && <> · <SourceText text={record.source_note} /></>}</p>
       {record.result === 'observed' && <dl>
         <dt>발육 단계 · 성별</dt><dd>{STAGE[record.stage]} · {SEX[record.sex]}</dd>
         <dt>관찰 개체 수</dt><dd>{record.count === null ? '미상' : `${record.count}마리${record.count_estimated ? ' (추정)' : ''}`}</dd>

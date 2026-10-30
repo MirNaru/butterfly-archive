@@ -54,30 +54,22 @@ export function lifeWindows(reference: SpeciesReference, stage: LifeStage, regio
   const periods: LifePeriod[] = stage === 'adult' && !active.length ? reference.periods.map((p, index) => ({ ...p, id: `legacy-${index}`, stage, source: reference.source || '기존 어른벌레 참고자료', edition: '', region: '', notes: '기존 어른벌레 참고 구간', enabled: true })) : active
   return periods.filter(p => !region.trim() || !p.region || p.region.toLowerCase().includes(region.trim().toLowerCase()))
 }
-export function coverageGroups(windows: LifePeriod[]) {
-  const days = new Set<number>()
-  for (const p of windows) { const range=periodBounds(p); for (let i=range.start; i<=range.end; i++) days.add((i-1)%366+1) }
-  const runs: { start: number; end: number }[] = []
-  for (let s = 1; s <= 366; s++) if (days.has(s)) {
-    const last = runs[runs.length - 1]
-    if (last?.end === s - 1) last.end = s
-    else runs.push({ start: s, end: s })
+// 가장 긴 관찰 공백에서 연간 축을 나눠 겨울 관찰을 잇고, 모든 사례로 계산합니다.
+export function observationGroups(samples: LifeSample[]) {
+  if (!samples.length) return []
+  const days = [...new Set(samples.map(p => p.day))].sort((a, b) => a - b)
+  let start = days[0], largestGap = days[0] + 366 - days[days.length - 1]
+  for (let i = 1; i < days.length; i++) {
+    const gap = days[i] - days[i - 1]
+    if (gap > largestGap) { largestGap = gap; start = days[i] }
   }
-  if (runs.length > 1 && runs[0].start === 1 && runs[runs.length - 1].end === 366) {
-    const first = runs.shift()!, last = runs.pop()!
-    runs.push({ start: last.start, end: first.end + 366 })
-  }
-  return runs
+  const values = samples.map(p => p.day < start ? p.day + 366 : p.day)
+  return [{ start, end: Math.max(...values), samples, box: boxStats(values) }]
 }
 export function stageData(reference: SpeciesReference, allSamples: LifeSample[], stage: LifeStage, filter: LifeFilter) {
   const windows = lifeWindows(reference, stage, filter.region)
   const samples = allSamples.filter(p => p.stage === stage && (!filter.year || p.date.startsWith(filter.year + '-')) && (!filter.region.trim() || p.place.toLowerCase().includes(filter.region.trim().toLowerCase())) && (!filter.source || p.sourceType === filter.source))
-  const groups = coverageGroups(windows).map(range => {
-    const selected = samples.map(sample => ({ sample, value: range.end > 366 && sample.day < range.start ? sample.day + 366 : sample.day })).filter(p => p.value >= range.start && p.value <= range.end)
-    return { ...range, samples: selected.map(p => p.sample), box: boxStats(selected.map(p => p.value)) }
-  })
-  const assigned = new Set(groups.flatMap(g => g.samples))
-  return { windows, samples, groups, outside: samples.filter(p => !assigned.has(p)) }
+  return { windows, samples, groups: observationGroups(samples) }
 }
 // 같은 연말 구간을 축 양끝으로 나누며 관찰 날짜 자체는 일 단위로 보존합니다.
 export function rangeParts(start: number, end: number): [number, number][] {

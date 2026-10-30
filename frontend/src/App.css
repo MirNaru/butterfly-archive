@@ -142,7 +142,8 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .survey-columns { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(560px, 1.5fr); gap: 24px; }
 .survey-common { padding-right: 22px; border-right: 1px solid #e4dfd3; }
 .survey-common h3 { margin: 0 0 8px; }
-.survey-dialog label { font-size: 13px; gap: 3px; margin: 5px 0; }
+.survey-dialog label { font-size: 13px; font-weight: 700; gap: 3px; margin: 5px 0; }
+.survey-dialog label :is(input, select, textarea, button, .hint) { font-weight: 400; }
 .survey-dialog input:not([type='checkbox']), .survey-dialog select, .survey-dialog textarea { padding: 5px 8px; line-height: 1.35; min-height: 31px; }
 .survey-dialog textarea { resize: vertical; }
 .survey-dialog .field-grid { gap: 0 12px; }

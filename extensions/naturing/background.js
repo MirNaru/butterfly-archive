@@ -1,5 +1,5 @@
 // 사용자가 시작한 다음 관찰의 연속 이동과 로컬 DB 전송을 담당합니다.
-import { extractObservation, hasPrivateLocation } from './extract.js';
+import { extractObservation, hasExcludedLocation } from './extract.js';
 
 const endpoint = 'http://127.0.0.1:8000/api/collection/naturing';
 let activeJob = null;
@@ -43,14 +43,14 @@ export async function nextObservation() {
 }
 async function update(job, message) {
   if (activeJob !== job) return;
-  message += ` · 위치 비공개 ${job.skipped}건 제외`;
+  message += ` · 위치 비공개·미입력 ${job.skipped}건 제외`;
   job.message = message;
   await chrome.storage.session.set({ autoJob: { running: true, completed: job.completed, message } });
 }
 async function finish(job, message) {
   if (activeJob !== job) return;
   activeJob = null;
-  await chrome.storage.session.set({ autoJob: { running: false, completed: job.completed, skipped:job.skipped, message:message + ` · 위치 비공개 ${job.skipped}건 제외` } });
+  await chrome.storage.session.set({ autoJob: { running: false, completed: job.completed, skipped:job.skipped, message:message + ` · 위치 비공개·미입력 ${job.skipped}건 제외` } });
 }
 async function run(job) {
   const visited = new Set([job.startId]);
@@ -84,7 +84,7 @@ async function run(job) {
       const record = extracted?.result;
       if (!record || record.source_id !== targetId) throw new Error('이동한 관찰 정보를 확인하지 못했습니다.');
       if (activeJob !== job) return;
-      if (hasPrivateLocation(record)) { job.skipped++; continue; }
+      if (hasExcludedLocation(record)) { job.skipped++; continue; }
       await chrome.storage.local.set({ [`observation:${record.source_id}`]: record });
       const { connectionKey } = await chrome.storage.local.get('connectionKey');
       if (!connectionKey) throw new Error('앱 연결 키를 저장해 주세요.');
