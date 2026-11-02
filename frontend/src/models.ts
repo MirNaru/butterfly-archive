@@ -1,6 +1,6 @@
 // API 계약과 화면에서 공유하는 기록 분류입니다.
 export interface CollectedItem {
-  id: number; source_id: string; url: string; korean_name: string; scientific_name: string
+  id: number; source?: 'naturing' | 'inaturalist'; location_accuracy?: number | 'unknown' | null; source_id: string; url: string; korean_name: string; scientific_name: string
   observed_raw: string; place_raw: string; weather_raw: string; latitude: number | null; longitude: number | null
   review_status: 'pending'; last_received_at: string
   eligible: boolean; exempt: boolean; reason: string; inferred_stage: keyof typeof STAGE

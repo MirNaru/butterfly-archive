@@ -49,14 +49,23 @@ def infer_stage(reference, observed, place):
 def registration_info(db, payload):
     # 원문은 보존하며 줄바꿈 전 첫 국명만 완전 일치에 사용합니다.
     name = payload['korean_name'].splitlines()[0].strip()
-    species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', (name,)).fetchone()
+    if payload.get('source') == 'inaturalist':
+        matches = db.execute('SELECT id,korean_name FROM species WHERE scientific_name=?', (payload.get('scientific_name', ''),)).fetchall()
+        species = matches[0] if len(matches) == 1 else None
+        name = species['korean_name'] if species else name
+    else:
+        species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', (name,)).fetchone()
     reason = ''
     observed = clock = None
     if not species:
         reason = '도감에서 종을 찾지 못했습니다.'
     try:
-        observed, clock = observed_datetime(payload.get('observed_raw', ''))
-    except ValueError:
+        if payload.get('source') == 'inaturalist':
+            observed = date.fromisoformat(payload.get('observed_date') or '')
+            clock = time.fromisoformat(payload['observed_time']) if payload.get('observed_time') else None
+        else:
+            observed, clock = observed_datetime(payload.get('observed_raw', ''))
+    except (ValueError, TypeError):
         reason = reason or '관찰 날짜·시각 확인 필요'
     if not payload.get('place_raw') and payload.get('latitude') is None:
         reason = reason or '관찰 위치 확인 필요'
@@ -73,6 +82,11 @@ def import_item(db, row, info):
     stage_label = STAGES.get(stage, '미확인')
     review = '사용자 지정 검수 생략 종' if info['exempt'] else '사용자가 체크하여 검수 완료'
     note = f"- 발육 단계: {stage_label} · 도감 기간으로 추정, 겹치면 뒤 단계 적용\n- 동정 검수: {review}\n- 원문 관찰 시각: {payload['observed_raw']}\n- 원문 기상: {payload.get('weather_raw', '')}\n- 위치 정확도: 미상"
+    if payload.get('source') == 'inaturalist':
+        original = payload.get('original', {})
+        accuracy = payload.get('location_accuracy')
+        note = note.replace('- 위치 정확도: 미상', f'- 위치 정확도: {accuracy}m' if isinstance(accuracy, (int, float)) else '- 위치 정확도: 미상')
+        note += f"\n- iNaturalist 관찰 시각·시간대 원문: {original.get('time_observed_at')} · {original.get('observed_time_zone')}\n- 원문 단계 정보는 수집 스냅샷에 별도 보존합니다."
     location = dict(place_name=payload.get('place_raw', ''), latitude=payload.get('latitude'), longitude=payload.get('longitude'), location_method='unknown')
     observation = ObservationInput(**location, source_type='indirect', source_note=payload['url'], species_id=info['species_id'], observation_date=info['date'], observation_time=info['time'], stage=stage, identification='candidate' if info['exempt'] else 'user_confirmed', notes=note)
     survey = SurveyInput(**location, survey_date=info['date'], notes=f"외부 관찰 자료 · {payload['url']}", observations=[observation])

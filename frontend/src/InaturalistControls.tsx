@@ -1,0 +1,62 @@
+// 공식 API의 검색 조건과 중지·재개 가능한 과거 및 최신 수집을 표시합니다.
+import { useEffect, useRef, useState } from 'react'
+import { searchInat, syncInat } from './api'
+type Match = { id: number; name: string; scientific_name: string }
+export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpdated: () => void; onBusyChange: (busy: boolean) => void }) {
+  const [mode, setMode] = useState<'history' | 'latest'>('history')
+  const [taxonQuery, setTaxonQuery] = useState('')
+  const [placeQuery, setPlaceQuery] = useState('')
+  const [taxa, setTaxa] = useState<Match[]>([])
+  const [places, setPlaces] = useState<Match[]>([])
+  const [taxon, setTaxon] = useState<Match | null>(null)
+  const [place, setPlace] = useState<Match>({ id: 6891, name: '대한민국', scientific_name: '' })
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const stopped = useRef(false)
+  useEffect(() => () => { stopped.current = true }, [])
+  async function search(kind: 'taxa' | 'places') {
+    setBusy(true); onBusyChange(true); setError('')
+    try {
+      const rows = await searchInat(kind === 'taxa' ? taxonQuery : placeQuery, kind)
+      if (kind === 'taxa') setTaxa(rows); else setPlaces(rows)
+      if (!rows.length) setNotice('검색 결과가 없습니다. 학명이나 영어 지역명으로도 검색해 주세요.')
+    } catch (e) { setError(e instanceof Error ? e.message : '검색하지 못했습니다.') }
+    finally { setBusy(false); onBusyChange(false) }
+  }
+  async function collect() {
+    stopped.current = false; setBusy(true); onBusyChange(true); setError(''); setNotice('자료를 가져오는 중입니다.')
+    const totals = { created: 0, updated: 0, unchanged: 0, excluded: 0 }
+    try {
+      // 한 번에 최대 2000건을 확인하며 진행 위치는 서버에서 페이지별로 저장합니다.
+      for (let page = 0; page < 10 && !stopped.current; page++) {
+        const result = await syncInat({ mode, taxon_id: mode === 'history' ? taxon!.id : null, place_id: place.id, start: start || null, end: end || null })
+        for (const key of ['created', 'updated', 'unchanged', 'excluded'] as const) totals[key] += result[key]
+        onUpdated()
+        setNotice(`신규 ${totals.created} · 원문 변경 ${totals.updated} · 중복 ${totals.unchanged} · 제외 ${totals.excluded}건\n${result.done ? '현재 검색 범위의 수집을 마쳤습니다.' : '진행 위치를 저장했습니다. 중지 후 같은 조건으로 이어갈 수 있습니다.'}`)
+        if (result.done) break
+        if (page === 9) setNotice(previous => previous + '\n이번 실행의 2000건 확인 한도에 도달했습니다. 같은 버튼으로 이어서 수집해 주세요.')
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : '수집하지 못했습니다.') }
+    finally { setBusy(false); onBusyChange(false) }
+  }
+  return <details className="inaturalist-controls"><summary>iNaturalist 자료 가져오기</summary>
+    <p className="hint">키·로그인 없이 공개 나비 자료만 조회합니다. 과거 수집은 종별로 이어가고, 최신 수집은 종과 관계없이 새로 게시된 나비 관찰을 가져옵니다. 게시일과 실제 관찰일은 다를 수 있습니다.</p>
+    <fieldset disabled={busy} className="inat-fields">
+      <div className="inat-row inat-species-row" role="group" aria-label="수집 방식과 종">
+        <label className="inat-mode">수집 방식<select value={mode} onChange={e => { setMode(e.target.value as 'history' | 'latest'); setNotice(''); setError('') }}><option value="history">종별 과거 자료 · 이어서 수집</option><option value="latest">나비 전체 최신 자료</option></select></label>
+        {mode === 'history' && <><label className="inat-taxon-query">수집할 종 찾기<input value={taxonQuery} onChange={e => { setTaxonQuery(e.target.value); setTaxon(null); setTaxa([]) }} placeholder="국명 또는 학명" /></label><button type="button" disabled={taxonQuery.trim().length < 2} onClick={() => void search('taxa')}>종 검색</button><label className="inat-taxon-select">검색된 종 선택<select value={taxon?.id || ''} onChange={e => setTaxon(taxa.find(t => t.id === Number(e.target.value)) || null)}><option value="">종을 선택해 주세요</option>{taxa.map(t => <option key={t.id} value={t.id}>{t.name} · {t.scientific_name}</option>)}</select></label></>}
+      </div>
+      <div className="inat-row inat-location-row" role="group" aria-label="수집 지역과 관찰 기간">
+        <label className="inat-place-query">국가·지역 찾기<input value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} placeholder="국가·지역명" /></label><button type="button" disabled={placeQuery.trim().length < 2} onClick={() => void search('places')}>지역 검색</button><label className="inat-place-select">수집 지역<select value={place.id} onChange={e => setPlace([{ id: 6891, name: '대한민국', scientific_name: '' }, ...places].find(p => p.id === Number(e.target.value))!)}><option value={6891}>대한민국</option>{places.filter(p => p.id !== 6891).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label className="inat-date">관찰 시작일 · 선택<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label><label className="inat-date">관찰 종료일 · 선택<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
+        <button type="button" disabled={mode === 'history' && !taxon || !!(start && end && start > end)} onClick={() => void collect()}>자료 가져오기 · 이어서 수집</button>
+      </div>
+    </fieldset>
+    {busy && <button type="button" onClick={() => { stopped.current = true; setNotice(previous => previous + '\n중지 요청: 현재 요청 저장 후 멈춥니다.') }}>수집 중지</button>}
+    <p className="hint">날짜를 비우면 과거 전체가 대상입니다. 한 번에 최대 2000건을 확인하며 같은 조건으로 다시 누르면 이어갑니다. 같은 지역의 과거 수집 이력이 있으면 그 수집을 시작한 뒤 게시된 자료를 모두 확인합니다. 과거 수집 이력이 없으면 최신 200건으로 시작하며, 이후에는 기준 뒤의 신규 게시물을 이어갑니다. 조건별 진행 위치는 프로그램을 다시 실행해도 유지됩니다. 비공개·흐림 처리·좌표 없는 자료는 제외하며 사진은 다운로드하지 않습니다.</p>
+    {notice && <p role="status" style={{ whiteSpace: 'pre-wrap' }}>{notice}</p>}{error && <p role="alert" className="error">{error}</p>}
+  </details>
+}

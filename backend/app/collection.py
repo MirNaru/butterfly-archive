@@ -40,7 +40,7 @@ class CollectedObservation(BaseModel):
 
 def local_screen(request: Request):
     origin = request.headers.get('origin')
-    if origin and origin not in ('http://127.0.0.1:5173', 'http://localhost:5173'):
+    if origin and origin not in ('http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:5174', 'http://localhost:5174'):
         raise HTTPException(403, '앱 화면에서 연결 키를 발급해 주세요.')
     if request.headers.get('x-butterfly-client') != 'app':
         raise HTTPException(403, '앱 화면에서 연결 키를 발급해 주세요.')
@@ -80,15 +80,18 @@ def receive(value: CollectedObservation, request: Request):
     return {'id': item_id, 'outcome': outcome}
 
 @router.get('')
-def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100)):
+def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), source: Literal['naturing', 'inaturalist'] = 'naturing'):
     with connect_database() as db:
-        pending = "review_status!='discarded' AND NOT EXISTS (SELECT 1 FROM collection_imports i WHERE i.item_id=collected_observations.id)"
-        total = db.execute(f'SELECT count(*) FROM collected_observations WHERE {pending}').fetchone()[0]
-        rows = db.execute(f'SELECT * FROM collected_observations WHERE {pending} ORDER BY last_received_at DESC,id DESC LIMIT ? OFFSET ?', (limit, offset)).fetchall()
+        pending = "source=? AND review_status!='discarded' AND NOT EXISTS (SELECT 1 FROM collection_imports i WHERE i.item_id=collected_observations.id)"
+        total = db.execute(f'SELECT count(*) FROM collected_observations WHERE {pending}', (source,)).fetchone()[0]
+        ordering = 'CAST(source_id AS INTEGER) DESC' if source == 'inaturalist' else 'last_received_at DESC,id DESC'
+        rows = db.execute(f'SELECT * FROM collected_observations WHERE {pending} ORDER BY {ordering} LIMIT ? OFFSET ?', (source, limit, offset)).fetchall()
         items = []
         for row in rows:
             payload = json.loads(row['payload_json'])
             info = registration_info(db, payload)
+            if source == 'inaturalist' and info['species_id']:
+                payload['korean_name'] = db.execute('SELECT korean_name FROM species WHERE id=?', (info['species_id'],)).fetchone()[0]
             imported = db.execute('SELECT observation_id,payload_json,inference_json FROM collection_imports WHERE item_id=?', (row['id'],)).fetchone()
             items.append({**payload, 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
                           'eligible':info['eligible'], 'reason':info['reason'], 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],

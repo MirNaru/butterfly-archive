@@ -18,6 +18,7 @@ from app.photos import router as photos_router
 from app.holdings import router as holdings_router
 from app.collection import router as collection_router
 from app.trash import router as trash_router
+from app.inaturalist import router as inaturalist_router
 
 
 @asynccontextmanager
@@ -34,6 +35,7 @@ app.include_router(photos_router)
 app.include_router(holdings_router)
 app.include_router(collection_router)
 app.include_router(trash_router)
+app.include_router(inaturalist_router)
 
 
 @app.get('/api/record-weather')

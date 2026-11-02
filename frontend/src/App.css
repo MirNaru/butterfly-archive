@@ -111,6 +111,20 @@ dt { color: #706b60; } dd { margin: 0; }
 .collection-source-list button[aria-pressed='true'] { background: #fff0b8; border-color: #d4a21b; font-weight: 700; }
 .collection-panel { padding: 20px; border: 1px solid var(--border); border-radius: 12px; }
 .collection-panel h3 { margin: 8px 0 12px; }
+.inat-fields { display: grid; gap: 18px; padding: 0; border: 0; min-width: 0; }
+.inaturalist-controls, .naturing-connection { margin-bottom: 14px; padding: 16px; border: 0; border-radius: 14px; background: var(--accent-soft); }
+.naturing-connection label { max-width: 460px; margin-top: 14px; }
+.inat-row { display: flex; align-items: flex-end; gap: 14px; flex-wrap: nowrap; }
+.inat-row label { margin: 0; min-width: 0; flex: 0 1 auto; }
+.inat-row input, .inat-row select { width: 100%; min-width: 0; }
+.inat-row button { flex: 0 0 auto; white-space: nowrap; }
+.inat-mode { width: 215px; }
+.inat-taxon-query { width: 180px; }
+.inat-taxon-select { width: 250px; }
+.inat-place-query { width: 120px; }
+.inat-place-select { width: 125px; }
+.inat-date { width: 130px; }
+@media (max-width: 1100px) { .inat-row { flex-wrap: wrap; } }
 .collection-preparation { margin-top: 20px; padding: 16px; border-radius: 10px; background: var(--accent-faint); }
 @media (max-width: 850px) { .app-shell { padding: 12px; } .main-pane { --pane-gap: 16px; } .field-grid { grid-template-columns: 1fr; } .map-view .toolbar { flex-wrap: wrap; } }
 @media (max-width: 620px) { .workspace { flex-direction: column; overflow-y: auto; } .sidebar { flex: none; min-width: 0; max-height: 46dvh; } .main-shell { flex: 1 0 380px; } .main-pane.map-pane { min-height: 300px; } }

@@ -2,7 +2,7 @@
 import type { Species, Survey, SurveyInput, SurveyUpdate, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
-export const collectionItems = (page: number) => request<{ total: number; items: import('./models').CollectedItem[] }>(`/collection?offset=${page * 25}`)
+export const collectionItems = (page: number, source: 'naturing' | 'inaturalist' = 'naturing') => request<{ total: number; items: import('./models').CollectedItem[] }>(`/collection?offset=${page * 25}&source=${source}`)
 export const createCollectionConnection = () => request<{ token: string }>('/collection/connection', { method: 'POST', headers: { 'X-Butterfly-Client': 'app' } })
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -66,3 +66,8 @@ export const recordWeather = () => request<Record<number, SavedWeather>>('/recor
 export const getReference = (id: number) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`)
 export const saveReference = (id: number, value: import('./models').SpeciesReference, version: string | null) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`, { ...post({ ...value, expected_updated_at: version }), method: 'PUT' })
 export const findExploration = (on: string, region: string) => request<import('./models').ExplorationRow[]>(`/exploration?${new URLSearchParams({ on, region })}`)
+
+export interface InatQuery { mode: 'history' | 'latest'; taxon_id: number | null; place_id: number; start: string | null; end: string | null }
+export interface InatProgress { done: boolean; scanned: number; created: number; updated: number; unchanged: number; excluded: number }
+export const searchInat = (query: string, kind: 'taxa' | 'places') => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const syncInat = (query: InatQuery) => request<InatProgress>('/collection/inaturalist/sync', {...post(query), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
