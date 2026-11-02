@@ -10,6 +10,8 @@ from app.photos import linked_ids, save_photo_links
 from app.holdings import validate_observation_links
 from app.trash import ACTIVE_SURVEY, ACTIVE_OBSERVATION, survey_active
 from app.collection_import import observed_datetime, STAGES
+from app.vagrant_years import sync_vagrant_years
+from app.regions import locate as locate_region, current_label, display_location
 
 
 class UnknownSpecies(ValueError):
@@ -82,6 +84,7 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
                     if updated == lines:
                         updated.append(label)
                     connection.execute('UPDATE observations SET notes=? WHERE id=?', ('\n'.join(updated),record_id))
+        sync_vagrant_years(connection)
         return read_survey(connection, survey_id)
 
 
@@ -116,12 +119,17 @@ def observation_view(row, survey, tags, photos):
     record['effective_tags'] = list(dict.fromkeys([*survey['tags'], *record['tags']]))
     record["count_estimated"] = bool(record["count_estimated"])
     has_location = bool(record["place_name"]) or record["latitude"] is not None
+    region_code = locate_region(record['place_name'] if has_location else survey['place_name'],
+                                record['latitude'] if has_location else survey['latitude'],record['longitude'] if has_location else survey['longitude'])
+    record['administrative_region_code'] = region_code
+    record['administrative_region'] = current_label(region_code) if region_code else ''
     record.update(
         effective_date=record["observation_date"] or survey["survey_date"],
         effective_place=record["place_name"] if has_location else survey["place_name"],
         effective_latitude=record["latitude"] if has_location else survey["latitude"],
         effective_longitude=record["longitude"] if has_location else survey["longitude"],
     )
+    record.update(display_location(record['effective_place'],record['effective_latitude'],record['effective_longitude'],region_code))
     record['source_weather'] = None
     if imported_payload:
         payload = json.loads(imported_payload)
@@ -151,7 +159,7 @@ def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
         WHERE survey_id=? AND {ACTIVE_OBSERVATION} ORDER BY o.id""", (survey_id,)):
         record = observation_view(row, survey, tag_names(connection, 'observation', row['id']), linked_ids(connection, 'observation', row['id']))
         observations.append(record)
-    return {**survey, "observations": observations}
+    return {**survey, **display_location(survey['place_name'],survey['latitude'],survey['longitude']), "observations": observations}
 
 
 def get_survey(survey_id: int) -> dict | None:
@@ -184,7 +192,7 @@ def list_surveys() -> list[dict]:
             survey = surveys.get(row['survey_id'])
             if survey is not None:
                 survey['observations'].append(observation_view(row, survey, tags.get(row['id'], []), photos.get(row['id'], [])))
-        return list(surveys.values())
+        return [{**s,**display_location(s['place_name'],s['latitude'],s['longitude'])} for s in surveys.values()]
 
 
 def create_survey(value: SurveyInput, connection: sqlite3.Connection | None = None) -> dict:
@@ -209,4 +217,5 @@ def create_survey(value: SurveyInput, connection: sqlite3.Connection | None = No
                 tuple(fields.values()))
             save_links(connection, 'observation', record_cursor.lastrowid, item.tags)
             save_photo_links(connection, 'observation', record_cursor.lastrowid, item.photo_ids)
+        sync_vagrant_years(connection)
         return read_survey(connection, survey_id)

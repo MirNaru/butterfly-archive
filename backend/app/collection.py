@@ -7,7 +7,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.database import connect_database
-from app.collection_import import registration_info, import_item
+from app.collection_import import registration_info, import_item, preserve_stage_override
+from app.regions import display_location
 
 router = APIRouter(prefix='/api/collection', tags=['collection'])
 
@@ -69,6 +70,7 @@ def receive(value: CollectedObservation, request: Request):
         authenticate(request, db)
         db.execute('BEGIN IMMEDIATE')
         old = db.execute('SELECT * FROM collected_observations WHERE source=? AND source_id=?', (value.source, value.source_id)).fetchone()
+        encoded = json.dumps(preserve_stage_override(old,payload),ensure_ascii=False,sort_keys=True)
         outcome = 'unchanged' if old and old['payload_json'] == encoded else 'updated' if old else 'created'
         if outcome == 'updated':
             db.execute('INSERT INTO collection_revisions(item_id,payload_json,replaced_at) VALUES(?,?,?)', (old['id'], old['payload_json'], now))
@@ -93,8 +95,9 @@ def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le
             if source == 'inaturalist' and info['species_id']:
                 payload['korean_name'] = db.execute('SELECT korean_name FROM species WHERE id=?', (info['species_id'],)).fetchone()[0]
             imported = db.execute('SELECT observation_id,payload_json,inference_json FROM collection_imports WHERE item_id=?', (row['id'],)).fetchone()
-            items.append({**payload, 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
+            items.append({**payload, **display_location(payload.get('place_raw',''),payload.get('latitude'),payload.get('longitude')), 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
                           'eligible':info['eligible'], 'reason':info['reason'], 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],
+                          'stage_manual':bool(info['inference'].get('manual_stage_override')), 'version':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
                           'observation_id':imported['observation_id'] if imported else None,
                           'source_changed':bool(imported and imported['payload_json'] != row['payload_json'])})
         return {'total': total, 'items': items}
@@ -102,6 +105,29 @@ def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le
 class CollectionSelection(BaseModel):
     model_config = ConfigDict(extra='forbid')
     ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(min_length=1, max_length=100)
+
+
+class StageEdit(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    stage: Literal['unknown','egg','larva','pupa','adult']
+    expected_version: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+@router.put('/{item_id}/stage')
+def edit_stage(item_id:int,value:StageEdit,request:Request):
+    local_screen(request)
+    with connect_database() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row=db.execute('SELECT * FROM collected_observations WHERE id=?',(item_id,)).fetchone()
+        if not row: raise HTTPException(404,'수집 자료가 없습니다.')
+        if row['review_status']=='discarded' or db.execute('SELECT 1 FROM collection_imports WHERE item_id=?',(item_id,)).fetchone():
+            raise HTTPException(409,'삭제되었거나 이미 등록한 자료입니다. 목록을 새로고침해 주세요.')
+        if hashlib.sha256(row['payload_json'].encode()).hexdigest()!=value.expected_version:
+            raise HTTPException(409,'다른 창에서 수정되거나 재수집한 자료입니다. 창을 닫고 목록을 새로고침해 주세요.')
+        payload=json.loads(row['payload_json']);payload['_stage_override']=value.stage
+        encoded=json.dumps(payload,ensure_ascii=False,sort_keys=True)
+        db.execute('UPDATE collected_observations SET payload_json=? WHERE id=?',(encoded,item_id))
+        return {'id':item_id,'stage':value.stage,'version':hashlib.sha256(encoded.encode()).hexdigest()}
 
 @router.post('/register')
 def register_selected(value: CollectionSelection, request: Request):
@@ -127,6 +153,8 @@ def register_selected(value: CollectionSelection, request: Request):
                 continue
             observation_id = import_item(db, row, info)
             results.append({'id':item_id, 'status':'registered', 'observation_id':observation_id})
+        from app.vagrant_years import sync_vagrant_years
+        sync_vagrant_years(db)
     return {'results':results}
 
 @router.post('/discard')

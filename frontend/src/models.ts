@@ -1,5 +1,7 @@
 // API 계약과 화면에서 공유하는 기록 분류입니다.
 export interface CollectedItem {
+  stage_manual: boolean; version: string
+  display_place?: string; place_search?: string; location_note?: string
   id: number; source?: 'naturing' | 'inaturalist'; location_accuracy?: number | 'unknown' | null; source_id: string; url: string; korean_name: string; scientific_name: string
   observed_raw: string; place_raw: string; weather_raw: string; latitude: number | null; longitude: number | null
   review_status: 'pending'; last_received_at: string
@@ -35,6 +37,9 @@ export interface SurveyInput extends LocationInput {
   survey_date: string; purpose: keyof typeof PURPOSE; notes: string; observations: ObservationInput[]
 }
 export interface Observation extends ObservationInput {
+  display_place?: string; place_search?: string; location_note?: string
+  administrative_region?: string
+  administrative_region_code?: string | null
   collection_accepted?: boolean
   stage_inferred?: boolean
   source_weather?: SourceWeather | null
@@ -48,6 +53,7 @@ export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
   observations: (ObservationInput & { id: number | null })[]
 }
 export interface Survey extends Omit<SurveyInput, 'observations'> {
+  display_place?: string; place_search?: string; location_note?: string
   id: number; created_at: string; updated_at: string; observations: Observation[]
 }
 export interface TrashEntry {
@@ -94,6 +100,10 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  region_codes?: string[]
+  region_search?: string
+  region_unmatched?: string[]
+  region_evidence?: { code: string; origin: 'excel' | 'manual' | 'observation'; detail: string }[]
   domestic_extinct: boolean | null; extinction_source: string
   protections: Protection[]; status_notes: string; protection_review: string
   identification_points: string; identification_source: string
@@ -101,7 +111,7 @@ export interface SpeciesReference {
   family: string; subfamily: string; display_order: number | null; taxonomy_source: string
   host_plants: string; host_plants_source: string
   periods: { start: number; end: number }[]; regions: string[]; north_only: boolean | null; vagrant: boolean | null
-  sighting_years: number[]; protected: boolean | null; capture_history: 'unknown' | 'captured' | 'not_captured'
+  sighting_years: number[]; sighting_source?: string; protected: boolean | null; capture_history: 'unknown' | 'captured' | 'not_captured'
   source: string; capture_source: string; protection_source: string; protection_checked: string | null
   permission: 'unknown' | 'permitted' | 'prohibited'; permission_region: string; permission_start: string | null; permission_end: string | null; permission_source: string
 }

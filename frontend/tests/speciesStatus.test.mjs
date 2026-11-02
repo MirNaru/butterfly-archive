@@ -3,9 +3,9 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { speciesStatuses } from '../src/speciesStatus.ts'
 const reference = { protections: [], protected: null, protection_review: '', vagrant: null, north_only: null, sighting_years: [], source: '시험 출처' }
-test('지역·여러 목격 연도·북한 서식과 출처 표시', () => {
+test('지역·최신 목격 연도·북한 서식과 출처 표시', () => {
   const badges = speciesStatuses({ ...reference, protections: [{ kind: 'regional', region: '경기도', designation: '', source: '가상 지정', checked: '2026-10-27' }], vagrant: true, sighting_years: [2025, 2008, 2025], north_only: true })
-  assert.deepEqual(badges.map(b => b.label), ['지역보호[경기도]', '미접[2008, 2025]', '북한 서식'])
+  assert.deepEqual(badges.map(b => b.label), ['지역보호[경기도]', '미접[2025]', '북한 서식'])
   assert(badges[0].detail.includes('가상 지정'))
   assert(badges[1].detail.includes('마지막 목격 연도로 단정하지 않습니다'))
 })

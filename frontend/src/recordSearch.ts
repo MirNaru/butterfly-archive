@@ -15,7 +15,7 @@ export function targetMatches(r: ExplorationRow, t: TargetFilters) {
 export function referenceCandidates(references: ExplorationRow[], allRecords: RecordRow[], f: Filters, t: TargetFilters, query: string) {
   if (!t.includeUnrecorded || f.start || f.end || f.place || f.stage.length || f.sex.length || f.result.length || f.capture.length || f.source.length || f.tags.length || f.time || f.coordinates || f.weather) return []
   const recorded = new Set(allRecords.map(r => r.record.species_id))
-  return references.filter(r => !recorded.has(r.id) && targetMatches(r, t) && member(f.species, String(r.id)) && contains(`${r.korean_name} ${r.scientific_name || ''}`, query))
+  return references.filter(r => !recorded.has(r.id) && targetMatches(r, t) && member(f.species, String(r.id)) && contains(`${r.korean_name} ${r.scientific_name || ''} ${(r.reference.regions||[]).join(' ')} ${r.reference.region_search||''}`, query))
 }
 export function weatherState(row: RecordRow) {
   const saved = row.weather?.weather || row.record.source_weather
@@ -31,9 +31,9 @@ export function matches(row: RecordRow, f: Filters, query: string): boolean {
   const r = row.record
   const tags = [...new Set([...(row.survey.tags || []), ...(r.tags || [])])]
   if (f.start && f.end && f.start > f.end) return false
-  return contains(`${r.species_name || '동정 미확정'} ${row.scientificName} ${r.effective_place} ${row.survey.place_name} ${r.effective_date} ${r.notes} ${r.source_note || ''} ${row.survey.notes} ${tags.join(' ')}`, query)
+  return contains(`${r.species_name || '동정 미확정'} ${row.scientificName} ${r.administrative_region||''} ${r.place_search||r.effective_place} ${row.survey.place_search||row.survey.place_name} ${r.effective_date} ${r.notes} ${r.source_note || ''} ${row.survey.notes} ${tags.join(' ')}`, query)
     && (!f.start || r.effective_date >= f.start) && (!f.end || r.effective_date <= f.end)
-    && contains(r.effective_place, f.place) && member(f.species, String(r.species_id ?? 'unknown'))
+    && contains(r.place_search||r.effective_place, f.place) && member(f.species, String(r.species_id ?? 'unknown'))
     && (!f.stage.length || r.result === 'observed' && member(f.stage, r.stage))
     && (!f.sex.length || r.result === 'observed' && member(f.sex, r.sex))
     && (!f.tags.length || f.tags.some(tag => tags.includes(tag)))
@@ -44,9 +44,9 @@ export function matches(row: RecordRow, f: Filters, query: string): boolean {
 }
 export function emptySurveyMatches(s: Survey, f: Filters, query: string): boolean {
   if (s.observations.length || f.species.length || f.stage.length || f.sex.length || f.result.length || f.capture.length || f.source.length || f.time || f.weather) return false
-  return !(f.start && f.end && f.start > f.end) && contains(`${s.place_name} ${s.survey_date} ${s.notes} ${(s.tags || []).join(' ')}`, query)
+  return !(f.start && f.end && f.start > f.end) && contains(`${s.place_search||s.place_name} ${s.survey_date} ${s.notes} ${(s.tags || []).join(' ')}`, query)
     && (!f.tags.length || f.tags.some(tag => (s.tags || []).includes(tag)))
-    && contains(s.place_name, f.place) && (!f.start || s.survey_date >= f.start) && (!f.end || s.survey_date <= f.end)
+    && contains(s.place_search||s.place_name, f.place) && (!f.start || s.survey_date >= f.start) && (!f.end || s.survey_date <= f.end)
     && (!f.coordinates || (f.coordinates === 'yes') === (s.latitude !== null && s.longitude !== null))
 }
 export function sortRows(rows: RecordRow[], key: string, direction: 'asc' | 'desc') {

@@ -1,19 +1,20 @@
 // SDK를 페이지당 한 번만 로드하며 Secret을 브라우저로 가져오지 않습니다.
 export interface LatLng { lat(): number; lng(): number }
-export interface NaverMap { setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void; setMapTypeId(type: string): void }
+export interface NaverMap { setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void; setMapTypeId(type: string): void; fitBounds(points: LatLng[], options?: {top:number;right:number;bottom:number;left:number;maxZoom:number}): void }
 export interface MarkerIcon { content: string; anchor: { x: number; y: number } }
 export interface NaverMarker { setMap(map: NaverMap | null): void; setIcon(icon: MarkerIcon): void; setTitle(title: string): void }
 export interface MapClick { coord: LatLng }
 export interface NaverMaps {
+  Polygon: new (options: { map:NaverMap|null; paths:LatLng[][]; strokeColor:string; strokeWeight:number; strokeOpacity:number; fillColor:string; fillOpacity:number; clickable:boolean }) => {setMap:(map:NaverMap|null)=>void}
   MapTypeId: { NORMAL: string; SATELLITE: string }
   LatLng: new (lat: number, lon: number) => LatLng
   Point: new (x: number, y: number) => { x: number; y: number }
   Map: new (element: HTMLElement, options: { center: LatLng; zoom: number }) => NaverMap
   Marker: new (options: { map: NaverMap | null; position: LatLng; title: string; icon?: MarkerIcon }) => NaverMarker
   Event: {
-    addListener(target: NaverMap | NaverMarker, name: string, callback: (event: MapClick) => void): object
+    addListener(target: NaverMap | NaverMarker | {setMap:(map:NaverMap|null)=>void}, name: string, callback: (event: MapClick) => void): object
     removeListener(listener: object): void
-    clearInstanceListeners(target: NaverMap | NaverMarker): void
+    clearInstanceListeners(target: NaverMap | NaverMarker | {setMap:(map:NaverMap|null)=>void}): void
   }
 }
 declare global {

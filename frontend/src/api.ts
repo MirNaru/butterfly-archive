@@ -2,6 +2,12 @@
 import type { Species, Survey, SurveyInput, SurveyUpdate, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
+export interface AdministrativeRegion { code: string; name: string; province: string; label: string; group: string; level: string }
+let regionRequest: Promise<{regions: AdministrativeRegion[]; source: string; source_url: string}> | undefined
+export function listRegions() {
+  if (!regionRequest) regionRequest = request<{regions: AdministrativeRegion[]; source: string; source_url: string}>('/regions').catch(error => { regionRequest = undefined; throw error })
+  return regionRequest
+}
 export const collectionItems = (page: number, source: 'naturing' | 'inaturalist' = 'naturing') => request<{ total: number; items: import('./models').CollectedItem[] }>(`/collection?offset=${page * 25}&source=${source}`)
 export const createCollectionConnection = () => request<{ token: string }>('/collection/connection', { method: 'POST', headers: { 'X-Butterfly-Client': 'app' } })
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -33,6 +39,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 export const registerCollected = (ids: number[]) => request<{results: {id: number; status: 'registered' | 'already_registered' | 'skipped'; reason?: string}[]}>('/collection/register', { ...post({ids}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
+export const editCollectedStage = (item: import('./models').CollectedItem, stage: keyof typeof import('./models').STAGE) => request<{id:number;stage:keyof typeof import('./models').STAGE;version:string}>(`/collection/${item.id}/stage`, {...post({stage,expected_version:item.version}),method:'PUT',headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const discardCollected = (ids: number[]) => request<{ids: number[]}>('/collection/discard', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const restoreCollected = (ids: number[]) => request<{ids: number[]}>('/collection/restore', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const listTags = () => request<import('./models').Tag[]>('/tags')

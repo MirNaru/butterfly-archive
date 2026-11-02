@@ -9,6 +9,14 @@ EXEMPT_SPECIES = frozenset('''호랑나비 산호랑나비 제비나비 산제�
 뿔나비 큰멋쟁이나비 작은멋쟁이나비 청띠신선나비 네발나비 먹그림나비 대왕나비 은판나비 홍점알락나비 암끝검은표범나비 어리세줄나비
 줄점팔랑나비 뾰족부전나비 남방부전나비 푸른부전나비 암먹부전나비 큰주홍부전나비'''.split())
 STAGES = {'egg': '알', 'larva': '애벌레', 'pupa': '번데기', 'adult': '어른벌레'}
+
+def preserve_stage_override(old, payload):
+    """재수집해도 사용자가 지정한 단계는 도감 추정으로 되돌리지 않습니다."""
+    if old:
+        saved=json.loads(old['payload_json'])
+        if saved.get('_stage_override') in (*STAGES,'unknown'):
+            payload['_stage_override']=saved['_stage_override']
+    return payload
 DATE_PATTERN = re.compile(r'\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(오전|오후)\s*(\d{1,2})시(?:\s*(\d{1,2})분)?)?\s*')
 
 def observed_datetime(raw):
@@ -73,6 +81,8 @@ def registration_info(db, payload):
         reason = reason or '장소명 길이 확인 필요'
     ref = db.execute('SELECT payload_json FROM species_references WHERE species_id=?', (species['id'],)).fetchone() if species else None
     inference = infer_stage(json.loads(ref[0]) if ref else {}, observed, payload.get('place_raw', '')) if observed else {'stage':'unknown'}
+    if payload.get('_stage_override') in (*STAGES,'unknown'):
+        inference={**inference,'original_inferred_stage':inference['stage'],'stage':payload['_stage_override'],'manual_stage_override':True}
     return {'eligible': not reason, 'reason':reason, 'exempt':name in EXEMPT_SPECIES,
             'inference':inference, 'species_id':species['id'] if species else None, 'date':observed, 'time':clock}
 
@@ -82,6 +92,8 @@ def import_item(db, row, info):
     stage_label = STAGES.get(stage, '미확인')
     review = '사용자 지정 검수 생략 종' if info['exempt'] else '사용자가 체크하여 검수 완료'
     note = f"- 발육 단계: {stage_label} · 도감 기간으로 추정, 겹치면 뒤 단계 적용\n- 동정 검수: {review}\n- 원문 관찰 시각: {payload['observed_raw']}\n- 원문 기상: {payload.get('weather_raw', '')}\n- 위치 정확도: 미상"
+    if info['inference'].get('manual_stage_override'):
+        note=note.replace('도감 기간으로 추정, 겹치면 뒤 단계 적용','사용자가 직접 수정')
     if payload.get('source') == 'inaturalist':
         original = payload.get('original', {})
         accuracy = payload.get('location_accuracy')

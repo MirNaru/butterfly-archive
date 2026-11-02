@@ -13,6 +13,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import Field
 from app.collection import local_screen
+from app.collection_import import preserve_stage_override
 from app.database import connect_database, database_path
 from app.integration_settings import IntegrationError, NoRedirect
 from app.schemas import InputModel
@@ -145,6 +146,7 @@ def normalized(row):
 def save_payload(db, payload, stamp):
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     old = db.execute("SELECT * FROM collected_observations WHERE source='inaturalist' AND source_id=?", (payload['source_id'],)).fetchone()
+    encoded = json.dumps(preserve_stage_override(old,payload),ensure_ascii=False,sort_keys=True)
     status = 'created' if old is None else 'unchanged' if old['payload_json'] == encoded else 'updated'
     if status == 'updated':
         db.execute('INSERT INTO collection_revisions(item_id,payload_json,replaced_at) VALUES(?,?,?)', (old['id'], old['payload_json'], stamp))

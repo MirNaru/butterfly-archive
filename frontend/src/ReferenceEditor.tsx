@@ -5,11 +5,11 @@ import type { ReferenceDocument, Species, SpeciesReference } from './models'
 import { saveReference } from './api'
 import LifeCycleEditor from './LifeCycleEditor'
 import { PROTECTION_LABELS } from './speciesStatus'
+import RegionPicker from './RegionPicker'
 const slotName = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
 export default function ReferenceEditor({ species, initial, onClose, onSaved, onBusyChange }: { species: Species; initial: ReferenceDocument; onClose: () => void; onSaved: (reference: SpeciesReference) => void; onBusyChange?: (busy: boolean) => void }) {
   const [value, setValue] = useState(initial.reference)
   const [years, setYears] = useState(value.sighting_years.join(', '))
-  const [regions, setRegions] = useState(value.regions.join(', '))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   function update<K extends keyof SpeciesReference>(key: K, next: SpeciesReference[K]) { setValue(v => ({ ...v, [key]: next })) }
@@ -21,7 +21,7 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     const parts = years.trim() ? years.split(/[,\s]+/).filter(Boolean) : []
     if (parts.some(p => !/^\d{4}$/.test(p))) { setError('목격 연도는 네 자리 숫자로 입력해 주세요.'); return }
     setBusy(true); onBusyChange?.(true)
-    try { const saved = await saveReference(species.id, { ...value, regions: regions.split(',').map(s => s.trim()).filter(Boolean), sighting_years: [...new Set(parts.map(Number))] }, initial.updated_at); onSaved(saved.reference) }
+    try { const saved = await saveReference(species.id, { ...value, sighting_years: [...new Set(parts.map(Number))] }, initial.updated_at); onSaved(saved.reference) }
     catch (e) { setError(e instanceof Error ? e.message : '참고자료 저장에 실패했습니다.') }
     finally { setBusy(false); onBusyChange?.(false) }
   }
@@ -38,9 +38,10 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     {value.periods.map((p, index) => <div className="period-input" key={index}>{(['start', 'end'] as const).map(key => <label key={key}>{key === 'start' ? '시작 구간' : '끝 구간'}<select value={p[key]} onChange={e => update('periods', value.periods.map((x, i) => i === index ? { ...x, [key]: Number(e.target.value) } : x))}>{Array.from({ length: 36 }, (_, i) => <option value={i + 1} key={i}>{slotName(i + 1)}</option>)}</select></label>)}<button type="button" onClick={() => update('periods', value.periods.filter((_, i) => i !== index))}>구간 제거</button></div>)}
     <button type="button" disabled={value.periods.length >= 36} onClick={() => update('periods', [...value.periods, { start: 1, end: 1 }])}>출현 구간 추가</button>
     </details>
-    <label>분포 지역 · 쉼표로 구분<input value={regions} onChange={e => setRegions(e.target.value)} /></label>
+    <RegionPicker value={value.region_codes||[]} onChange={codes=>update('region_codes',codes)} evidence={value.region_evidence||[]}/>
+    {!!value.region_unmatched?.length&&<details><summary>행정지역 연결 확인 필요 · {value.region_unmatched.length}건</summary><ul>{value.region_unmatched.map((v,i)=><li key={i}>{v}</li>)}</ul></details>}
     <div className="field-grid">{flag('north_only', '북한 서식')}{flag('vagrant', '미접 여부')}</div>
-    <label>확인된 목격 연도 · 쉼표로 구분<input value={years} onChange={e => setYears(e.target.value)} placeholder="2008, 2025" /></label>{text('source', '출현·분포·목격 자료 출처')}<div className="field-grid">{flag('domestic_extinct', '국내 절멸 분류')}{text('extinction_source', '국내 절멸 분류 출처')}</div><p className="hint">국내 기준으로 기록하며 세계적 절멸과 구분합니다. 사용자 지정이면 출처에 그 사실을 적어 주세요.</p>
+    <label>최신 목격 연도<input value={years} onChange={e => setYears(e.target.value)} placeholder="2025" /></label><p className="hint">사용자 확인된 국내 간접 관찰이 있으면 해당 사례의 최신 연도 하나로 바뀝니다. 기존 연도는 누적하지 않습니다. 국내 주소가 명확하지 않다면 관찰 수정에서 종별 태그 ‘국내 관찰 확인’을 직접 지정할 수 있습니다.</p>{value.sighting_source && <p className="hint">목격 연도 근거: {value.sighting_source}</p>}{text('source', '출현·분포·목격 자료 출처')}<div className="field-grid">{flag('domestic_extinct', '국내 절멸 분류')}{text('extinction_source', '국내 절멸 분류 출처')}</div><p className="hint">국내 기준으로 기록하며 세계적 절멸과 구분합니다. 사용자 지정이면 출처에 그 사실을 적어 주세요.</p>
     <h3>과거 채집 확인</h3><label>채집 이력<select value={value.capture_history} onChange={e => update('capture_history', e.target.value as SpeciesReference['capture_history'])}><option value="unknown">미확인</option><option value="captured">채집한 적 있음</option><option value="not_captured">채집한 적 없음 · 사용자 확인</option></select></label>{text('capture_source', '채집 여부 확인 근거')}<p className="hint">앱에 실제 채집 기록이 있으면 채집한 종으로 표시합니다.</p>
     <h3>보호종 참고 정보</h3><p className="hint">확인된 지정만 추가합니다. 지역보호는 국가보호종과 구분하며, 이 표시만으로 채집 허용 여부를 판단하지 않습니다.</p>
     {value.protections.map((p, index) => <fieldset className="protection-entry" key={index}><legend>보호 지정 {index + 1}</legend><div className="field-grid"><label>지정 종류<select value={p.kind} onChange={e => changeProtections(value.protections.map((item, i) => i === index ? { ...item, kind: e.target.value as typeof p.kind, region: '' } : item))}>{Object.entries(PROTECTION_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>{p.kind === 'regional' && <label>보호 지역<input required maxLength={100} value={p.region} onChange={e => changeProtections(value.protections.map((item, i) => i === index ? { ...item, region: e.target.value } : item))} placeholder="경기도" /></label>}<label>지정 번호 · 선택<input maxLength={100} value={p.designation} onChange={e => changeProtections(value.protections.map((item, i) => i === index ? { ...item, designation: e.target.value } : item))} placeholder="458호" /></label><label>지정 정보 확인일<input type="date" required value={p.checked} onChange={e => changeProtections(value.protections.map((item, i) => i === index ? { ...item, checked: e.target.value } : item))} /></label></div><label>지정 정보 출처<input required maxLength={2000} value={p.source} onChange={e => changeProtections(value.protections.map((item, i) => i === index ? { ...item, source: e.target.value } : item))} placeholder="공식 자료 URL 또는 확인 근거" /></label><button type="button" onClick={() => changeProtections(value.protections.filter((_, i) => i !== index))}>이 보호 지정 제거</button></fieldset>)}

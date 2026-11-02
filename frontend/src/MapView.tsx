@@ -1,12 +1,17 @@
 // 지도 객체를 탭 전환 시 유지하고 좌표별 마커를 필요한 만큼만 갱신합니다.
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { mapPermit } from './api'
 import { loadMaps, onMapAuthFailure } from './naverMaps'
 import type { NaverMap, NaverMarker, NaverMaps } from './naverMaps'
-import type { Coordinate, MapPin } from './models'
+import type { Coordinate, MapPin, SpeciesReference } from './models'
 import { PIN_STYLE, pinAppearance } from './mapPinStyle'
 
-export default function MapView({ shown, pins, focus, onSelect, onPick }: {
+interface BoundaryFeature {properties:{code:string;label:string;detail?:string};bbox:number[];geometry:{type:string;coordinates:number[][][]|number[][][][]}}
+let boundaryRequest:Promise<{features:BoundaryFeature[];source:string;source_url:string}>|undefined
+export default function MapView({ shown, pins, focus, onSelect, onPick, distribution, infoContainer }: {
+  infoContainer?: HTMLElement | null
+  distribution?:{name:string;reference:SpeciesReference}|null
   shown: boolean; pins: MapPin[]; focus?: Coordinate | null
   onSelect?: (pin: MapPin) => void; onPick?: (point: Coordinate) => void
 }) {
@@ -23,6 +28,35 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   const [group, setGroup] = useState<string | null>(null)
   const [hidden, setHidden] = useState(false)
   const [satellite, setSatellite] = useState(false)
+  const [regionsOn,setRegionsOn]=useState(false)
+  const [boundaryData,setBoundaryData]=useState<Awaited<NonNullable<typeof boundaryRequest>>|null>(null)
+  const [boundaryError,setBoundaryError]=useState('')
+  const [regionInfo,setRegionInfo]=useState<{name:string;species:string;details:string[]}|null>(null)
+  const [regionRetry,setRegionRetry]=useState(0)
+  const selectedRegionCodes=distribution?.reference.region_codes?.join(',')||''
+  useEffect(()=>{
+    if(!regionsOn||!distribution)return
+    let active=true
+    if(!boundaryRequest)boundaryRequest=fetch('/api/regions/boundaries',{signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('지역 경계를 읽지 못했습니다.');return r.json()}).catch(e=>{boundaryRequest=undefined;throw e})
+    boundaryRequest!.then(data=>{if(active){setBoundaryData(data);setBoundaryError('')}}).catch(e=>{if(active)setBoundaryError(e.message)})
+    return()=>{active=false}
+  },[regionsOn,distribution,regionRetry])
+  useEffect(()=>{
+    if(!ready||!regionsOn||!boundaryData||!distribution||!map.current||!sdk.current)return
+    const api=sdk.current, polygons:{setMap:(map:NaverMap|null)=>void}[]=[], codes=new Set(selectedRegionCodes.split(','))
+    for(const f of boundaryData.features) {
+      if(!codes.has(f.properties.code)||(f.properties.code.length>2&&codes.has(f.properties.code.slice(0,2))))continue
+      const evidence=(distribution.reference.region_evidence||[]).filter(e=>e.code===f.properties.code)
+      const confirmed=evidence.some(e=>e.origin==='observation')
+      const shapes=f.geometry.type==='Polygon'?[f.geometry.coordinates as number[][][]]:f.geometry.coordinates as number[][][][]
+      for(const rings of shapes) {
+        const polygon=new api.Polygon({map:map.current,paths:rings.map(r=>r.map(p=>new api.LatLng(p[1],p[0]))),strokeColor:confirmed?'#137333':'#188038',strokeWeight:confirmed?2:1,strokeOpacity:0.9,fillColor:'#34a853',fillOpacity:confirmed?0.38:0.24,clickable:true})
+        api.Event.addListener(polygon,'click',()=>setRegionInfo({name:f.properties.label,species:distribution.name,details:[...(f.properties.detail?[f.properties.detail]:[]),...evidence.map(e=>`${({excel:'엑셀',manual:'사용자 지정',observation:'관찰 확인'})[e.origin]} · ${e.detail}`)]}))
+        polygons.push(polygon)
+      }
+    }
+    return()=>{for(const p of polygons){p.setMap(null);api.Event.clearInstanceListeners(p)}}
+  },[ready,regionsOn,boundaryData,selectedRegionCodes,distribution])
   useEffect(() => {
     if (!shown || map.current) return
     let active = true
@@ -98,12 +132,19 @@ export default function MapView({ shown, pins, focus, onSelect, onPick }: {
   const grouped = hidden ? [] : pins.filter(p => `${p.latitude},${p.longitude}` === group)
   return <section className="map-view">
     <div className="toolbar"><h2 className="map-title">지도</h2><div className="map-actions">
+      {distribution!==undefined&&<button type="button" aria-pressed={regionsOn} onClick={()=>{setRegionsOn(v=>!v);setRegionInfo(null)}}>{regionsOn?'출현지역 숨기기':'출현지역 보기'}</button>}
       <button type="button" aria-pressed={hidden} onClick={() => setHidden(v => !v)}>{hidden ? '핀 표시' : '핀 숨기기'}</button>
       <div className="map-types" role="group" aria-label="지도 종류">
         <button type="button" disabled={!ready || !!error} aria-pressed={!satellite} onClick={() => setSatellite(false)}>일반지도</button>
         <button type="button" disabled={!ready || !!error} aria-pressed={satellite} onClick={() => setSatellite(true)}>위성지도</button>
       </div>
     </div></div>
+    {distribution!==undefined&&regionsOn&&infoContainer&&createPortal(<>
+      <span>출현지역 · {distribution?.name||'왼쪽에서 한 종을 선택해 주세요'} · 녹색: 엑셀·사용자 지정은 옅게, 관찰 확인 지역은 진하게 표시합니다. 지역 전체의 서식을 뜻하지 않습니다. {distribution&&!selectedRegionCodes&&'등록된 출현지역이 없습니다.'}{selectedRegionCodes.includes('special-hallasan')&&' 한라산: 해발 1,000m 이상 등고선 참고 영역 · Mapzen Terrain Tiles / USGS SRTM. 실제 서식 고도 하한을 뜻하지 않습니다.'}</span>
+      {boundaryError&&<span role="alert">{boundaryError}<button type="button" onClick={()=>setRegionRetry(n=>n+1)}>경계 다시 읽기</button></span>}
+      {boundaryData&&<span>{boundaryData.source} · <a href={boundaryData.source_url} target="_blank" rel="noreferrer">경계 출처</a></span>}
+      {regionInfo&&distribution&&regionInfo.species===distribution.name&&<div className="distribution-evidence"><strong>{regionInfo.name}</strong><button type="button" onClick={()=>setRegionInfo(null)}>닫기</button><ul>{regionInfo.details.map((d,i)=><li key={i}>{d}</li>)}</ul></div>}
+    </>,infoContainer)}
     {error && <p role="alert" className="error">{error}</p>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
     <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>

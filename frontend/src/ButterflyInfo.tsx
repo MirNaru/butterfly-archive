@@ -141,7 +141,7 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
     } catch (e) { setError(e instanceof Error ? e.message : '종 등록에 실패했습니다.') }
     finally { setBusy(false); onEditing(false) }
   }
-  const filtered = catalog.filter(s => `${s.korean_name} ${s.scientific_name || ''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const filtered = catalog.filter(s => `${s.korean_name} ${s.scientific_name || ''} ${speciesStatuses(s.reference).map(badge => badge.label).join(' ')} ${s.reference.regions.join(' ')} ${s.reference.region_search||''}`.toLowerCase().includes(query.trim().toLowerCase()))
   const controls = <div className="catalog-controls">
     <details open={registerOpen} onToggle={e => onRegisterOpen(e.currentTarget.open)}><summary>나비 등록</summary><form onSubmit={create} className="catalog-create"><fieldset disabled={busy}><label>국명<input id="catalog-new-name" name="korean_name" required maxLength={100} /></label><label>학명 · 선택<input name="scientific_name" maxLength={200} /></label><button className="primary">나비 등록</button></fieldset></form></details>
     {error && <p className="error" role="alert">{error}<button type="button" disabled={busy} onClick={() => setRetry(n => n + 1)}>목록 다시 읽기</button></p>}{notice && <p className="notice" role="status">{notice}</p>}{loading && <p role="status">나비 목록을 읽는 중입니다.</p>}

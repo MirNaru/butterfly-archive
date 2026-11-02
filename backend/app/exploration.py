@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field, model_validator
 from app.database import connect_database
 from app.schemas import InputModel
+from app import regions as administrative_regions
 
 router = APIRouter(prefix='/api')
 Slot = Annotated[int, Field(strict=True, ge=1, le=36)]
@@ -51,6 +52,10 @@ class Protection(InputModel):
 
 
 class Reference(InputModel):
+    region_codes: list[str] = Field(default_factory=list, max_length=500)
+    region_search: str = Field(default='', max_length=50000)
+    region_unmatched: list[str] = Field(default_factory=list, max_length=1000)
+    region_evidence: list['RegionEvidence'] = Field(default_factory=list, max_length=10000)
     domestic_extinct: bool | None = None
     extinction_source: str = Field(default='', max_length=2000)
     protections: list[Protection] = Field(default_factory=list, max_length=100)
@@ -74,6 +79,7 @@ class Reference(InputModel):
     north_only: bool | None = None
     vagrant: bool | None = None
     sighting_years: list[Year] = Field(default_factory=list, max_length=200)
+    sighting_source: str = Field(default='', max_length=2400)
     protected: bool | None = None
     capture_history: Literal['unknown', 'captured', 'not_captured'] = 'unknown'
     source: str = Field(default='', max_length=2000)
@@ -89,6 +95,8 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if self.sighting_years:
+            self.sighting_years = [max(self.sighting_years)]
         if self.domestic_extinct is not None and not self.extinction_source:
             raise ValueError('국내 절멸 분류의 출처를 입력해 주세요.')
         if len({(p.kind, p.region, p.designation) for p in self.protections}) != len(self.protections):
@@ -108,7 +116,7 @@ class Reference(InputModel):
             raise ValueError('분류·표시 순서의 출처를 입력해 주세요.')
         if self.host_plants and not self.host_plants_source:
             raise ValueError('기주식물 자료의 출처를 입력해 주세요.')
-        if (self.periods or self.regions or self.vagrant is not None or self.north_only is not None or self.sighting_years) and not self.source:
+        if (self.periods or (self.regions and not (self.region_codes or self.region_evidence)) or self.vagrant is not None or self.north_only is not None or self.sighting_years) and not self.source:
             raise ValueError('출현·분포·목격 자료의 출처를 입력해 주세요.')
         if self.capture_history != 'unknown' and not self.capture_source:
             raise ValueError('과거 채집 여부의 확인 근거를 입력해 주세요.')
@@ -125,8 +133,18 @@ class ReferenceUpdate(Reference):
     expected_updated_at: str | None = Field(default=None, max_length=100)
 
 
+class RegionEvidence(InputModel):
+    code: str = Field(min_length=2, max_length=20)
+    origin: Literal['excel', 'manual', 'observation']
+    detail: str = Field(max_length=2400)
+
+
+Reference.model_rebuild()
+ReferenceUpdate.model_rebuild()
+
+
 def normalized_reference(payload):
-    return Reference.model_validate({k: v for k, v in payload.items() if k != '_lifecycle_history'}).model_dump(mode='json')
+    return Reference.model_validate({k: v for k, v in payload.items() if k not in ('_lifecycle_history', '_vagrant_year_managed', '_region_exclusions')}).model_dump(mode='json')
 
 
 def life_snapshot(reference, timestamp):
@@ -137,8 +155,10 @@ def life_snapshot(reference, timestamp):
 def catalog():
     with connect_database() as db:
         result = []
+        observed_regions = administrative_regions.observation_regions(db)
         for row in db.execute("SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY json_extract(r.payload_json,'$.display_order') IS NULL,json_extract(r.payload_json,'$.display_order'),s.id"):
-            ref = normalized_reference(json.loads(row['payload_json']) if row['payload_json'] else {})
+            raw = json.loads(row['payload_json']) if row['payload_json'] else {}
+            ref = administrative_regions.for_species(db,row['id'],normalized_reference(raw),observed_regions,raw)
             result.append({'id': row['id'], 'korean_name': row['korean_name'], 'scientific_name': row['scientific_name'], 'host_plants': ref['host_plants'], 'reference': ref})
         return result
 
@@ -148,7 +168,7 @@ def reference_row(connection, species_id):
         raise HTTPException(404, '종을 찾을 수 없습니다.')
     row = connection.execute('SELECT * FROM species_references WHERE species_id=?', (species_id,)).fetchone()
     raw = json.loads(row['payload_json']) if row else {}
-    return {'reference': normalized_reference(raw), 'lifecycle_history': raw.get('_lifecycle_history', []),
+    return {'reference': administrative_regions.for_species(connection,species_id,normalized_reference(raw),raw=raw), 'lifecycle_history': raw.get('_lifecycle_history', []),
             'updated_at': row['updated_at'] if row else None}
 
 
@@ -171,6 +191,10 @@ def save_reference(species_id: int, value: ReferenceUpdate):
             if key not in value.model_fields_set:
                 payload[key] = old['reference'][key]
         payload = normalized_reference(payload)
+        try:
+            payload = administrative_regions.prepare_save(db,species_id,payload,value.region_codes if 'region_codes' in value.model_fields_set else None)
+        except ValueError as error:
+            raise HTTPException(422,str(error)) from None
         stamp = datetime.now(timezone.utc).isoformat()
         history = old['lifecycle_history']
         snapshot = life_snapshot(payload, stamp)
@@ -180,8 +204,13 @@ def save_reference(species_id: int, value: ReferenceUpdate):
                 history = [previous]
             history = [*history, snapshot]
         payload['_lifecycle_history'] = history
+        existing = db.execute('SELECT payload_json FROM species_references WHERE species_id=?', (species_id,)).fetchone()
+        if existing and json.loads(existing[0]).get('_vagrant_year_managed'):
+            payload['_vagrant_year_managed'] = True
         db.execute('INSERT INTO species_references VALUES (?, ?, ?) ON CONFLICT(species_id) DO UPDATE SET payload_json=excluded.payload_json, updated_at=excluded.updated_at',
                    (species_id, json.dumps(payload, ensure_ascii=False), stamp))
+        from app.vagrant_years import sync_vagrant_years
+        sync_vagrant_years(db)
         return reference_row(db, species_id)
 
 
@@ -233,8 +262,10 @@ def exploration(on: date, region: str = ''):
         captured = {r[0] for r in db.execute(f"SELECT DISTINCT o.species_id FROM observations o WHERE o.result='observed' AND o.capture_status='captured' AND o.source_type='direct' AND o.species_id IS NOT NULL AND {ACTIVE_OBSERVATION}")}
         captured.update(row[0] for row in db.execute("SELECT DISTINCT species_id FROM holdings WHERE acquisition='own_capture'"))
         result = []
+        observed_regions = administrative_regions.observation_regions(db)
         for row in db.execute('SELECT s.id,s.korean_name,s.scientific_name,r.payload_json FROM species s LEFT JOIN species_references r ON r.species_id=s.id ORDER BY s.korean_name'):
-            ref = normalized_reference(json.loads(row['payload_json']) if row['payload_json'] else {})
+            raw = json.loads(row['payload_json']) if row['payload_json'] else {}
+            ref = administrative_regions.for_species(db,row['id'],normalized_reference(raw),observed_regions,raw)
             permission = 'unknown'
             if region and region.casefold() == ref['permission_region'].casefold() and ref['permission_start'] and ref['permission_end'] and ref['permission_start'] <= on.isoformat() <= ref['permission_end']:
                 permission = ref['permission']
@@ -244,5 +275,5 @@ def exploration(on: date, region: str = ''):
                 'host_plants': ref['host_plants'], **season(periods, on), 'reference': ref,
                 'old_vagrant': ref['vagrant'] is True and bool(ref['sighting_years']) and max(ref['sighting_years']) < 2010,
                 'capture_history': 'captured' if row['id'] in captured else ref['capture_history'], 'permission': permission,
-                'region_match': not region or any(region.casefold() in item.casefold() for item in ref['regions'])})
+                'region_match': administrative_regions.matches_region(ref,region)})
         return result

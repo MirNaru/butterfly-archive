@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from app.database import connect_database, database_path
 from app.schemas import InputModel
+from app.vagrant_years import sync_vagrant_years
 
 router = APIRouter(prefix='/api')
 ACTIVE_SURVEY = "NOT EXISTS(SELECT 1 FROM record_trash t WHERE t.survey_id=s.id AND t.kind='survey' AND t.restored_at IS NULL)"
@@ -48,6 +49,7 @@ def move_to_trash(survey_id, value, observation_id=None):
         key = db.execute('INSERT INTO record_trash(kind,survey_id,observation_id,deleted_at) VALUES(?,?,?,?)',
                          ('survey' if observation_id is None else 'observation', survey_id, observation_id, stamp)).lastrowid
         db.execute('UPDATE surveys SET updated_at=? WHERE id=?', (stamp, survey_id))
+        sync_vagrant_years(db)
         return {'id': key, 'deleted_at': stamp, 'survey_id': survey_id, 'observation_id': observation_id}
 
 
@@ -86,6 +88,7 @@ def restore(trash_id: int, value: RestoreInput):
         stamp = datetime.now(timezone.utc).isoformat()
         db.execute('UPDATE record_trash SET restored_at=? WHERE id=?', (stamp, trash_id))
         db.execute('UPDATE surveys SET updated_at=? WHERE id=?', (stamp, row['survey_id']))
+        sync_vagrant_years(db)
         return {'survey_id': row['survey_id'], 'observation_id': row['observation_id']}
 
 
@@ -129,6 +132,7 @@ def purge_rows(db, rows):
             db.execute('DELETE FROM surveys WHERE id=?', (row['survey_id'],))
         else:
             db.execute('UPDATE surveys SET updated_at=? WHERE id=?', (datetime.now(timezone.utc).isoformat(), row['survey_id']))
+    sync_vagrant_years(db)
     return len(observations)
 
 

@@ -120,6 +120,11 @@ class SourceWeather(InputModel):
 
 
 class Observation(ObservationInput):
+    display_place: str = ''
+    place_search: str = ''
+    location_note: str = ''
+    administrative_region: str = ''
+    administrative_region_code: str | None = None
     collection_accepted: bool = False
     stage_inferred: bool = False
     source_weather: SourceWeather | None = None
@@ -133,6 +138,9 @@ class Observation(ObservationInput):
 
 
 class Survey(SurveyInput):
+    display_place: str = ''
+    place_search: str = ''
+    location_note: str = ''
     id: int
     created_at: str
     updated_at: str
