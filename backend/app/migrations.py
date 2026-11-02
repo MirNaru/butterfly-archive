@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 13
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -116,6 +116,25 @@ COLLECTION_IMPORT_STATEMENTS = (
 )
 
 
+PAPER_STATEMENTS = (
+    '''CREATE TABLE papers(id INTEGER PRIMARY KEY, identity TEXT NOT NULL UNIQUE,
+       payload_json TEXT NOT NULL, received_at TEXT NOT NULL)''',
+    '''CREATE TABLE paper_observations(paper_id INTEGER NOT NULL REFERENCES papers(id),
+       observation_id INTEGER NOT NULL UNIQUE REFERENCES observations(id),
+       evidence TEXT NOT NULL, source_snapshot TEXT NOT NULL, case_key TEXT NOT NULL,
+       created_at TEXT NOT NULL, UNIQUE(paper_id,case_key,observation_id))''',
+    'CREATE INDEX paper_observations_paper ON paper_observations(paper_id)',
+)
+
+
+PAPER_FILE_STATEMENTS = (
+    '''CREATE TABLE paper_files(id INTEGER PRIMARY KEY, paper_id INTEGER NOT NULL REFERENCES papers(id),
+       sha256 TEXT NOT NULL UNIQUE, original_name TEXT NOT NULL, pages_json TEXT NOT NULL,
+       created_at TEXT NOT NULL)''',
+    'CREATE INDEX paper_files_paper ON paper_files(paper_id)',
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -123,7 +142,7 @@ def initialize_database() -> None:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version == SCHEMA_VERSION:
             return
-        if version not in (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10):
+        if version not in range(SCHEMA_VERSION):
             raise RuntimeError("지원하지 않는 DB 버전입니다. 기존 파일을 보존하고 실행을 중단합니다.")
         existing = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         expected_new = {"species_references"} if version < 3 else set()
@@ -137,7 +156,11 @@ def initialize_database() -> None:
             expected_new.add('record_trash')
         if version < 10:
             expected_new.update({'collected_observations', 'collection_revisions', 'collection_connection'})
-        expected_new.add('collection_imports')
+        if version < 11:
+            expected_new.add('collection_imports')
+        if version < 12:
+            expected_new.update({'papers', 'paper_observations'})
+        expected_new.add('paper_files')
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -156,7 +179,7 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + COLLECTION_IMPORT_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + PAPER_FILE_STATEMENTS):
             connection.execute(statement)
         if version < 5:
             connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])

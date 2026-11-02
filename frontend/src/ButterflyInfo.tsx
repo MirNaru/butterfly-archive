@@ -85,6 +85,7 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
     const area = scrollArea.current, input = scrollInput.current
     if (!area || !input) return
     const measure = () => {
+      area.style.setProperty('--catalog-header-height', `${area.querySelector('thead')?.getBoundingClientRect().height || 0}px`)
       const max = Math.max(0, area.scrollWidth - area.clientWidth)
       const thumbWidth = Math.max(36, input.clientWidth * area.clientWidth / Math.max(1, area.scrollWidth))
       setScroll(previous => previous.max === max && previous.left === area.scrollLeft && previous.thumbWidth === thumbWidth ? previous : { left: area.scrollLeft, max, thumbWidth })
@@ -92,6 +93,8 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
     const observer = new ResizeObserver(measure)
     observer.observe(area); observer.observe(input)
     if (area.firstElementChild) observer.observe(area.firstElementChild)
+    const header = area.querySelector('thead')
+    if (header) observer.observe(header)
     return () => observer.disconnect()
   }, [])
   function moveScroll(left: number) {

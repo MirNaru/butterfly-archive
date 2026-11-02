@@ -1,5 +1,6 @@
 """종과 탐사를 하나의 트랜잭션으로 저장하고 관계를 재조회합니다."""
 import sqlite3
+from contextlib import nullcontext
 import json
 from datetime import datetime, timezone
 from app.database import connect_database
@@ -38,6 +39,8 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
         if len(supplied) != len(set(supplied)) or set(supplied) != existing:
             raise InvalidObservation("기존 종별 기록을 빠짐없이 한 번씩 포함해야 합니다. 삭제는 상세 화면의 관찰 삭제 버튼을 사용해 주세요.")
         for item in value.observations:
+            if item.id and item.source_type != 'indirect' and connection.execute('SELECT 1 FROM paper_observations WHERE observation_id=?', (item.id,)).fetchone():
+                raise InvalidObservation('논문과 연결된 관찰은 간접 관찰 출처를 유지해야 합니다.')
             if item.species_id and not connection.execute(
                     "SELECT 1 FROM species WHERE id=?", (item.species_id,)).fetchone():
                 raise UnknownSpecies("선택한 종이 없습니다. 종 목록을 새로 확인해 주세요.")
@@ -184,11 +187,11 @@ def list_surveys() -> list[dict]:
         return list(surveys.values())
 
 
-def create_survey(value: SurveyInput) -> dict:
+def create_survey(value: SurveyInput, connection: sqlite3.Connection | None = None) -> dict:
     values = value.model_dump(mode="json", exclude={"observations", "tags", "photo_ids"})
     now = datetime.now(timezone.utc).isoformat()
     values.update(created_at=now, updated_at=now)
-    with connect_database() as connection:
+    with (connect_database() if connection is None else nullcontext(connection)) as connection:
         # 열 이름은 검증된 모델에서만 가져오고 값은 매개변수로 전달합니다.
         columns = ", ".join(values)
         cursor = connection.execute(

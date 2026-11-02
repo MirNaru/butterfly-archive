@@ -129,16 +129,19 @@ def test_manual_stage_edit_overrides_inference_and_preserves_weather(client):
         assert metadata['manual_stage_history'][0]['to']=='adult'
 
 def test_migration_from_ten_preserves_existing_rows(client):
-    from app.migrations import initialize_database
+    from app.migrations import initialize_database, SCHEMA_VERSION
     client.post('/api/species',json={'korean_name':'네발나비'})
     with connect_database() as db:
         db.execute('DROP TABLE collection_imports')
+        db.execute('DROP TABLE paper_files')
+        db.execute('DROP TABLE paper_observations')
+        db.execute('DROP TABLE papers')
         db.execute('PRAGMA user_version=10')
         before=[tuple(r) for r in db.execute('SELECT * FROM species')]
     initialize_database()
     initialize_database()
     with connect_database() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==11
+        assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
         assert before==[tuple(r) for r in db.execute('SELECT * FROM species')]
         assert db.execute('SELECT count(*) FROM collection_imports').fetchone()[0]==0
         assert not db.execute('PRAGMA foreign_key_check').fetchall()

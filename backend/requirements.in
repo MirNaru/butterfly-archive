@@ -1,3 +1,4 @@
 fastapi
 uvicorn
 python-dotenv
+pypdf==6.21.4

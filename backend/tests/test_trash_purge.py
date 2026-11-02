@@ -11,6 +11,64 @@ def purge(client, entry):
     return client.request('DELETE', f"/api/trash/{entry['id']}", json={'expected_deleted_at': entry['deleted_at']})
 
 
+def purge_all(client, entries):
+    return client.request('DELETE', '/api/trash', json={'entries': [{'id': e['id'], 'expected_deleted_at': e['deleted_at']} for e in entries]})
+
+
+def test_all_purge_nested_entries_one_backup_and_live_records_preserved(client):
+    saved = record(client, observations=[{}, {}])
+    remove(client, saved, saved['observations'][0]['id'])
+    saved = client.get(f"/api/surveys/{saved['id']}").json()
+    remove(client, saved)
+    sibling = record(client, observations=[{}, {}])
+    remove(client, sibling, sibling['observations'][0]['id'])
+    live = record(client)
+    entries = client.get('/api/trash').json()
+    response = purge_all(client, entries)
+    assert response.status_code == 200, response.text
+    assert response.json() == {'deleted_entries': 3, 'deleted_observations': 3}
+    assert client.get('/api/trash').json() == []
+    assert client.get(f"/api/surveys/{live['id']}").json() == live
+    assert len(client.get(f"/api/surveys/{sibling['id']}").json()['observations']) == 1
+    assert len(list(database_path().parent.glob('*.before-purge-*.bak'))) == 1
+    with connect_database() as db:
+        assert not db.execute('PRAGMA foreign_key_check').fetchall()
+
+
+def test_all_purge_rejects_stale_partial_duplicate_and_empty_snapshot(client):
+    assert purge_all(client, []).status_code == 422
+    first = record(client); remove(client, first)
+    previous = client.get('/api/trash').json()
+    second = record(client); remove(client, second)
+    assert purge_all(client, previous).status_code == 409
+    entries = client.get('/api/trash').json()
+    assert purge_all(client, entries + [entries[0]]).status_code == 409
+    bad = [{**e, 'deleted_at': 'stale'} for e in entries]
+    assert purge_all(client, bad).status_code == 409
+    restore(client, entries[0])
+    assert purge_all(client, entries).status_code == 409
+    assert len(client.get('/api/trash').json()) == 1
+    assert not list(database_path().parent.glob('*.before-purge-*.bak'))
+
+
+def test_all_purge_backup_and_sql_failure_leave_whole_batch(client, monkeypatch):
+    first = record(client, observations=[{}]); remove(client, first)
+    second = record(client, observations=[{}]); remove(client, second)
+    entries = client.get('/api/trash').json()
+    def fail():
+        raise OSError('시험 보호 복사본 실패')
+    with monkeypatch.context() as patch:
+        patch.setattr(trash, 'protect_before_purge', fail)
+        assert purge_all(client, entries).status_code == 503
+    with connect_database() as db:
+        db.execute(f"CREATE TRIGGER fail_bulk BEFORE DELETE ON surveys WHEN OLD.id={second['id']} BEGIN SELECT RAISE(ABORT,'test'); END")
+    assert purge_all(client, entries).status_code == 503
+    assert len(client.get('/api/trash').json()) == 2
+    with connect_database() as db:
+        assert db.execute('SELECT count(*) FROM observations').fetchone()[0] == 2
+        assert db.execute('SELECT count(*) FROM surveys').fetchone()[0] == 2
+
+
 def test_parent_purge_preserves_photos_weather_and_unrelated_records(client, upstream):
     photo = register(client)
     saved = record(client, tags=['태풍'], photo_ids=[photo['id']], observations=[{'tags': ['공사'], 'photo_ids': [photo['id']]}, {}])

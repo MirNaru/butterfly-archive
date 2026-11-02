@@ -19,6 +19,8 @@ from app.holdings import router as holdings_router
 from app.collection import router as collection_router
 from app.trash import router as trash_router
 from app.inaturalist import router as inaturalist_router
+from app.papers import router as papers_router
+from app.paper_pdf import router as paper_pdf_router
 
 
 @asynccontextmanager
@@ -36,6 +38,8 @@ app.include_router(holdings_router)
 app.include_router(collection_router)
 app.include_router(trash_router)
 app.include_router(inaturalist_router)
+app.include_router(papers_router)
+app.include_router(paper_pdf_router)
 
 
 @app.get('/api/record-weather')

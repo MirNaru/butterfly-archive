@@ -9,7 +9,7 @@
 .main-pane { --pane-gap: 20px; flex: 1; min-width: 0; min-height: 0; padding: var(--pane-gap) 12px; overflow: auto; }
 .main-pane.map-pane { --pane-gap: 12px; display: flex; flex-direction: column; overflow: hidden; padding: 10px var(--pane-gap); }
 .main-pane.catalog-pane, .main-pane.record-pane { padding-block: 10px; }
-.main-pane.catalog-pane { padding-bottom: 4px; }
+.main-pane.catalog-pane { padding-bottom: 4px; overflow: hidden; }
 .catalog-toolbar { display: flex; align-items: center; min-height: 29px; margin-bottom: 10px; }
 .catalog-toolbar h2 { margin: 0; padding-left: 8px; transform: translateY(2px); font-size: 18px; font-weight: 700; line-height: 1.4; }
 .record-controls { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; margin-bottom: 10px; }
@@ -270,7 +270,8 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .record-table .reference-row td:first-child { background: #fffdf7; }
 .record-table .reference-row.selected td { background: #fff4cf; }
 /* 종 기본 정보 표와 한살이 도표의 단계별 낮은 채도 색상입니다. */
-.catalog-table { table-layout: fixed; min-width: 1560px; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.catalog-table { table-layout: fixed; min-width: 1560px; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-top: 0; border-radius: 9px; }
+.catalog-table thead th { position: sticky; top: 0; z-index: 2; }
 .catalog-table thead th:first-child { border-top-left-radius: 8px; }
 .catalog-table thead th:last-child { border-top-right-radius: 8px; }
 .catalog-table th:nth-child(1) { width: 210px; }
@@ -281,9 +282,9 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .butterfly-info { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .butterfly-info > .catalog-toolbar { flex-shrink: 0; }
 .butterfly-info > .table-wrap { min-height: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; }
-.butterfly-info > .catalog-scroll-area { --scroll-thumb: #d8a514; --scroll-track: #f3e6bd; overflow-y: scroll; scrollbar-gutter: stable; }
+.butterfly-info > .catalog-scroll-area { --scroll-thumb: #d8a514; --scroll-track: #f3e6bd; flex: 1; overflow-y: scroll; scrollbar-gutter: stable; }
 .catalog-scroll-area::-webkit-scrollbar { width: 6px; height: 0; }
-.catalog-scroll-area::-webkit-scrollbar-track { background: var(--scroll-track); border-radius: 6px; }
+.catalog-scroll-area::-webkit-scrollbar-track { background: var(--scroll-track); border-radius: 6px; margin-top: var(--catalog-header-height, 48px); }
 .catalog-scroll-area::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 6px; }
 .catalog-scroll-area::-webkit-scrollbar-thumb:hover { background: #b88900; }
 .catalog-scroll-area::-webkit-scrollbar-button { display: none; }
@@ -329,6 +330,7 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .holding-dialog { width: min(780px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 22px; border: 1px solid var(--border); border-radius: 14px; }
 .holding-dialog::backdrop { background: rgb(24 24 20 / 35%); }
 .trash-dialog { width: min(700px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 22px; border: 1px solid var(--border); border-radius: 14px; }
+.trash-toolbar { display: flex; flex-wrap: wrap; gap: 10px; }
 .trash-dialog::backdrop { background: rgb(24 24 20 / 35%); }
 .trash-dialog h2 { margin-top: 0; }
 .trash-dialog .actions, .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -423,3 +425,21 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 
 .catalog-scrollbar input:hover::-webkit-slider-thumb { background: #b88900; border-color: #b88900; }
 .catalog-scrollbar input:hover::-moz-range-thumb { background: #b88900; border-color: #b88900; }
+
+/* 논문 수집 조건은 기존 수집 화면과 같은 노란 박스와 두 줄 묶음을 사용합니다. */
+.paper-controls { padding: 16px; margin-bottom: 14px; background: var(--accent-soft); border: 0; border-radius: 14px; }
+.paper-fields { display: grid; gap: 18px; }
+.paper-control-row { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; }
+.paper-control-row label { width: 180px; min-width: 0; margin: 0; }
+.paper-control-row input, .paper-control-row select { width: 100%; min-width: 0; }
+.paper-control-row button { white-space: nowrap; }
+.paper-table { min-width: 800px; }
+.paper-table td:first-child { width: 36%; }
+.paper-table td:nth-child(2) { width: 24%; }
+.paper-table td { vertical-align: top; }
+.paper-table small { display: block; }
+.paper-table details p { max-width: 600px; }
+.paper-pdf-upload { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 14px 0; }
+.paper-pdf-upload label { display: flex; flex-direction: row; align-items: center; gap: 14px; margin: 0; white-space: nowrap; }
+.paper-pdf-upload input { width: 280px; max-width: 100%; }
+.paper-pdf-text { white-space: pre-wrap; max-height: 360px; overflow: auto; overflow-wrap: anywhere; }

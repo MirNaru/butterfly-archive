@@ -1,7 +1,7 @@
 // 한 탐사와 여러 종별 기록을 입력하고 실패 시 작성 내용을 유지합니다.
 import { useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { FormEvent, Ref } from 'react'
-import { addSurvey, updateSurvey } from './api'
+import { addSurvey, updateSurvey, addPaperObservation } from './api'
 import { CAPTURE, IDENTIFICATION, LOCATION, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { LocationInput, Observation, ObservationInput, Species, Survey, SurveyInput, Tag, Coordinate } from './models'
 import LocationPicker from './LocationPicker'
@@ -26,11 +26,11 @@ function LocationFields({ prefix, initial, photoRef }: { prefix: string; initial
     <LocationPicker onApply={value => { if (value.place_name) setPlace(value.place_name); setLatitude(String(value.latitude)); setLongitude(String(value.longitude)); setMethod(value.location_method) }} />
   </div>
 }
-function ObservationFields({ rowKey, index, species, remove, initial, active, tagOptions, onTagCreated, commonTags, onTagBusy, onPhotoBusy }: { onPhotoBusy: (busy: boolean) => void; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; commonTags: string[]; onTagBusy: (busy: boolean) => void; active: boolean; rowKey: number; index: number; species: Species[]; remove: () => void; initial?: Observation }) {
+function ObservationFields({ rowKey, index, species, remove, initial, active, tagOptions, onTagCreated, commonTags, onTagBusy, onPhotoBusy, sourcePreset }: { sourcePreset?: string; onPhotoBusy: (busy: boolean) => void; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; commonTags: string[]; onTagBusy: (busy: boolean) => void; active: boolean; rowKey: number; index: number; species: Species[]; remove: () => void; initial?: Observation }) {
   const [result, setResult] = useState<ObservationInput['result']>(initial?.result ?? 'observed')
   const [capture, setCapture] = useState<ObservationInput['capture_status']>(initial?.capture_status ?? 'unknown')
-  const [source, setSource] = useState<ObservationInput['source_type']>(initial?.source_type ?? 'direct')
-  const [sourceNote, setSourceNote] = useState(initial?.source_note ?? '')
+  const [source, setSource] = useState<ObservationInput['source_type']>(initial?.source_type ?? (sourcePreset ? 'indirect' : 'direct'))
+  const [sourceNote, setSourceNote] = useState(initial?.source_note ?? sourcePreset ?? '')
   const [tags, setTags] = useState(initial?.tags || [])
   const photoLocation = useRef<PhotoLocationHandle>(null)
   const [observationDate, setObservationDate] = useState(initial?.observation_date || '')
@@ -38,9 +38,9 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
   const prefix = `record-${rowKey}-`
   return <fieldset hidden={!active} data-row-key={rowKey} className="record-fields"><legend>종별 기록 {index + 1}</legend>
     <div className="field-grid observation-grid">
-      <label>관찰 출처<select name={`${prefix}source_type`} value={source} onChange={e => setSource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label>
+      <label>관찰 출처<select name={`${prefix}source_type`} value={source} disabled={!!sourcePreset} onChange={e => setSource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label>
       <label>결과<select name={`${prefix}result`} value={result} onChange={e => setResult(e.target.value as ObservationInput['result'])}><Options values={RESULT} /></select></label>
-      <label>종<select name={`${prefix}species_id`} defaultValue={initial?.species_id ?? ''} required={result === 'not_found'}>
+      <label>종<select name={`${prefix}species_id`} defaultValue={initial?.species_id ?? ''} required={!!sourcePreset || result === 'not_found'}>
         <option value="">{result === 'not_found' ? '찾으려던 종 선택' : '동정 미확정'}</option>
         {species.map(s => <option key={s.id} value={s.id}>{s.korean_name}</option>)}
       </select></label>
@@ -56,7 +56,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
         {capture === 'captured' && <label>채집 개체 수<input name={`${prefix}captured_count`} defaultValue={initial?.captured_count ?? ''} type="number" min={1} max={1000000} step={1} placeholder="미상" /></label>}
       </>}
     </div>
-    {source === 'indirect' && <label>간접 관찰 출처<input name={`${prefix}source_note`} value={sourceNote} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
+    {source === 'indirect' && <label>간접 관찰 출처<input name={`${prefix}source_note`} value={sourceNote} readOnly={!!sourcePreset} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
     {source === 'direct' && <input type="hidden" name={`${prefix}source_note`} value={sourceNote} />}
     {result === 'not_found' && <p className="hint">실제로 찾았으나 발견하지 못한 종만 기록해 주세요.</p>}
     <div className="individual-location"><h3>개별 위치 · 선택</h3><LocationFields prefix={prefix} initial={initial} photoRef={photoLocation} /></div>
@@ -68,7 +68,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
 }
 
 export interface SurveyFormHandle { requestClose(): void }
-export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef }: { tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
+export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef, sourcePaper }: { sourcePaper?: {id:number; title:string; url:string}; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
   const [keys, setKeys] = useState(initial ? initial.observations.map((_, index) => index) : [0])
   const [nextKey, setNextKey] = useState(initial ? initial.observations.length : 1)
   const [activeKey, setActiveKey] = useState(() => Math.max(0, initial?.observations.findIndex(record => record.id === selectedObservationId) ?? 0))
@@ -91,6 +91,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus() }
   }, [embedded])
   const [error, setError] = useState('')
+  const [evidence, setEvidence] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy || tagRequests > 0 || photoRequests > 0) return
@@ -111,7 +112,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
       const p = `record-${key}-`
       const result = str(`${p}result`) as ObservationInput['result']
       return { ...location(p), species_id: num(`${p}species_id`), result,
-        source_type: str(`${p}source_type`) as ObservationInput['source_type'], source_note: str(`${p}source_note`),
+        source_type: (sourcePaper ? 'indirect' : str(`${p}source_type`)) as ObservationInput['source_type'], source_note: str(`${p}source_note`),
         observation_date: str(`${p}observation_date`) || null, observation_time: str(`${p}observation_time`) || null,
         stage: (str(`${p}stage`) || 'unknown') as ObservationInput['stage'],
         sex: (str(`${p}sex`) || 'unknown') as ObservationInput['sex'], count: num(`${p}count`),
@@ -123,7 +124,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     setBusy(true); setError('')
     try {
       const value = { ...location('survey-'), survey_date: str('survey_date'), purpose: str('purpose') as SurveyInput['purpose'], notes: str('notes'), tags: commonTags, photo_ids: data.getAll('survey-photos').map(Number), observations }
-      const saved = initial ? await updateSurvey(initial.id, { ...value, expected_updated_at: initial.updated_at, observations: observations.map((item, index) => ({ ...item, id: initial.observations[keys[index]]?.id ?? null })) }) : await addSurvey(value)
+      const saved = initial ? await updateSurvey(initial.id, { ...value, expected_updated_at: initial.updated_at, observations: observations.map((item, index) => ({ ...item, id: initial.observations[keys[index]]?.id ?? null })) }) : sourcePaper ? await addPaperObservation(sourcePaper.id, evidence, value) : await addSurvey(value)
       onSaved(saved)
     } catch (error) {
       const message = error instanceof Error ? error.message : '저장에 실패했습니다.'
@@ -134,11 +135,11 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     finally { setBusy(false) }
   }
   const content = <form onSubmit={submit} noValidate className="survey-form survey-modal-form">
-      <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 탐사 기록</span><h2 id="survey-dialog-title">{initial ? '탐사 기록 수정' : '새 탐사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />개별 날짜·위치를 비우면 탐사 값을 사용합니다. 기상은 저장 후 연결합니다.</p></header>
+      <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 탐사 기록</span><h2 id="survey-dialog-title">{initial ? '탐사 기록 수정' : sourcePaper ? '논문 사례 간접 관찰 등록' : '새 탐사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />개별 날짜·위치를 비우면 탐사 값을 사용합니다. 기상은 저장 후 연결합니다.</p></header>
       {error && <p role="alert" className="error survey-error">{error}</p>}
       <fieldset disabled={busy || tagRequests > 0} className="survey-modal-fields">
         <div className="survey-columns">
-          <section className="survey-common"><h3>탐사 공통 정보</h3><div className="field-grid">
+          <section className="survey-common"><h3>탐사 공통 정보</h3>{sourcePaper && <><p className="hint">논문: {sourcePaper.title}<br />발표일을 관찰일로 사용하지 마세요. 원문에 관찰 날짜·장소가 확인되는 사례만 입력합니다.</p><label>근거 페이지·표·그림 번호<input value={evidence} onChange={e => setEvidence(e.target.value)} required maxLength={1000} placeholder="예: 12쪽 표 2, 사례 3" /></label></>}<div className="field-grid">
             <label>탐사 날짜<input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
             <label>탐사 목적<select name="purpose" defaultValue={initial?.purpose}><Options values={PURPOSE} /></select></label>
           </div><LocationFields prefix="survey-" initial={initial} photoRef={photoLocation} />
@@ -150,7 +151,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
             {initial && <p className="hint">기존 개별 지정 값과 기상자료는 보존합니다. 기상을 자동 재조회하지 않습니다.</p>}
           </section>
           <section className="survey-observations"><div className="record-switcher"><label>종별 입력 항목<select value={keys.includes(activeKey) ? activeKey : ''} onChange={e => setActiveKey(Number(e.target.value))}>{!keys.length && <option value="">종별 기록 없음</option>}{keys.map((key, index) => <option key={key} value={key}>종별 기록 {index + 1}{initial?.observations[key]?.species_name ? ` · ${initial.observations[key].species_name}` : ''}</option>)}</select></label><button type="button" disabled={keys.length >= 100} onClick={() => { setKeys([...keys, nextKey]); setActiveKey(nextKey); setNextKey(nextKey + 1) }}>종별 기록 추가</button><small>총 {keys.length}건</small></div>
-            {keys.map((key, index) => <ObservationFields key={key} rowKey={key} index={index} active={key === activeKey} initial={initial?.observations[key]} species={species} tagOptions={tagOptions} onTagCreated={onTagCreated} commonTags={commonTags} onTagBusy={tagBusy} onPhotoBusy={photoBusy} remove={() => { const remaining = keys.filter(k => k !== key); setKeys(remaining); setActiveKey(remaining[0] ?? 0) }} />)}
+            {keys.map((key, index) => <ObservationFields sourcePreset={sourcePaper ? `${sourcePaper.url} · ${sourcePaper.title.slice(0, 500)}` : undefined} key={key} rowKey={key} index={index} active={key === activeKey} initial={initial?.observations[key]} species={species} tagOptions={tagOptions} onTagCreated={onTagCreated} commonTags={commonTags} onTagBusy={tagBusy} onPhotoBusy={photoBusy} remove={() => { const remaining = keys.filter(k => k !== key); setKeys(remaining); setActiveKey(remaining[0] ?? 0) }} />)}
             {!keys.length && <p className="empty">종별 기록 없이 탐사만 저장할 수 있습니다. 미발견 기록을 자동 생성하지 않습니다.</p>}
           </section>
         </div>

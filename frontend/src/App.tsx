@@ -14,6 +14,8 @@ import SearchFilters from './SearchFilters'
 import RecordTable from './RecordTable'
 import ButterflyInfo from './ButterflyInfo'
 import CollectionInbox from './CollectionInbox'
+import PaperBrowser from './PaperBrowser'
+import type { Paper } from './api'
 import { emptyFilters, emptyTargets, rowsFor, matches, emptySurveyMatches, hasTargetConditions, targetMatches, referenceCandidates } from './recordSearch'
 import './App.css'
 
@@ -72,6 +74,8 @@ export default function App() {
   const [integration, setIntegration] = useState<IntegrationStatus | null>(null)
   const [integrationError, setIntegrationError] = useState('')
   const [creating, setCreating] = useState(false)
+  const [paperSource, setPaperSource] = useState<Paper | null>(null)
+  const [paperRevision, setPaperRevision] = useState(0)
   const [editing, setEditing] = useState<Survey | undefined>()
   const [trashOpen, setTrashOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ survey: Survey; observationId: number | null } | null>(null)
@@ -94,6 +98,7 @@ export default function App() {
   const collectionSources = [
     { id: 'inaturalist', name: 'iNaturalist', method: '공식 API', description: '공식 API로 공개 나비 관찰 자료를 조회합니다.' },
     { id: 'naturing', name: '네이처링', method: '현재 관찰 페이지 가져오기', description: '브라우저 확장 프로그램으로 직접 열어 둔 관찰 기록을 가져옵니다.' },
+    { id: 'papers', name: '논문 탐색', method: '공식 서지 API', description: '나비 관련 논문을 모으고 원문 근거로 간접 관찰 사례를 등록합니다.' },
     { id: 'google', name: '구글링', method: '관심 종 웹 검색', description: '관심 종과 기간을 기준으로 블로그·공개 커뮤니티의 자료를 찾습니다.' },
   ]
   const selectedSource = collectionSources.find(source => source.id === collectionSource)!
@@ -217,10 +222,10 @@ export default function App() {
     setSurveys(nextSurveys); setWeather(nextWeather); setSelectedId(null); setSelectedRecord(null)
     refreshReferences(); void refreshTags(); setNotice('휴지통 변경을 반영했습니다.')
   }
-  const form = (creating || !!editing) && <SurveyForm tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined) }} onSaved={saved => {
+  const form = (creating || !!editing) && <SurveyForm sourcePaper={paperSource || undefined} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined); setPaperSource(null); setPaperRevision(n => n + 1) }} onSaved={saved => {
     setSurveys(current => [saved, ...current.filter(item => item.id !== saved.id)].sort((a, b) => b.survey_date.localeCompare(a.survey_date) || b.id - a.id))
     setSelectedId(saved.id); refreshReferences(); void refreshTags(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
-    setCreating(false); setEditing(undefined); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '탐사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
+    setCreating(false); setEditing(undefined); setPaperSource(null); setPaperRevision(n => n + 1); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '탐사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
   }} />
   return <div className="app-shell">
     <div className="workspace">
@@ -260,7 +265,7 @@ export default function App() {
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
-        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} onRegistered={load} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
+        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} onRegistered={load} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
         {mode === 'info' && <ButterflyInfo species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView shown={tab === 'map' && mode === 'records'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setSelectedRecord(pin.id.startsWith('record-') ? Number(pin.id.slice(7)) : null); setMapFocus(pin) }} />
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
