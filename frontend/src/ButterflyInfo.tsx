@@ -2,12 +2,14 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { addSpecies, getReference, listCatalog } from './api'
-import type { Species, ReferenceDocument, SpeciesCatalog, Survey } from './models'
+import { addSpecies, getReference, listCatalog, findExploration, listHoldings } from './api'
+import type { Species, ReferenceDocument, SpeciesCatalog, Survey, ExplorationRow } from './models'
 import ReferenceModal from './ReferenceModal'
 import LifeCycleChart from './LifeCycleChart'
 import { collectLifeSamples, LIFE_STAGES } from './lifeCycle'
 import type { LifeFilter } from './lifeCycle'
+import { targetMatches } from './recordSearch'
+import type { TargetFilters } from './recordSearch'
 import { speciesStatuses } from './speciesStatus'
 // 탭을 닫아도 자료만 재사용합니다. 명시적 새로고침·편집은 revision으로 무효화합니다.
 let catalogCache: { key: string; promise: Promise<SpeciesCatalog[]> } | undefined
@@ -77,7 +79,7 @@ function CatalogNotes({ text }: { text: string }) {
     return <div key={index}>{group.title && <div className="catalog-note-heading">{group.title}</div>}{items.length > 0 && <ul>{items.map((item, i) => <li key={i} className={item.lines[0].startsWith('참고 문헌:') ? 'catalog-citation' : undefined}>{item.label ? <div className="catalog-sex-description"><span>{item.label}:</span><div>{item.lines.map((line, n) => <div key={n}>{line}</div>)}</div></div> : item.lines[0]}</li>)}</ul>}</div>
   })}</div>
 }
-export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing, sidebar, query, revision, surveys, registerOpen, onRegisterOpen }: { species: Species[]; onCreated: (s: Species) => void; onUpdated: (s: Species) => void; onEditing: (v: boolean) => void; sidebar: HTMLDivElement | null; query: string; revision: number; surveys: Survey[]; registerOpen: boolean; onRegisterOpen: (open: boolean) => void }) {
+export default function ButterflyInfo({ targets, onTargets, species, onCreated, onUpdated, onEditing, sidebar, query, revision, surveys, registerOpen, onRegisterOpen }: { targets: TargetFilters; onTargets: (value: TargetFilters) => void; species: Species[]; onCreated: (s: Species) => void; onUpdated: (s: Species) => void; onEditing: (v: boolean) => void; sidebar: HTMLDivElement | null; query: string; revision: number; surveys: Survey[]; registerOpen: boolean; onRegisterOpen: (open: boolean) => void }) {
   const scrollArea = useRef<HTMLDivElement>(null)
   const scrollInput = useRef<HTMLInputElement>(null)
   const [scroll, setScroll] = useState({ left: 0, max: 0, thumbWidth: 36 })
@@ -141,16 +143,69 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
     } catch (e) { setError(e instanceof Error ? e.message : '종 등록에 실패했습니다.') }
     finally { setBusy(false); onEditing(false) }
   }
-  const filtered = catalog.filter(s => `${s.korean_name} ${s.scientific_name || ''} ${speciesStatuses(s.reference).map(badge => badge.label).join(' ')} ${s.reference.regions.join(' ')} ${s.reference.region_search||''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const [conditionOpen, setConditionOpen] = useState(false)
+  const [ownership, setOwnership] = useState('')
+  const [owned, setOwned] = useState<Set<number>>(new Set())
+  const [ownershipStatus, setOwnershipStatus] = useState('loading')
+  const [references, setReferences] = useState<ExplorationRow[]>([])
+  const [conditionStatus, setConditionStatus] = useState({key:'', error:''})
+  const conditionKey = `${targets.on}:${targets.region}:${revision}:${retry}`
+  useEffect(() => {
+    let active = true
+    findExploration(targets.on, targets.region).then(refs => {
+      if (!active) return
+      setReferences(refs)
+      setConditionStatus({key:conditionKey,error:''})
+    }).catch((e: unknown) => { if(active) setConditionStatus({key:conditionKey,error:e instanceof Error ? e.message : '도감 조건을 읽지 못했습니다.'}) })
+    return () => { active = false }
+  }, [conditionKey, targets.on, targets.region])
+  useEffect(() => {
+    let active = true
+    listHoldings().then(holdings => {
+      if(active) { setOwned(new Set(holdings.filter(h => h.possession === 'owned').map(h => h.species_id))); setOwnershipStatus('ready') }
+    }).catch(() => { if(active) setOwnershipStatus('error') })
+    return () => { active = false }
+  }, [revision,retry])
+  const conditionReady = conditionStatus.key === conditionKey && !conditionStatus.error
+  const referenceMap = useMemo(() => new Map(references.map(r => [r.id,r])), [references])
+  const observed = useMemo(() => new Set(surveys.flatMap(s => s.observations.filter(o => o.result === 'observed').map(o => o.species_id))), [surveys])
+  const searched = catalog.filter(s => `${s.korean_name} ${s.scientific_name || ''} ${speciesStatuses(s.reference).map(badge => badge.label).join(' ')} ${s.reference.regions.join(' ')} ${s.reference.region_search||''}`.toLowerCase().includes(query.trim().toLowerCase()))
+  const filtered = searched.filter(s => {
+    const r = referenceMap.get(s.id)
+    return conditionReady && (!ownership || ownershipStatus === 'ready') && !!r && targetMatches(r, targets) && (targets.includeUnrecorded || observed.has(s.id))
+      && (!ownership || (ownership === 'only' ? owned.has(s.id) : !owned.has(s.id)))
+  })
+  const visible = new Set(filtered.map(s => s.id))
+  const denominator = references.filter(r => r.active === true).length
+  const numerator = references.filter(r => visible.has(r.id) && r.active === true && r.capture_history === 'not_captured' && r.permission === 'permitted' && r.reference.protected === false).length
+  // 전체·과별 소유 비율은 검색 결과가 아닌 전체 도감에서 계산합니다.
+  const families = [...new Set(catalog.map(s => s.reference.family).filter(Boolean))]
+  const ownershipRatios = ['전체', ...families].map(label => {
+    const group = label === '전체' ? catalog : catalog.filter(s => s.reference.family === label)
+    return {label, total:group.length, count:group.filter(s => owned.has(s.id)).length}
+  })
+  const ratioText = (count:number,total:number) => `${count} / ${total} · ${total ? (count / total * 100).toFixed(2) : '0.00'}%`
   const controls = <div className="catalog-controls">
     <details open={registerOpen} onToggle={e => onRegisterOpen(e.currentTarget.open)}><summary>나비 등록</summary><form onSubmit={create} className="catalog-create"><fieldset disabled={busy}><label>국명<input id="catalog-new-name" name="korean_name" required maxLength={100} /></label><label>학명 · 선택<input name="scientific_name" maxLength={200} /></label><button className="primary">나비 등록</button></fieldset></form></details>
+    <details open={conditionOpen} onToggle={e => setConditionOpen(e.currentTarget.open)} className="catalog-conditions"><summary>도감 조건부 보기</summary>
+      <label>출현 기준일<input type="date" required value={targets.on} onChange={e => onTargets({...targets,on:e.target.value})}/></label>
+      <label>출현 행정지역<input value={targets.region} onChange={e => onTargets({...targets,region:e.target.value})} placeholder="예: 정선, 강원도, 수도권"/></label>
+      {Object.entries({active:'현재 출현 참고 종만',captured:'이미 채집한 종 제외',north:'북한 서식 종 제외',old:'미갱신 미접 제외 · 2010년 이전',protected:'국가보호종 제외',includeUnrecorded:'관찰 기록 없는 종 포함'}).map(([key,label]) => <label className="check" key={key}><input type="checkbox" checked={targets[key as 'active'|'captured'|'north'|'old'|'protected'|'includeUnrecorded']} onChange={e=>onTargets({...targets,[key]:e.target.checked})}/>{label}</label>)}
+      <label>소유 여부<select value={ownership} onChange={e=>setOwnership(e.target.value)}><option value="">전체</option><option value="exclude">소유한 종 제외</option><option value="only">소유한 종만 보기</option></select></label>
+      <p className="hint">소유 여부는 소장 목록에서 소지함으로 등록한 종을 기준으로 합니다.</p>
+
+    </details>
+    {!conditionReady && <p role="status">{conditionStatus.error || '도감 조건을 읽는 중입니다.'}{conditionStatus.error && <button onClick={()=>setRetry(n=>n+1)}>다시 읽기</button>}</p>}
     {error && <p className="error" role="alert">{error}<button type="button" disabled={busy} onClick={() => setRetry(n => n + 1)}>목록 다시 읽기</button></p>}{notice && <p className="notice" role="status">{notice}</p>}{loading && <p role="status">나비 목록을 읽는 중입니다.</p>}
     <p className="hint">검색 {filtered.length}종 / 등록 {species.length}종<br />표의 국명을 누르면 편집창이 열립니다.<br />상태 태그에 마우스를 올리면 출처를 볼 수 있습니다. 표시가 없으면 해당 없음으로 확정한 것은 아닙니다.</p>
-    <details className="catalog-graph-settings"><summary>한살이 그림 조건·범례</summary><label>관찰 연도<input type="number" min={1800} max={9999} value={filter.year} onChange={e => setFilter({ ...filter, year: e.target.value })} placeholder="전체 연도" /></label><label>그림 지역<input value={filter.region} onChange={e => setFilter({ ...filter, region: e.target.value })} placeholder="전체 지역" /></label><label>그림 관찰 출처<select value={filter.source} onChange={e => setFilter({ ...filter, source: e.target.value as LifeFilter['source'] })}><option value="">직접·간접 전체</option><option value="direct">직접 관찰</option><option value="indirect">간접 관찰</option></select></label><div className="life-legend">{LIFE_STAGES.map(s => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}</div><p className="hint">옅은 막대: 도감 참고<br />상자·수염: 관찰 분포<br />점: 소수 자료·통계적 이상값<br />각 단계를 누르면 출처·사례가 열립니다.</p><p className="hint">사용자 확인 동정·단계 지정 관찰만 사용합니다. 단계별 관찰 20사례부터 상자를 표시하며 도감 기간과 독립적으로 계산합니다. 도감 밖 관찰도 포함하고 통계적 이상값은 점으로 남깁니다. 단계는 도감 추정을 포함하며 상세에서 근거를 구분합니다. 개체 수·사진 장수로 가중하지 않습니다.</p><button type="button" onClick={() => setFilter({ year: '', region: '', source: '' })}>한살이 필터 초기화</button></details>
+    <details className="catalog-graph-settings"><summary>한살이 그림 조건·범례</summary><label>관찰 연도<input type="number" min={1800} max={9999} value={filter.year} onChange={e => setFilter({ ...filter, year: e.target.value })} placeholder="전체 연도" /></label><label>그림 지역<input value={filter.region} onChange={e => setFilter({ ...filter, region: e.target.value })} placeholder="전체 지역" /></label><label>그림 관찰 출처<select value={filter.source} onChange={e => setFilter({ ...filter, source: e.target.value as LifeFilter['source'] })}><option value="">직접·간접 전체</option><option value="direct">직접 관찰</option><option value="indirect">간접 관찰</option></select></label><div className="life-legend">{LIFE_STAGES.map(s => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}</div><p className="hint">옅은 막대: 도감 참고<br />상자·수염: 관찰 분포<br />점: 소수 자료·통계적 이상값<br />각 단계를 누르면 출처·사례가 열립니다.</p><p className="hint">등록한 관찰 중 종과 성장 단계가 지정된 사례를 사용합니다. 단계별 관찰 20사례부터 상자를 표시하며 도감 기간과 독립적으로 계산합니다. 도감 밖 관찰도 포함하고 통계적 이상값은 점으로 남깁니다. 단계는 도감 추정을 포함하며 상세에서 근거를 구분합니다. 개체 수·사진 장수로 가중하지 않습니다.</p><button type="button" onClick={() => setFilter({ year: '', region: '', source: '' })}>한살이 필터 초기화</button></details>
   </div>
   return <section className="butterfly-info" aria-label="나비 도감 표">
     {sidebar ? createPortal(controls, sidebar) : controls}
-    <div className="catalog-toolbar"><h2>나비 도감</h2></div>
+    <div className="catalog-toolbar"><h2>나비 도감</h2><div className="catalog-ratios" role="group" aria-label="도감 종 비율">
+      <div className="catalog-ratio" title="도감 조건·검색 결과 중 현재 출현하며 미채집·채집 허용·보호종 아님이 확인된 종 / 기준일의 전체 출현 참고 종"><strong>포획 가능 종</strong><span>{conditionReady ? ratioText(numerator,denominator) : '확인 중'}</span></div>
+      {ownershipRatios.map(r => <div className="catalog-ratio" key={r.label} title="소유 종 / 전체 등록 종 · 도감 조건과 검색의 영향을 받지 않습니다."><strong>{r.label}</strong><span>{!loading && ownershipStatus === 'ready' ? ratioText(r.count,r.total) : ownershipStatus === 'error' ? '소장 조회 실패' : '확인 중'}</span></div>)}
+    </div></div>
     <div className="table-wrap catalog-scroll-area" id="catalog-scroll-area" ref={scrollArea} onScroll={e => { const left = e.currentTarget.scrollLeft; setScroll(previous => previous.left === left ? previous : { ...previous, left }) }}><table className="catalog-table"><thead><tr><th>국명 · 학명</th><th>한살이 기간</th><th>기주식물</th><th>서식지</th><th>습성</th><th>기타</th><th>동정 포인트</th></tr></thead><tbody>{filtered.map(s => <tr key={s.id}><td className="catalog-name"><button className="link" disabled={busy} title={`${s.korean_name} 정보 편집`} onClick={() => void open(s)}>{s.korean_name}</button><small>{s.scientific_name || '학명 미등록'}</small><div className="species-statuses" aria-label={`${s.korean_name} 상태`}>{speciesStatuses(s.reference).map((badge, index) => <span key={index} className={`species-status status-${badge.tone}`} title={badge.detail}>{badge.label}</span>)}</div></td><td><VisibleLifeChart name={s.korean_name} reference={s.reference} samples={samples.get(s.id) || noSamples} filter={filter} /></td><td title={s.reference.host_plants}>{s.reference.host_plants ? <ul className="host-plant-list">{hostPlantLines(s.reference.host_plants).map((plant, index) => <li key={index}>{plant}</li>)}</ul> : <span className="catalog-unregistered">미등록</span>}</td><td>{s.reference.habitat || <span className="catalog-unregistered">미등록</span>}</td><td><CatalogNotes text={s.reference.habits} /></td><td><CatalogNotes text={s.reference.other_notes} /></td><td><div className="catalog-identification"><CatalogNotes text={s.reference.identification_points} /></div></td></tr>)}{!filtered.length && <tr><td colSpan={7}>{loading ? '목록을 읽는 중입니다.' : error ? '왼쪽 오류 안내에서 다시 읽어 주세요.' : catalog.length ? '검색 결과가 없습니다.' : '왼쪽에서 나비를 등록해 주세요.'}</td></tr>}</tbody></table></div>
     <div className="catalog-scrollbar"><input ref={scrollInput} type="range" min={0} max={scroll.max} step={1} value={scroll.left} disabled={scroll.max === 0} aria-label="도감 가로 스크롤" aria-controls="catalog-scroll-area" aria-valuetext={`${Math.round(scroll.max ? scroll.left / scroll.max * 100 : 0)}%`} style={{ '--scroll-thumb-width': `${scroll.thumbWidth}px` } as CSSProperties} onChange={e => moveScroll(Number(e.target.value))} onKeyDown={e => {
       const page = scrollArea.current?.clientWidth || 0

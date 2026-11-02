@@ -83,15 +83,15 @@ def registration_info(db, payload):
     inference = infer_stage(json.loads(ref[0]) if ref else {}, observed, payload.get('place_raw', '')) if observed else {'stage':'unknown'}
     if payload.get('_stage_override') in (*STAGES,'unknown'):
         inference={**inference,'original_inferred_stage':inference['stage'],'stage':payload['_stage_override'],'manual_stage_override':True}
-    return {'eligible': not reason, 'reason':reason, 'exempt':name in EXEMPT_SPECIES,
+    return {'eligible': not reason, 'reason':reason, 'exempt':False,
             'inference':inference, 'species_id':species['id'] if species else None, 'date':observed, 'time':clock}
 
 def import_item(db, row, info):
     payload = json.loads(row['payload_json'])
     stage = info['inference']['stage']
     stage_label = STAGES.get(stage, '미확인')
-    review = '사용자 지정 검수 생략 종' if info['exempt'] else '사용자가 체크하여 검수 완료'
-    note = f"- 발육 단계: {stage_label} · 도감 기간으로 추정, 겹치면 뒤 단계 적용\n- 동정 검수: {review}\n- 원문 관찰 시각: {payload['observed_raw']}\n- 원문 기상: {payload.get('weather_raw', '')}\n- 위치 정확도: 미상"
+    review = '사용자가 체크하여 검수 완료'
+    note = f"- 성장 단계: {stage_label} · 도감 기간으로 추정, 겹치면 뒤 단계 적용\n- 동정 검수: {review}\n- 원문 관찰 시각: {payload['observed_raw']}\n- 원문 기상: {payload.get('weather_raw', '')}\n- 위치 정확도: 미상"
     if info['inference'].get('manual_stage_override'):
         note=note.replace('도감 기간으로 추정, 겹치면 뒤 단계 적용','사용자가 직접 수정')
     if payload.get('source') == 'inaturalist':
@@ -100,8 +100,8 @@ def import_item(db, row, info):
         note = note.replace('- 위치 정확도: 미상', f'- 위치 정확도: {accuracy}m' if isinstance(accuracy, (int, float)) else '- 위치 정확도: 미상')
         note += f"\n- iNaturalist 관찰 시각·시간대 원문: {original.get('time_observed_at')} · {original.get('observed_time_zone')}\n- 원문 단계 정보는 수집 스냅샷에 별도 보존합니다."
     location = dict(place_name=payload.get('place_raw', ''), latitude=payload.get('latitude'), longitude=payload.get('longitude'), location_method='unknown')
-    observation = ObservationInput(**location, source_type='indirect', source_note=payload['url'], species_id=info['species_id'], observation_date=info['date'], observation_time=info['time'], stage=stage, identification='candidate' if info['exempt'] else 'user_confirmed', notes=note)
-    survey = SurveyInput(**location, survey_date=info['date'], notes=f"외부 관찰 자료 · {payload['url']}", observations=[observation])
+    observation = ObservationInput(**location, source_type='indirect', source_note=payload['url'], species_id=info['species_id'], observation_date=info['date'], observation_time=info['time'], stage=stage, identification='user_confirmed', notes=note)
+    survey = SurveyInput(**location, survey_date=info['date'], purpose='online_research', notes=f"외부 관찰 자료 · {payload['url']}", observations=[observation])
     now = datetime.now(timezone.utc).isoformat()
     fields = survey.model_dump(mode='json', exclude={'observations','tags','photo_ids'})
     fields.update(created_at=now, updated_at=now)

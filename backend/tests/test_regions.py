@@ -84,7 +84,8 @@ def test_confirmed_observation_adds_region_without_overwriting_excel_and_delete_
     with connect_database() as db:
         db.execute('INSERT INTO species_references VALUES(?,?,?)',(sid,json.dumps({'region_evidence':[{'code':base,'origin':'excel','detail':'원문 셀'}],'habits':'원래 습성','ecology_source':'시험 자료'}),'original'))
     saved=record(client,place_name='강원도 정선군 고한읍',latitude=None,longitude=None,observations=[{'species_id':sid,'identification':'candidate'}])
-    assert reference(client,sid)['reference']['region_codes']==[base]
+    assert set(reference(client,sid)['reference']['region_codes'])=={base,extra}
+    assert saved['observations'][0]['identification']=='user_confirmed'
     body=payload(saved);body['observations'][0]['identification']='user_confirmed'
     response=client.put(f"/api/surveys/{saved['id']}",json=body)
     assert response.status_code==200
@@ -105,8 +106,19 @@ def test_duplicate_evidence_and_withdrawal(client):
     second=record(client,place_name='강원도 정선군',latitude=None,longitude=None,observations=[{'species_id':sid,'identification':'user_confirmed'}])
     assert reference(client,sid)['reference']['region_codes']==[code]
     for saved in [first,second]:
-        body=payload(saved);body['observations'][0]['identification']='candidate'
-        assert client.put(f"/api/surveys/{saved['id']}",json=body).status_code==200
+        assert client.request('DELETE',f"/api/surveys/{saved['id']}",json={'expected_updated_at':saved['updated_at']}).status_code==200
     assert reference(client,sid)['reference']['region_codes']==[]
     assert client.get('/api/regions').status_code==200
     assert client.get('/api/regions/boundaries').json()['type']=='FeatureCollection'
+
+
+def test_observation_area_covers_city_metropolis_but_not_province():
+    from app.regions import observation_area_codes, index
+    assert observation_area_codes('21100') == ['21']
+    assert observation_area_codes('11010') == ['11']
+    assert observation_area_codes('32550') == ['32550']
+    expected = {c for c,f in index().items() if f['properties']['name'].startswith('수원시 ')}
+    assert set(observation_area_codes('31011')) == expected
+    assert len(expected) == 4
+    assert observation_area_codes('special-marado') == ['special-marado']
+    assert observation_area_codes('special-hallasan') == ['special-hallasan']

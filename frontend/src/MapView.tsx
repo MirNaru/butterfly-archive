@@ -9,11 +9,11 @@ import { PIN_STYLE, pinAppearance } from './mapPinStyle'
 
 import { boundaryLevel, loadBoundaries, paddedBounds, RegionLayer, visibleParts } from './regionLayer'
 import type { BoundaryData, Bounds } from './regionLayer'
-export default function MapView({ shown, pins, focus, onSelect, onPick, distribution, infoContainer }: {
+export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, distribution, infoContainer }: {
   infoContainer?: HTMLElement | null
   distribution?:{name:string;reference:SpeciesReference}|null
   shown: boolean; pins: MapPin[]; focus?: Coordinate | null
-  onSelect?: (pin: MapPin) => void; onPick?: (point: Coordinate) => void
+  onOpen?: (pin: MapPin) => void; onSelect?: (pin: MapPin) => void; onPick?: (point: Coordinate) => void
 }) {
   const element = useRef<HTMLDivElement>(null)
   const map = useRef<NaverMap | null>(null)
@@ -162,6 +162,6 @@ export default function MapView({ shown, pins, focus, onSelect, onPick, distribu
     {error && <p role="alert" className="error">{error}</p>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
     <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>
-    {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)}><span style={{color:PIN_STYLE[pin.source || 'direct'].color}}>●</span> {PIN_STYLE[pin.source || 'direct'].label} · {pin.label}</button>)}</div>}
+    {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)} onDoubleClick={() => onOpen?.(pin)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();onOpen?.(pin)}}} title="더블클릭하면 기록 탭에서 탐사 상세를 엽니다"><span style={{color:PIN_STYLE[pin.source || 'direct'].color}}>●</span> {PIN_STYLE[pin.source || 'direct'].label} · {pin.label}</button>)}</div>}
   </section>
 }

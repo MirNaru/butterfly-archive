@@ -77,8 +77,8 @@ export const findExploration = (on: string, region: string) => request<import('.
 
 export interface InatQuery { mode: 'history' | 'latest'; taxon_id: number | null; place_id: number; start: string | null; end: string | null }
 export interface InatProgress { done: boolean; scanned: number; created: number; updated: number; unchanged: number; excluded: number }
-export const searchInat = (query: string, kind: 'taxa' | 'places') => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
-export const syncInat = (query: InatQuery) => request<InatProgress>('/collection/inaturalist/sync', {...post(query), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const searchInat = (query: string, kind: 'taxa' | 'places') => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const syncInat = (query: InatQuery) => request<InatProgress>('/collection/inaturalist/sync', {...post(query), signal:AbortSignal.timeout(90000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 
 export interface Paper { id: number; title: string; authors: string; journal: string; published: string; language: string; abstract: string; url: string; doi: string; provider: string; providers: string[]; received_at: string; observations: {id:number; survey_id:number; evidence:string}[]; files?: {id:number; original_name:string}[] }
 export const uploadPaperPdf = (file: File) => request<{id:number; paper_id:number; duplicate:boolean; warning?:string}>(`/papers/pdf?${new URLSearchParams({filename:file.name})}`, {method:'POST',body:file,headers:{'Content-Type':'application/pdf','X-Butterfly-Client':'app'},signal:AbortSignal.timeout(60000)})

@@ -33,7 +33,8 @@ def years(client, sid):
 def test_confirmation_replaces_previous_year_and_withdrawal_clears_without_restore(client):
     sid = setup_species(client)
     saved = observation(client, sid, 2024, identification='candidate')
-    assert years(client, sid) == [2015]
+    assert saved['observations'][0]['identification'] == 'user_confirmed'
+    assert years(client, sid) == [2024]
     change = payload(saved)
     change['observations'][0]['identification'] = 'user_confirmed'
     response = client.put(f"/api/surveys/{saved['id']}", json=change)
@@ -42,9 +43,7 @@ def test_confirmation_replaces_previous_year_and_withdrawal_clears_without_resto
     ref = client.get(f'/api/species/{sid}/reference').json()
     assert '2024-05-20' in ref['reference']['sighting_source']
     assert client.put(f'/api/species/{sid}/reference', json={**ref['reference'], 'expected_updated_at': ref['updated_at']}).status_code == 200
-    change = payload(response.json())
-    change['observations'][0]['identification'] = 'candidate'
-    assert client.put(f"/api/surveys/{saved['id']}", json=change).status_code == 200
+    assert client.request('DELETE', f"/api/surveys/{saved['id']}", json={'expected_updated_at': response.json()['updated_at']}).status_code == 200
     assert years(client, sid) == []
 
 

@@ -30,14 +30,14 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
     stopped.current = false; setBusy(true); onBusyChange(true); setError(''); setNotice('자료를 가져오는 중입니다.')
     const totals = { created: 0, updated: 0, unchanged: 0, excluded: 0 }
     try {
-      // 한 번에 최대 2000건을 확인하며 진행 위치는 서버에서 페이지별로 저장합니다.
-      for (let page = 0; page < 10 && !stopped.current; page++) {
+      // 50건씩 최대 40번 확인하며 각 단위의 진행 위치를 저장합니다.
+      for (let page = 0; page < 40 && !stopped.current; page++) {
         const result = await syncInat({ mode, taxon_id: mode === 'history' ? taxon!.id : null, place_id: place.id, start: start || null, end: end || null })
         for (const key of ['created', 'updated', 'unchanged', 'excluded'] as const) totals[key] += result[key]
         onUpdated()
         setNotice(`신규 ${totals.created} · 원문 변경 ${totals.updated} · 중복 ${totals.unchanged} · 제외 ${totals.excluded}건\n${result.done ? '현재 검색 범위의 수집을 마쳤습니다.' : '진행 위치를 저장했습니다. 중지 후 같은 조건으로 이어갈 수 있습니다.'}`)
         if (result.done) break
-        if (page === 9) setNotice(previous => previous + '\n이번 실행의 2000건 확인 한도에 도달했습니다. 같은 버튼으로 이어서 수집해 주세요.')
+        if (page === 39) setNotice(previous => previous + '\n이번 실행의 2000건 확인 한도에 도달했습니다. 같은 버튼으로 이어서 수집해 주세요.')
       }
     } catch (e) { setError(e instanceof Error ? e.message : '수집하지 못했습니다.') }
     finally { setBusy(false); onBusyChange(false) }

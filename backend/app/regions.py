@@ -160,6 +160,24 @@ def locate(place, lat=None, lng=None):
     return children[0] if len(children)==1 else found[0] if len(found)==1 else None
 
 
+def observation_area_codes(code):
+    """관찰 근거를 시·군 또는 특별시·광역시 전체의 표시 범위로 확장합니다."""
+    if not code or code not in index():
+        return []
+    p = index()[code]['properties']
+    if p['level'] == 'special':
+        return [code]
+    province = code[:2]
+    if province in {'11', '21', '22', '23', '24', '25', '26', '29'}:
+        return [province]
+    city = p['name'].split(' ')[0]
+    if p['level'] == 'sigungu' and city.endswith('시'):
+        return [c for c, f in index().items() if c[:2] == province
+                and f['properties']['level'] == 'sigungu'
+                and f['properties']['name'].split(' ')[0] == city]
+    return [code]
+
+
 def observation_regions(db):
     # 후보·미발견·휴지통은 제외하고 실제 관찰 날짜와 원문 출처를 근거로 연결합니다.
     result = {}
@@ -171,7 +189,7 @@ def observation_regions(db):
         own = bool(r['place_name']) or r['latitude'] is not None
         code = locate(r['place_name'] if own else r['sp'],r['latitude'] if own else r['slat'],r['longitude'] if own else r['slng'])
         place=r['place_name'] if own else r['sp']
-        codes=[code] if code else []
+        codes=observation_area_codes(code)
         for name,special in [('한라산','special-hallasan'),('마라도','special-marado')]:
             lat,lng=(r['latitude'],r['longitude']) if own else (r['slat'],r['slng'])
             if special in index() and (contains(index()[special],lat,lng) if lat is not None and lng is not None else name in place):codes.append(special)

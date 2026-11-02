@@ -42,7 +42,7 @@ def test_register_selected_preserves_original_and_skips_duplicates(client):
     assert observation['source_type']=='indirect' and observation['source_note']==value['url']
     assert observation['observation_date']=='2026-10-29' and observation['stage']=='adult'
     assert observation['latitude']==37.0 and observation['count'] is None
-    assert observation['identification']=='candidate' and '추정' in observation['notes']
+    assert observation['identification']=='user_confirmed' and '추정' in observation['notes']
     assert value['weather_raw'] in observation['notes'] and value['observed_raw'] in observation['notes']
     assert observation['source_weather']==dict(text=value['weather_raw'],source='네이처링',url=value['url'],stale=False)
     assert client.get('/api/collection').json()=={'total':0,'items':[]}

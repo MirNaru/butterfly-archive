@@ -286,7 +286,7 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .record-table .reference-row.selected td { background: #fff4cf; }
 /* 종 기본 정보 표와 한살이 도표의 단계별 낮은 채도 색상입니다. */
 .catalog-table { table-layout: fixed; min-width: 1560px; border-collapse: separate; border-spacing: 0; border: 0; border-radius: 9px; }
-.catalog-table thead th { position: sticky; top: 0; z-index: 2; }
+.catalog-table thead th { position: sticky; top: 0; z-index: 2; padding-block: 7.3px; }
 .catalog-table thead th:first-child { border-top-left-radius: 8px; }
 .catalog-table thead th:last-child { border-top-right-radius: 8px; }
 .catalog-table th:nth-child(1) { width: 210px; }
@@ -458,3 +458,35 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .paper-pdf-upload label { display: flex; flex-direction: row; align-items: center; gap: 14px; margin: 0; white-space: nowrap; }
 .paper-pdf-upload input { width: 280px; max-width: 100%; }
 .paper-pdf-text { white-space: pre-wrap; max-height: 360px; overflow: auto; overflow-wrap: anywhere; }
+
+/* 긴 수집 주소가 출처 열을 밀지 않도록 원문을 한 줄 안에서 흐리게 숨깁니다. */
+.collection-table { table-layout: fixed; width: 100%; min-width: 850px; }
+.collection-table .collection-check { width: 42px; }
+.collection-table .collection-location { width: 25%; }
+.collection-table .collection-source { width: 150px; }
+.collection-table td { overflow-wrap: anywhere; }
+.collection-place-fade { display: block; overflow: hidden; white-space: nowrap; mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+
+/* 기록은 일정한 행 높이로 화면 주변만 그리며 긴 내용은 상세에서 확인합니다. */
+.record-pane:has(.record-scroll) { display: flex; flex-direction: column; overflow: hidden; }
+.record-pane:has(.record-scroll) > .catalog-toolbar { flex-shrink: 0; }
+.record-results:has(.record-scroll) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.record-results:has(.record-scroll) > .record-controls { flex-shrink: 0; }
+.record-scroll { flex: 1; min-height: 0; overflow-anchor: none; overflow: auto; }
+.record-table { table-layout: fixed; }
+.record-table thead th { position: sticky; top: 0; z-index: 2; height: 48px; box-sizing: border-box; }
+.record-table thead th:first-child { z-index: 3; }
+.record-table tbody tr:not(.record-spacer) { height: 72px; }
+.record-table td { height: 72px; box-sizing: border-box; padding: 12px 16px; }
+.record-cell { height: 47px; line-height: 23px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-cell small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.record-table .record-spacer td { padding: 0; border: 0; }
+.catalog-conditions { margin-block: 12px; }
+.catalog-conditions .record-ratio { padding: 8px; margin-block: 10px 0; }
+
+/* 제목 행의 높이를 유지하고 비율 묶음을 우측 끝에 배치합니다. */
+.catalog-toolbar { gap: 12px; }
+.catalog-toolbar h2 { flex-shrink: 0; }
+.catalog-ratios { margin-left: auto; display: flex; gap: 0; min-width: 0; overflow-x: auto; background: var(--accent-soft); border-radius: 9px; padding: 2px 6px; }
+.catalog-ratio { flex-shrink: 0; padding: 0 8px; text-align: center; font-size: 10px; line-height: 12px; white-space: nowrap; }
+.catalog-ratio strong, .catalog-ratio span { display: block; }

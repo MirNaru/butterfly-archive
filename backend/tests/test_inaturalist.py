@@ -27,6 +27,7 @@ def provider(monkeypatch, pages):
         return {'results': [TAXON] if path.startswith('taxa/') else pages.pop(0)}
     monkeypatch.setattr(inaturalist, 'fetch', fetch)
     monkeypatch.setattr(inaturalist, 'PAGE_SIZE', 2)
+    monkeypatch.setattr(inaturalist, 'INITIAL_LATEST_SIZE', 2)
     return calls
 
 
@@ -179,3 +180,44 @@ def test_remote_429_and_daily_limit_stop_without_retry(client, monkeypatch):
         db.execute("UPDATE api_usage SET attempts=? WHERE service='inaturalist' AND day=?", (inaturalist.DAILY_LIMIT, day))
     assert sync(client, 'latest').status_code == 429
     assert not inaturalist.state_path().exists()
+
+
+def test_small_batches_preserve_initial_latest_200_and_cursor(client, monkeypatch):
+    calls=provider(monkeypatch, [[observation(i) for i in range(high,high-50,-1)] for high in (300,250,200,150)])
+    monkeypatch.setattr(inaturalist,'PAGE_SIZE',50)
+    monkeypatch.setattr(inaturalist,'INITIAL_LATEST_SIZE',200)
+    for i in range(4):
+        result=sync(client,'latest').json()
+        assert result['done']==(i==3)
+        assert result['scanned']==50*(i+1)
+    assert result['completed_high']==300
+    assert [params.get('id_below') for path,params in calls]==[None,251,201,151]
+    assert client.get('/api/collection?source=inaturalist').json()['total']==200
+
+
+def test_transient_transport_retry_counts_every_attempt(client, monkeypatch):
+    monkeypatch.setattr(inaturalist.time,'sleep',lambda seconds:None)
+    attempts=[]
+    class Response:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def read(self,limit):return json.dumps({'results':[]}).encode()
+    def open_request(*args,**kwargs):
+        attempts.append(1)
+        if len(attempts)==1:raise TimeoutError()
+        return Response()
+    monkeypatch.setattr(inaturalist.urllib.request.OpenerDirector,'open',open_request)
+    assert sync(client,'latest').status_code==200
+    assert len(attempts)==2
+    with connect_database() as db:
+        assert db.execute("SELECT attempts FROM api_usage WHERE service='inaturalist'").fetchone()[0]==2
+
+
+def test_repeated_transport_failure_stops_without_advancing(client, monkeypatch):
+    monkeypatch.setattr(inaturalist.time,'sleep',lambda seconds:None)
+    def fail(*args,**kwargs):raise TimeoutError()
+    monkeypatch.setattr(inaturalist.urllib.request.OpenerDirector,'open',fail)
+    assert sync(client,'latest').status_code==503
+    assert not inaturalist.state_path().exists()
+    with connect_database() as db:
+        assert db.execute("SELECT attempts FROM api_usage WHERE service='inaturalist'").fetchone()[0]==2

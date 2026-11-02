@@ -14,7 +14,7 @@ export const STAGE = { unknown: '미상', egg: '알', larva: '애벌레', pupa: 
 export const SEX = { unknown: '미상', male: '수컷', female: '암컷', mixed: '혼합' } as const
 export const CAPTURE = { unknown: '미상', not_captured: '채집하지 않음', captured: '채집함' } as const
 export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 종', user_confirmed: '사용자 확인' } as const
-export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 탐사' } as const
+export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 탐사', online_research: '온라인 자료 조사' } as const
 export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
 export interface Species { id: number; korean_name: string; scientific_name: string | null; host_plants: string }
 export interface Tag { id: number; name: string; usage?: number }

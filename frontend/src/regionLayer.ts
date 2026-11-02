@@ -16,7 +16,7 @@ export function visibleParts(data:BoundaryData,codes:Set<string>,confirmed:Set<s
   const result:RegionPart[]=[]
   for(const feature of data.features) {
     const code=feature.properties.code
-    if(!codes.has(code)||(code.length>2&&codes.has(code.slice(0,2)))||!intersects(feature.bbox,bounds))continue
+    if(!codes.has(code)||(code.length>2&&codes.has(code.slice(0,2))&&(!confirmed.has(code)||confirmed.has(code.slice(0,2))))||!intersects(feature.bbox,bounds))continue
     for(const part of feature.parts)if(intersects(part.bbox,bounds))result.push({key:`${data.level}:${code}:${part.id}`,feature,rings:part.rings,confirmed:confirmed.has(code)})
   }
   return result

@@ -26,8 +26,17 @@ class InvalidObservation(ValueError):
     pass
 
 
+def normalize_registered_survey(value: SurveyInput) -> None:
+    """등록·저장을 검수 완료로 처리하고 간접 관찰 전용 탐사의 목적을 맞춥니다."""
+    for item in value.observations:
+        item.identification = 'user_confirmed' if item.species_id and item.result == 'observed' else 'unidentified'
+    if value.observations and all(item.source_type == 'indirect' for item in value.observations):
+        value.purpose = 'online_research'
+
+
 def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
     """기존 ID와 기상 연결을 보존하며 탐사 전체를 원자적으로 수정합니다."""
+    normalize_registered_survey(value)
     with connect_database() as connection:
         connection.execute("BEGIN IMMEDIATE")
         original = read_survey(connection, survey_id)
@@ -78,9 +87,9 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
                     inference['manual_stage_override'] = True
                     inference['manual_stage_history'] = [*inference.get('manual_stage_history', []), {'at':datetime.now(timezone.utc).isoformat(), 'from':originals[item.id]['stage'], 'to':item.stage}]
                     connection.execute('UPDATE collection_imports SET inference_json=? WHERE observation_id=?', (json.dumps(inference,ensure_ascii=False),record_id))
-                    label = f"- 발육 단계: {STAGES.get(item.stage, '미확인')} · 사용자가 직접 수정"
+                    label = f"- 성장 단계: {STAGES.get(item.stage, '미확인')} · 사용자가 직접 수정"
                     lines = item.notes.splitlines()
-                    updated = [label if line.startswith('- 발육 단계:') and '도감 기간으로 추정' in line else line for line in lines]
+                    updated = [label if line.startswith(('- 발육 단계:', '- 성장 단계:')) and '도감 기간으로 추정' in line else line for line in lines]
                     if updated == lines:
                         updated.append(label)
                     connection.execute('UPDATE observations SET notes=? WHERE id=?', ('\n'.join(updated),record_id))
@@ -196,6 +205,7 @@ def list_surveys() -> list[dict]:
 
 
 def create_survey(value: SurveyInput, connection: sqlite3.Connection | None = None) -> dict:
+    normalize_registered_survey(value)
     values = value.model_dump(mode="json", exclude={"observations", "tags", "photo_ids"})
     now = datetime.now(timezone.utc).isoformat()
     values.update(created_at=now, updated_at=now)

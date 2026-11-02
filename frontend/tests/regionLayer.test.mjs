@@ -57,3 +57,12 @@ test('경계 통신 실패 후 재시도하고 성공한 축척 요청은 재사
     assert.equal(first,second);assert.equal(calls,2)
   }finally{globalThis.fetch=original}
 })
+
+
+test('도 참고 영역이 있어도 관찰 시군은 진한 레이어로 남음',()=>{
+  const f=code=>({properties:{code},bbox:[0,0,10,10],parts:[{id:0,bbox:[0,0,10,10],rings:[]}]})
+  const parts=visibleParts({level:'full',features:[f('32'),f('32550')]},new Set(['32','32550']),new Set(['32550']),[1,1,3,3])
+  assert.equal(parts.length,2)
+  assert.equal(parts.find(p=>p.feature.properties.code==='32').confirmed,false)
+  assert.equal(parts.find(p=>p.feature.properties.code==='32550').confirmed,true)
+})

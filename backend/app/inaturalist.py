@@ -22,14 +22,15 @@ from app.api_usage import now_kst
 router = APIRouter(prefix='/api/collection/inaturalist', tags=['collection'])
 BUTTERFLIES = 47224  # 공식 taxa 조회로 확인한 Papilionoidea입니다.
 KOREA = 6891  # 공식 places 조회로 확인한 South Korea입니다.
-PAGE_SIZE = 200
+PAGE_SIZE = 50
+INITIAL_LATEST_SIZE = 200
 DAILY_LIMIT = 5000
 request_lock = threading.Lock()
 sync_lock = threading.Lock()
 last_request = 0.0
 
 
-def fetch(path, params):
+def fetch_once(path, params):
     global last_request
     with request_lock:
         delay = 1.05 - (time.monotonic() - last_request)
@@ -55,9 +56,20 @@ def fetch(path, params):
                 raise ValueError()
             return result
         except urllib.error.HTTPError as error:
-            raise IntegrationError('iNaturalist 호출 제한으로 중단했습니다. 나중에 이어서 수집해 주세요.' if error.code == 429 else 'iNaturalist 조회에 실패했습니다. 저장된 자료와 진행 위치는 유지됩니다.', 429 if error.code == 429 else 502) from None
+            raise IntegrationError('iNaturalist 호출 제한으로 중단했습니다. 나중에 이어서 수집해 주세요.' if error.code == 429 else 'iNaturalist 조회에 실패했습니다. 저장된 자료와 진행 위치는 유지됩니다.', 429 if error.code == 429 else 503 if error.code >= 500 else 502) from None
         except (OSError, ValueError, TimeoutError):
             raise IntegrationError('iNaturalist 응답을 읽지 못했습니다. 저장된 자료와 진행 위치는 유지됩니다.', 503) from None
+
+
+def fetch(path, params):
+    # 각 시도는 기존 속도·일일 한도에 포함하며 429는 자동 재시도하지 않습니다.
+    for attempt in range(2):
+        try:
+            return fetch_once(path, params)
+        except IntegrationError as error:
+            if error.status != 503 or attempt:
+                raise
+            time.sleep(2)
 
 
 class SearchInput(InputModel):
@@ -216,7 +228,7 @@ def sync(value: SyncInput, request: Request):
                     counts[save_payload(db, payload, stamp)] += 1
         high = max(state.get('pending_high', 0), max(ids, default=0))
         # 과거 수집 중 새로 게시된 자료도 전체 최신 조회에서 빠짐없이 이어갑니다.
-        done = len(rows) < PAGE_SIZE or (value.mode == 'latest' and not state.get('completed_high') and not since)
+        done = len(rows) < PAGE_SIZE or (value.mode == 'latest' and not state.get('completed_high') and not since and state.get('scanned', 0) + len(rows) >= INITIAL_LATEST_SIZE)
         next_state = dict(state, done=done, cursor=ids[-1] if ids and not done else None,
                           pending_high=high, scanned=state.get('scanned', 0) + len(rows), updated_at=stamp,
                           started_at=started_at, since=since, query=value.model_dump(mode='json'))
