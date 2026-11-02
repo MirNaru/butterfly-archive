@@ -7,8 +7,8 @@ import type { NaverMap, NaverMarker, NaverMaps } from './naverMaps'
 import type { Coordinate, MapPin, SpeciesReference } from './models'
 import { PIN_STYLE, pinAppearance } from './mapPinStyle'
 
-interface BoundaryFeature {properties:{code:string;label:string;detail?:string};bbox:number[];geometry:{type:string;coordinates:number[][][]|number[][][][]}}
-let boundaryRequest:Promise<{features:BoundaryFeature[];source:string;source_url:string}>|undefined
+import { boundaryLevel, loadBoundaries, paddedBounds, RegionLayer, visibleParts } from './regionLayer'
+import type { BoundaryData, Bounds } from './regionLayer'
 export default function MapView({ shown, pins, focus, onSelect, onPick, distribution, infoContainer }: {
   infoContainer?: HTMLElement | null
   distribution?:{name:string;reference:SpeciesReference}|null
@@ -29,34 +29,48 @@ export default function MapView({ shown, pins, focus, onSelect, onPick, distribu
   const [hidden, setHidden] = useState(false)
   const [satellite, setSatellite] = useState(false)
   const [regionsOn,setRegionsOn]=useState(false)
-  const [boundaryData,setBoundaryData]=useState<Awaited<NonNullable<typeof boundaryRequest>>|null>(null)
+  const [boundaryData,setBoundaryData]=useState<BoundaryData|null>(null)
+  const layer=useRef<RegionLayer|null>(null)
+  const distributionRef=useRef(distribution)
+  useEffect(()=>{distributionRef.current=distribution},[distribution])
+  const [viewport,setViewport]=useState<{zoom:number;bounds:Bounds}|null>(null)
   const [boundaryError,setBoundaryError]=useState('')
   const [regionInfo,setRegionInfo]=useState<{name:string;species:string;details:string[]}|null>(null)
   const [regionRetry,setRegionRetry]=useState(0)
   const selectedRegionCodes=distribution?.reference.region_codes?.join(',')||''
+  const confirmedCodes=(distribution?.reference.region_evidence||[]).filter(e=>e.origin==='observation').map(e=>e.code).sort().join(',')
+  const level=boundaryLevel(viewport?.zoom??7)
   useEffect(()=>{
-    if(!regionsOn||!distribution)return
-    let active=true
-    if(!boundaryRequest)boundaryRequest=fetch('/api/regions/boundaries',{signal:AbortSignal.timeout(30000)}).then(async r=>{if(!r.ok)throw new Error('지역 경계를 읽지 못했습니다.');return r.json()}).catch(e=>{boundaryRequest=undefined;throw e})
-    boundaryRequest!.then(data=>{if(active){setBoundaryData(data);setBoundaryError('')}}).catch(e=>{if(active)setBoundaryError(e.message)})
-    return()=>{active=false}
-  },[regionsOn,distribution,regionRetry])
-  useEffect(()=>{
-    if(!ready||!regionsOn||!boundaryData||!distribution||!map.current||!sdk.current)return
-    const api=sdk.current, polygons:{setMap:(map:NaverMap|null)=>void}[]=[], codes=new Set(selectedRegionCodes.split(','))
-    for(const f of boundaryData.features) {
-      if(!codes.has(f.properties.code)||(f.properties.code.length>2&&codes.has(f.properties.code.slice(0,2))))continue
-      const evidence=(distribution.reference.region_evidence||[]).filter(e=>e.code===f.properties.code)
-      const confirmed=evidence.some(e=>e.origin==='observation')
-      const shapes=f.geometry.type==='Polygon'?[f.geometry.coordinates as number[][][]]:f.geometry.coordinates as number[][][][]
-      for(const rings of shapes) {
-        const polygon=new api.Polygon({map:map.current,paths:rings.map(r=>r.map(p=>new api.LatLng(p[1],p[0]))),strokeColor:confirmed?'#137333':'#188038',strokeWeight:confirmed?2:1,strokeOpacity:0.9,fillColor:'#34a853',fillOpacity:confirmed?0.38:0.24,clickable:true})
-        api.Event.addListener(polygon,'click',()=>setRegionInfo({name:f.properties.label,species:distribution.name,details:[...(f.properties.detail?[f.properties.detail]:[]),...evidence.map(e=>`${({excel:'엑셀',manual:'사용자 지정',observation:'관찰 확인'})[e.origin]} · ${e.detail}`)]}))
-        polygons.push(polygon)
-      }
+    if(!ready||!map.current||!sdk.current)return
+    const currentMap=map.current,api=sdk.current
+    layer.current=new RegionLayer(currentMap,api,f=>{
+      const current=distributionRef.current
+      if(!current?.reference.region_codes?.includes(f.properties.code))return
+      const evidence=(current.reference.region_evidence||[]).filter(e=>e.code===f.properties.code)
+      setRegionInfo({name:f.properties.label,species:current.name,details:[...(f.properties.detail?[f.properties.detail]:[]),...evidence.map(e=>`${({excel:'엑셀',manual:'사용자 지정',observation:'관찰 확인'})[e.origin]} · ${e.detail}`)]})
+    })
+    const update=()=>{
+      const bounds=currentMap.getBounds(),sw=bounds.getSW(),ne=bounds.getNE()
+      const next={zoom:currentMap.getZoom(),bounds:[sw.lng(),sw.lat(),ne.lng(),ne.lat()] as Bounds}
+      setViewport(old=>old&&old.zoom===next.zoom&&old.bounds.every((v,i)=>Math.abs(v-next.bounds[i])<0.000001)?old:next)
     }
-    return()=>{for(const p of polygons){p.setMap(null);api.Event.clearInstanceListeners(p)}}
-  },[ready,regionsOn,boundaryData,selectedRegionCodes,distribution])
+    const idle=api.Event.addListener(currentMap,'idle',update)
+    const size=api.Event.addListener(currentMap,'size_changed',update)
+    update()
+    return()=>{api.Event.removeListener(idle);api.Event.removeListener(size);layer.current?.dispose();layer.current=null}
+  },[ready])
+  useEffect(()=>{
+    if(!shown||!regionsOn||!selectedRegionCodes)return
+    let active=true
+    loadBoundaries(level).then(data=>{if(active){setBoundaryData(data);setBoundaryError('')}}).catch(e=>{if(active)setBoundaryError(e.message)})
+    return()=>{active=false}
+  },[shown,regionsOn,selectedRegionCodes,level,regionRetry])
+  useEffect(()=>{
+    if(!layer.current)return
+    const parts=shown&&regionsOn&&boundaryData&&viewport?visibleParts(boundaryData,new Set(selectedRegionCodes.split(',')),new Set(confirmedCodes.split(',')),paddedBounds(viewport.bounds)):[]
+    layer.current.update(parts)
+    return()=>layer.current?.cancel()
+  },[ready,shown,regionsOn,boundaryData,selectedRegionCodes,confirmedCodes,viewport])
   useEffect(() => {
     if (!shown || map.current) return
     let active = true
@@ -142,7 +156,7 @@ export default function MapView({ shown, pins, focus, onSelect, onPick, distribu
     {distribution!==undefined&&regionsOn&&infoContainer&&createPortal(<>
       <span>출현지역 · {distribution?.name||'왼쪽에서 한 종을 선택해 주세요'} · 녹색: 엑셀·사용자 지정은 옅게, 관찰 확인 지역은 진하게 표시합니다. 지역 전체의 서식을 뜻하지 않습니다. {distribution&&!selectedRegionCodes&&'등록된 출현지역이 없습니다.'}{selectedRegionCodes.includes('special-hallasan')&&' 한라산: 해발 1,000m 이상 등고선 참고 영역 · Mapzen Terrain Tiles / USGS SRTM. 실제 서식 고도 하한을 뜻하지 않습니다.'}</span>
       {boundaryError&&<span role="alert">{boundaryError}<button type="button" onClick={()=>setRegionRetry(n=>n+1)}>경계 다시 읽기</button></span>}
-      {boundaryData&&<span>{boundaryData.source} · <a href={boundaryData.source_url} target="_blank" rel="noreferrer">경계 출처</a></span>}
+      {boundaryData&&<span>축척에 따라 표시 경계를 단순화하며 확대하면 세부 섬을 표시합니다. {boundaryData.source} · <a href={boundaryData.source_url} target="_blank" rel="noreferrer">경계 출처</a></span>}
       {regionInfo&&distribution&&regionInfo.species===distribution.name&&<div className="distribution-evidence"><strong>{regionInfo.name}</strong><button type="button" onClick={()=>setRegionInfo(null)}>닫기</button><ul>{regionInfo.details.map((d,i)=><li key={i}>{d}</li>)}</ul></div>}
     </>,infoContainer)}
     {error && <p role="alert" className="error">{error}</p>}

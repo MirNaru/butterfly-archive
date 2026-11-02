@@ -3,6 +3,7 @@ import json
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from fastapi import APIRouter
 
 router = APIRouter(prefix='/api/regions')
@@ -63,8 +64,29 @@ def list_regions():
     return {'regions': metadata(), 'source': boundaries()['source'], 'source_url': boundaries()['source_url']}
 
 
+@lru_cache(maxsize=3)
+def display_boundaries(level):
+    """지도 표시 전용입니다. 위치 판정은 계속 원본 boundaries/index를 사용합니다."""
+    if level != 'full':
+        return json.loads(ASSET.with_name(f'admin-regions-{level}.json').read_text(encoding='utf-8'))
+    data = boundaries()
+    features = []
+    for f in data['features']:
+        g = f['geometry']
+        polygons = [g['coordinates']] if g['type'] == 'Polygon' else g['coordinates']
+        parts = []
+        for i, rings in enumerate(polygons):
+            points = [p for ring in rings for p in ring]
+            parts.append({'id': i, 'rings': rings, 'bbox': [min(p[0] for p in points), min(p[1] for p in points), max(p[0] for p in points), max(p[1] for p in points)]})
+        features.append({'properties': f['properties'], 'bbox': f['bbox'], 'parts': parts})
+    return {'level': level, 'features': features, 'source': data['source'], 'source_url': data['source_url']}
+
+
 @router.get('/boundaries')
-def get_boundaries():
+def get_boundaries(level: Literal['coarse', 'medium', 'full'] | None = None):
+    if level:
+        data = display_boundaries(level)
+        return {**data, 'features': [{**f, 'properties': {**f['properties'], 'label': current_label(f['properties']['code'])}} for f in data['features']]}
     data=boundaries()
     return {**data,'features':[{**f,'properties':{**f['properties'],'label':current_label(c)}} for c,f in index().items()]}
 

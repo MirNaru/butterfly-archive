@@ -168,6 +168,10 @@ export default function App() {
   const matchedCandidates = useMemo(() => referencesReady ? referenceCandidates(references, allRecords, filters, targets, query) : [], [referencesReady, references, allRecords, filters, targets, query])
   const exactSpecies=species.find(s=>query.trim()&&[s.korean_name,s.scientific_name].some(n=>n?.toLowerCase()===query.trim().toLowerCase()))
   const activeSpeciesId=selectedSpeciesId!==null&&(speciesGroups.some(g=>g.id===selectedSpeciesId)||matchedCandidates.some(r=>r.id===selectedSpeciesId))?selectedSpeciesId:exactSpecies?.id??(filters.species.length===1&&filters.species[0]!=='unknown'?Number(filters.species[0]):null)
+  const distribution=useMemo(()=>{
+    const species=activeSpeciesId===null?undefined:referenceMap.get(activeSpeciesId)
+    return species?{name:species.korean_name,reference:species.reference}:null
+  },[activeSpeciesId,referenceMap])
   const rows=useMemo(()=>activeSpeciesId===null?matchedRows:matchedRows.filter(r=>(r.record.species_id??-1)===activeSpeciesId),[matchedRows,activeSpeciesId])
   const candidates=useMemo(()=>activeSpeciesId===null?matchedCandidates:matchedCandidates.filter(r=>r.id===activeSpeciesId),[matchedCandidates,activeSpeciesId])
   const visibleSpecies = new Set([...rows.map(r => r.record.species_id), ...candidates.map(r => r.id)])
@@ -289,7 +293,7 @@ export default function App() {
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
         {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} onRegistered={load} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
         {mode === 'info' && <ButterflyInfo species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
-        {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={activeSpeciesId!==null?(()=>{const s=referenceMap.get(activeSpeciesId);return s?{name:s.korean_name,reference:s.reference}:null})():null} shown={tab === 'map' && mode === 'records'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setSelectedRecord(pin.id.startsWith('record-') ? Number(pin.id.slice(7)) : null); setMapFocus(pin) }} />
+        {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={distribution} shown={tab === 'map' && mode === 'records'} pins={pins} focus={mapFocus} onSelect={pin => { setSelectedId(pin.surveyId); setSelectedRecord(pin.id.startsWith('record-') ? Number(pin.id.slice(7)) : null); setMapFocus(pin) }} />
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
           {!pins.length && <p className="hint">현재 검색 결과에 표시할 관찰 핀 좌표가 없습니다.</p>}</div>}
         {mode === 'records' && tab === 'table' && <>
