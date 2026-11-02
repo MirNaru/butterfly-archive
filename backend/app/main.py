@@ -17,7 +17,7 @@ from app.tags import router as tags_router
 from app.photos import router as photos_router
 from app.holdings import router as holdings_router
 from app.collection import router as collection_router
-from app.trash import router as trash_router, ACTIVE_OBSERVATION
+from app.trash import router as trash_router
 
 
 @asynccontextmanager
@@ -39,9 +39,7 @@ app.include_router(trash_router)
 @app.get('/api/record-weather')
 def record_weather():
     """종별 기록에 연결된 저장 기상을 읽습니다. 외부 조회는 하지 않습니다."""
-    with connect_database() as db:
-        ids = [r[0] for r in db.execute(f'SELECT o.id FROM weather_links l JOIN observations o ON o.id=l.observation_id WHERE {ACTIVE_OBSERVATION}')]
-    return {key: weather_store.saved('observation', key) for key in ids}
+    return weather_store.saved_observations()
 
 
 @app.exception_handler(IntegrationError)

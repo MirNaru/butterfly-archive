@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import { CAPTURE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Tag } from './models'
-import { emptyFilters, emptyTargets } from './recordSearch'
 import type { Filters, TargetFilters } from './recordSearch'
 const GROUPS = [
   { name: '관찰 날짜·시각', path: 'M7 3v4m10-4v4M4 10h16M5 5h14v15H4V5Zm3 9h3m-3 3h6', keys: ['start', 'end', 'time'] },
@@ -12,7 +11,7 @@ const GROUPS = [
   { name: '관찰 위치', path: 'M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Zm-4 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z', keys: ['place', 'coordinates'] },
   { name: '기상', path: 'M8 3v2M3 8h2m1-5 1 2m7-2-1 2M6 12a5 5 0 1 1 10-3m-8 9h10a4 4 0 1 0-1-8 5 5 0 0 0-9 2 3 3 0 0 0 0 6Z', keys: ['weather'] },
 ] as const
-export default function SearchFilters({ value, onChange, species, disabled, reset, expanded, targets, onTargets, tags, tagsError, retryTags }: { tags: Tag[]; tagsError: string; retryTags: () => void; value: Filters; onChange: (f: Filters) => void; species: Species[]; disabled: boolean; reset: () => void; expanded: boolean; targets: TargetFilters; onTargets: (t: TargetFilters) => void }) {
+export default function SearchFilters({ value, onChange, species, disabled, expanded, targets, onTargets, tags, tagsError, retryTags }: { tags: Tag[]; tagsError: string; retryTags: () => void; value: Filters; onChange: (f: Filters) => void; species: Species[]; disabled: boolean; expanded: boolean; targets: TargetFilters; onTargets: (t: TargetFilters) => void }) {
   const [speciesQuery, setSpeciesQuery] = useState('')
   const [tagQuery, setTagQuery] = useState('')
   const [open, setOpen] = useState<number | null>(null)
@@ -39,6 +38,6 @@ export default function SearchFilters({ value, onChange, species, disabled, rese
       {open !== null && <section id="record-filter-panel" className="filter-panel" aria-label={`${GROUPS[open].name} 조건`} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(null); const fieldset = e.currentTarget.closest('fieldset'); (fieldset?.querySelectorAll<HTMLButtonElement>('.filter-icons button')[open])?.focus() } }}><div className="filter-panel-heading"><h3>{GROUPS[open].name}</h3><button type="button" className="quiet" aria-label="필터 닫기" onClick={() => setOpen(null)}>닫기</button></div>{fields(open)}</section>}
       {targetFields}
     </>}
-    <div className="filter-summary"><span>관찰 조건 {count}개</span><button type="button" className="quiet" onClick={() => { onChange(emptyFilters()); onTargets(emptyTargets()); setSpeciesQuery(''); setTagQuery(''); reset() }}>전체 초기화</button></div>
+    <div className="filter-summary"><span>관찰 조건 {count}개</span></div>
   </fieldset>
 }

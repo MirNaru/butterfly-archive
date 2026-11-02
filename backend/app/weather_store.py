@@ -72,6 +72,34 @@ def saved(target_type: str, target_id: int) -> dict:
             "linked_context": json.loads(row["context_json"]), "stale": json.loads(row["context_json"]) != ctx}}
 
 
+def saved_observations() -> dict:
+    """저장 기상을 한 연결에서 읽으며 개별 위치 우선 및 이전 조건 판정을 유지합니다."""
+    from app.trash import ACTIVE_OBSERVATION
+    with connect_database() as db:
+        rows = db.execute(f"""SELECT o.id, o.observation_date, o.observation_time,
+            o.place_name, o.latitude, o.longitude, s.survey_date,
+            s.place_name AS survey_place, s.latitude AS survey_latitude, s.longitude AS survey_longitude,
+            l.context_json, l.station_json, l.distance_km, w.payload_json, w.fetched_at
+            FROM weather_links l JOIN observations o ON o.id=l.observation_id
+            JOIN surveys s ON s.id=o.survey_id JOIN weather_samples w ON w.id=l.sample_id
+            WHERE {ACTIVE_OBSERVATION}""")
+        result = {}
+        for row in rows:
+            own_location = bool(row['place_name']) or row['latitude'] is not None
+            ctx = dict(date=row['observation_date'] or row['survey_date'], time=row['observation_time'],
+                       place=row['place_name'] if own_location else row['survey_place'],
+                       latitude=row['latitude'] if own_location else row['survey_latitude'],
+                       longitude=row['longitude'] if own_location else row['survey_longitude'])
+            ctx['kind'] = 'hourly' if ctx['time'] else 'daily'
+            ctx['target_time'] = ctx['date'].replace('-', '') + (ctx['time'][:2] + '00' if ctx['time'] else '')
+            linked = json.loads(row['context_json'])
+            result[row['id']] = {'context': ctx, 'weather': {
+                **json.loads(row['payload_json']), 'fetched_at': row['fetched_at'],
+                'station': json.loads(row['station_json']), 'distance_km': row['distance_km'],
+                'linked_context': linked, 'stale': linked != ctx}}
+        return result
+
+
 def query(target_type: str, target_id: int, station_id: int, refresh: bool = False) -> dict:
     with lookup_lock:
         current = saved(target_type, target_id)

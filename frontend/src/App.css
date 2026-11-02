@@ -267,13 +267,19 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .butterfly-info { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .butterfly-info > .catalog-toolbar { flex-shrink: 0; }
 .butterfly-info > .table-wrap { min-height: 0; overflow: auto; border: 0; border-radius: 0; background: transparent; }
-.catalog-scroll-area::-webkit-scrollbar { height: 0; }
-.catalog-scrollbar { flex-shrink: 0; margin-top: auto; padding-top: 2px; height: 12px; }
+.butterfly-info > .catalog-scroll-area { --scroll-thumb: #d8a514; --scroll-track: #f3e6bd; overflow-y: scroll; scrollbar-gutter: stable; }
+.catalog-scroll-area::-webkit-scrollbar { width: 6px; height: 0; }
+.catalog-scroll-area::-webkit-scrollbar-track { background: var(--scroll-track); border-radius: 6px; }
+.catalog-scroll-area::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 6px; }
+.catalog-scroll-area::-webkit-scrollbar-thumb:hover { background: #b88900; }
+.catalog-scroll-area::-webkit-scrollbar-button { display: none; }
+@supports not selector(::-webkit-scrollbar) { .catalog-scroll-area { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); } }
+.catalog-scrollbar { --scroll-thumb: #d8a514; --scroll-track: #f3e6bd; flex-shrink: 0; margin-top: auto; padding-top: 2px; height: 12px; }
 .catalog-scrollbar input[type='range'] { display: block; appearance: none; width: 100%; height: 8px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
-.catalog-scrollbar input::-webkit-slider-runnable-track { height: 4px; background: #e8e6df; border-radius: 6px; }
-.catalog-scrollbar input::-webkit-slider-thumb { appearance: none; width: var(--scroll-thumb-width); height: 6px; margin-top: -1px; border: 1px solid #8b887f; border-radius: 6px; background: #99968d; }
-.catalog-scrollbar input::-moz-range-track { height: 4px; background: #e8e6df; border-radius: 6px; }
-.catalog-scrollbar input::-moz-range-thumb { width: var(--scroll-thumb-width); height: 6px; border: 1px solid #8b887f; border-radius: 6px; background: #99968d; }
+.catalog-scrollbar input::-webkit-slider-runnable-track { height: 4px; background: var(--scroll-track); border-radius: 6px; }
+.catalog-scrollbar input::-webkit-slider-thumb { appearance: none; width: var(--scroll-thumb-width); height: 6px; margin-top: -1px; border: 1px solid var(--scroll-thumb); border-radius: 6px; background: var(--scroll-thumb); }
+.catalog-scrollbar input::-moz-range-track { height: 4px; background: var(--scroll-track); border-radius: 6px; }
+.catalog-scrollbar input::-moz-range-thumb { width: var(--scroll-thumb-width); height: 6px; border: 1px solid var(--scroll-thumb); border-radius: 6px; background: var(--scroll-thumb); }
 .catalog-scrollbar input:focus-visible { outline-offset: 1px; }
 .catalog-scrollbar input:disabled { cursor: default; opacity: .45; }
 .catalog-table td { vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -382,3 +388,24 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .life-history { margin: 14px 0; font-size: 13px; }
 .life-history section { border-top: 1px solid var(--border); padding-top: 10px; }
 @media (max-width: 620px) { .reference-dialog .reference-editor, .life-detail-dialog { padding: 16px; } }
+
+/* 지연 생성 전후에도 도감 행 높이를 유지합니다. */
+.life-chart-slot { min-width: 390px; height: 124px; }
+
+.catalog-notes { white-space: normal; }
+.catalog-notes ul { margin: 0 0 6px; padding-left: 18px; list-style-type: disc; }
+.catalog-notes li + li { margin-top: 2px; }
+.catalog-note-heading { font-weight: 600; margin-bottom: 4px; white-space: pre-wrap; }
+
+.catalog-identification { font-size: 12px; line-height: 1.5; }
+.catalog-identification .catalog-note-heading { font-size: 13px; margin-bottom: 3px; }
+.catalog-notes .catalog-citation { font-size: 10px; line-height: 1.4; color: var(--muted); }
+.catalog-table tbody tr { height: 152px; }
+
+.catalog-sex-description { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: .35em; }
+.catalog-sex-description > span { white-space: nowrap; }
+
+.catalog-unregistered { color: var(--muted); }
+
+.catalog-scrollbar input:hover::-webkit-slider-thumb { background: #b88900; border-color: #b88900; }
+.catalog-scrollbar input:hover::-moz-range-thumb { background: #b88900; border-color: #b88900; }

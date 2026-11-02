@@ -1,5 +1,5 @@
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listSpecies, listSurveys, integrationStatus, recordWeather, findExploration, listTags } from './api'
 import { CAPTURE, IDENTIFICATION, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
@@ -77,6 +77,7 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<{ survey: Survey; observationId: number | null } | null>(null)
   const formOpen = creating || !!editing || trashOpen || detailOpen
   const [query, setQuery] = useState('')
+  const [filterRevision, setFilterRevision] = useState(0)
   const [infoQuery, setInfoQuery] = useState('')
   const [holdingQuery, setHoldingQuery] = useState('')
   const [tableMode, setTableMode] = useState('records')
@@ -146,35 +147,35 @@ export default function App() {
     return () => { active = false }
   }, [targets.on, targets.region, referenceRevision])
   const referencesReady = !referenceLoading && !referenceError
-  const referenceMap = new Map(references.map(row => [row.id, row]))
-  const ranks = new Map(species.map((s, index) => [s.id, index]))
-  const allRecords = rowsFor(surveys, species, weather)
-  const rows = allRecords.filter(row => {
+  const referenceMap = useMemo(() => new Map(references.map(row => [row.id, row])), [references])
+  const ranks = useMemo(() => new Map(species.map((s, index) => [s.id, index])), [species])
+  const allRecords = useMemo(() => rowsFor(surveys, species, weather), [surveys, species, weather])
+  const rows = useMemo(() => allRecords.filter(row => {
     const ref = referenceMap.get(row.record.species_id ?? -1)
     return matches(row, filters, query) && (!hasTargetConditions(targets) || referencesReady && !!ref && targetMatches(ref, targets))
-  })
-  const candidates = referencesReady ? referenceCandidates(references, allRecords, filters, targets, query) : []
+  }), [allRecords, referenceMap, filters, query, targets, referencesReady])
+  const candidates = useMemo(() => referencesReady ? referenceCandidates(references, allRecords, filters, targets, query) : [], [referencesReady, references, allRecords, filters, targets, query])
   const visibleSpecies = new Set([...rows.map(r => r.record.species_id), ...candidates.map(r => r.id)])
   const denominator = referencesReady ? references.filter(r => r.active === true).length : 0
   const numerator = referencesReady ? references.filter(r => visibleSpecies.has(r.id) && r.active === true && r.capture_history === 'not_captured' && r.permission === 'permitted' && r.reference.protected === false).length : 0
-  const surveyIds = new Set(rows.map(row => row.survey.id))
-  const emptySurveys = hasTargetConditions(targets) ? [] : surveys.filter(s => emptySurveyMatches(s, filters, query))
-  const filtered = surveys.filter(s => surveyIds.has(s.id) || emptySurveys.includes(s))
+  const surveyIds = useMemo(() => new Set(rows.map(row => row.survey.id)), [rows])
+  const emptySurveys = useMemo(() => hasTargetConditions(targets) ? [] : surveys.filter(s => emptySurveyMatches(s, filters, query)), [targets, surveys, filters, query])
+  const filtered = useMemo(() => surveys.filter(s => surveyIds.has(s.id) || emptySurveys.includes(s)), [surveys, surveyIds, emptySurveys])
   const selected = filtered.find(s => s.id === selectedId)
-  const pins: MapPin[] = [
+  const pins: MapPin[] = useMemo(() => [
     ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, source: pinSource(r), latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}` }] : []),
     ...emptySurveys.flatMap(s => s.latitude !== null && s.longitude !== null ? [{ id: `survey-${s.id}`, surveyId: s.id, latitude: s.latitude, longitude: s.longitude, label: `${s.survey_date} · ${s.place_name || '탐사 위치'} · 종별 기록 없음` }] : []),
-  ]
-  function selectSurvey(s: Survey, recordId?: number) {
+  ], [rows, emptySurveys])
+  const selectSurvey = useCallback((s: Survey, recordId?: number) => {
     setSelectedId(s.id); setSelectedRecord(recordId ?? null)
     const point = recordId ? pins.find(p => p.id === `record-${recordId}`) : pins.find(p => p.surveyId === s.id)
     setMapFocus(point || null)
-  }
-  function openRecordDetail(s: Survey, recordId?: number) {
+  }, [pins])
+  const openRecordDetail = useCallback((s: Survey, recordId?: number) => {
     setDetailEditing(false)
     selectSurvey(s, recordId)
     setDetailOpen(true)
-  }
+  }, [selectSurvey])
   function closeRecordDetail() {
     if (detailEditing) detailForm.current?.requestClose()
     else setDetailOpen(false)
@@ -183,6 +184,11 @@ export default function App() {
     setSurveys(current => current.map(item => item.id === saved.id ? saved : item))
     setDetailEditing(false); refreshReferences(); void refreshTags(); await refreshWeather()
   }
+  const changeTableMode = useCallback((next: string) => { setTableMode(next); setNotice('') }, [])
+  const recordTable = useMemo(() => <RecordTable mode={tableMode} onModeChange={changeTableMode} holdingsView={null} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />, [tableMode, changeTableMode, rows, filtered, referenceMap, candidates, ranks, selectSurvey, openRecordDetail, selectedId])
+  const surveyList = useMemo(() => <nav aria-label="탐사 목록" className="survey-list">{filtered.map(s => <button key={s.id} disabled={referenceEditing || formOpen} className={s.id === selectedId ? 'selected' : ''} onClick={() => selectSurvey(s)}>
+          <strong>{s.place_name || '좌표 지정 장소'}</strong><span>{s.survey_date} · 종별 기록 {s.observations.length}건</span>
+        </button>)}</nav>, [filtered, referenceEditing, formOpen, selectedId, selectSurvey])
   const detailSurvey = surveys.find(s => s.id === selectedId)
   function referenceUpdated(id: number, hostPlants: string) {
     setSpecies(current => current.map(s => s.id === id ? { ...s, host_plants: hostPlants } : s))
@@ -220,22 +226,20 @@ export default function App() {
     <div className="workspace">
       <aside className="sidebar">
         <header className="app-header"><span className="eyebrow">BUTTERFLY ARCHIVE</span><h1>나비 관찰 기록</h1></header>
-        {mode !== 'collection' && <div className="sidebar-tools"><label className="sidebar-search"><span className="sr-only">{mode === 'info' ? '나비 검색' : holdingShown ? '소장 검색' : '기록 검색'}</span><input type="search" disabled={referenceEditing || formOpen} placeholder={mode === 'info' ? '국명·학명 검색' : holdingShown ? '국명·학명·취득 근거·메모' : '기록 검색'} value={mode === 'info' ? infoQuery : holdingShown ? holdingQuery : query} onChange={e => mode === 'info' ? setInfoQuery(e.target.value) : holdingShown ? setHoldingQuery(e.target.value) : setQuery(e.target.value)} /></label><button className="icon-button has-tooltip" aria-label="새로고침" data-tooltip="새로고침" disabled={loading || formOpen || referenceEditing} onClick={() => { if (holdingShown) setHoldingRevision(n => n + 1); setLoading(true); void load() }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V3m0 4h-4m4 0a8 8 0 1 0 1 8" /></svg></button><button className="icon-button has-tooltip" aria-label={mode === 'info' ? '나비 등록 열기' : holdingShown ? '소장 등록' : '새 탐사'} data-tooltip={mode === 'info' ? '나비 등록' : holdingShown ? '소장 등록' : '새 탐사'} disabled={referenceEditing || formOpen || loading || (mode === 'records' && !!error)} onClick={() => { if (mode === 'info') { setRegisterOpen(true); requestAnimationFrame(() => document.getElementById('catalog-new-name')?.focus()) } else if (holdingShown) { setHoldingRegisterOpen(true); setReferenceEditing(true) } else { setCreating(true); setNotice('') } }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4v16M4 12h16" /></svg></button></div>}
+        {mode !== 'collection' && <div className="sidebar-tools"><label className="sidebar-search"><span className="sr-only">{mode === 'info' ? '나비 검색' : holdingShown ? '소장 검색' : '기록 검색'}</span><input type="search" disabled={referenceEditing || formOpen} placeholder={mode === 'info' ? '국명·학명 검색' : holdingShown ? '국명·학명·취득 근거·메모' : '기록 검색'} value={mode === 'info' ? infoQuery : holdingShown ? holdingQuery : query} onChange={e => mode === 'info' ? setInfoQuery(e.target.value) : holdingShown ? setHoldingQuery(e.target.value) : setQuery(e.target.value)} /></label>{mode === 'records' && !holdingShown ? <button className="icon-button has-tooltip" aria-label="필터 전체 초기화" data-tooltip="필터 전체 초기화" disabled={formOpen || referenceEditing} onClick={() => { setQuery(''); setFilters(emptyFilters()); setTargets(emptyTargets()); setFilterRevision(n => n + 1) }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3.5h18l-7 8v7l-4 2v-9L3 3.5Zm14 12 4 4m0-4-4 4" /></svg></button> : <button className="icon-button has-tooltip" aria-label="새로고침" data-tooltip="새로고침" disabled={loading || formOpen || referenceEditing} onClick={() => { if (holdingShown) setHoldingRevision(n => n + 1); setLoading(true); void load() }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V3m0 4h-4m4 0a8 8 0 1 0 1 8" /></svg></button>}<button className="icon-button has-tooltip" aria-label={mode === 'info' ? '나비 등록 열기' : holdingShown ? '소장 등록' : '새 탐사'} data-tooltip={mode === 'info' ? '나비 등록' : holdingShown ? '소장 등록' : '새 탐사'} disabled={referenceEditing || formOpen || loading || (mode === 'records' && !!error)} onClick={() => { if (mode === 'info') { setRegisterOpen(true); requestAnimationFrame(() => document.getElementById('catalog-new-name')?.focus()) } else if (holdingShown) { setHoldingRegisterOpen(true); setReferenceEditing(true) } else { setCreating(true); setNotice('') } }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4v16M4 12h16" /></svg></button></div>}
         <div className="sidebar-scroll" role="region" aria-label="왼쪽 정보" tabIndex={0}>
         <div className="sidebar-card">
         {mode === 'collection' && <section className="collection-sidebar"><h2>수집처 선택</h2><div className="collection-source-list" role="group" aria-label="자료 수집처">{collectionSources.map(source => <button key={source.id} aria-pressed={collectionSource === source.id} onClick={() => setCollectionSource(source.id)}>{source.name}</button>)}</div><p className="hint">수집처를 선택한 뒤 오른쪽에서 준비 상태를 확인하세요.</p></section>}
         <div ref={setInfoSidebar} hidden={mode !== 'info'} />
         <div ref={setHoldingSidebar} hidden={!holdingShown} />
         <div hidden={mode !== 'records' || holdingShown}>
-        <SearchFilters tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} reset={() => setQuery('')} expanded={tab === 'table'} targets={targets} onTargets={changeTargets} />
+        <SearchFilters key={filterRevision} tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} expanded={tab === 'table'} targets={targets} onTargets={changeTargets} />
         <p className="hint">종별 기록 {rows.length}건 · 좌표 있음 {rows.filter(r => r.record.effective_latitude !== null).length}건 · 좌표 없음 {rows.filter(r => r.record.effective_latitude === null).length}건</p>
         <div className="toolbar"><h2>탐사 목록</h2><small>{filtered.length}건</small></div>
         {loading && <p role="status">목록을 불러오는 중입니다.</p>}
         {error && <p role="alert" className="error">{error}</p>}
         {!loading && !error && filtered.length === 0 && <p className="empty">{surveys.length ? '검색 결과가 없습니다.' : '첫 탐사를 등록해 주세요.'}</p>}
-        <nav aria-label="탐사 목록" className="survey-list">{filtered.map(s => <button key={s.id} disabled={referenceEditing || formOpen} className={s.id === selectedId ? 'selected' : ''} onClick={() => selectSurvey(s)}>
-          <strong>{s.place_name || '좌표 지정 장소'}</strong><span>{s.survey_date} · 종별 기록 {s.observations.length}건</span>
-        </button>)}</nav></div>
+        {surveyList}</div>
         <button className="trash-open" disabled={formOpen || referenceEditing} onClick={() => showTrash()}>휴지통</button>
         <details className="integration-status"><summary onClick={() => void showIntegration()}>연동 상태·로컬 사용량</summary>
           <p className="hint">네이버 무료 대표 계정과 콘솔 사용 제한을 유지해야 합니다. 아래 숫자는 이 DB의 호출 시도이며 제공자 전체 사용량과 다를 수 있습니다.</p>
@@ -266,7 +270,7 @@ export default function App() {
           {!holdingShown && referencesReady && <div className="record-ratio" aria-label="미채집·채집 가능 확인 종 비율">{denominator > 0 && <>조건에 맞는 미채집·채집 가능 확인 종 {numerator} / 현재 출현 참고 종 {denominator} · {(numerator / denominator * 100).toFixed(1)}%</>}</div>}
           {referenceLoading && <p role="status">종 참고자료를 읽는 중입니다.</p>}
           {referenceError && <p role="alert" className="error">{referenceError}<button disabled={referenceEditing || formOpen} onClick={refreshReferences}>참고자료 다시 읽기</button></p>}
-          <RecordTable mode={tableMode} onModeChange={next => { setTableMode(next); setNotice('') }} holdingsView={<HoldingsView species={species} surveys={surveys} query={holdingQuery} sidebar={holdingSidebar} revision={holdingRevision} registerOpen={holdingRegisterOpen} onRegisterOpen={setHoldingRegisterOpen} onEditing={setReferenceEditing} onChanged={() => refreshReferences()} />} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />
+          {tableMode !== 'holdings' ? recordTable : <RecordTable mode={tableMode} onModeChange={next => { setTableMode(next); setNotice('') }} holdingsView={<HoldingsView species={species} surveys={surveys} query={holdingQuery} sidebar={holdingSidebar} revision={holdingRevision} registerOpen={holdingRegisterOpen} onRegisterOpen={setHoldingRegisterOpen} onEditing={setReferenceEditing} onChanged={() => refreshReferences()} />} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />}
           {detailOpen && detailSurvey && <dialog className={`record-detail-dialog${detailEditing ? ' survey-dialog' : ''}`} aria-labelledby="record-detail-title" ref={node => { if (node && !node.open) node.showModal() }} onCancel={event => { event.preventDefault(); closeRecordDetail() }}>
             <header className="record-detail-header"><h2 id="record-detail-title">{detailEditing ? '관찰 기록 수정' : '관찰 기록 상세'}</h2><button type="button" autoFocus onClick={closeRecordDetail}>닫기</button></header>
             {detailEditing ? <SurveyForm embedded closeRef={detailForm} selectedObservationId={selectedRecord} initial={detailSurvey} species={species} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} onCancel={() => setDetailEditing(false)} onSaved={saved => void saveDetail(saved)} /> : <Detail key={`${detailSurvey.id}-${detailSurvey.updated_at}`} survey={detailSurvey} selectedRecord={selectedRecord} onDelete={id => { setDetailOpen(false); showTrash({ survey: detailSurvey, observationId: id }) }} onWeatherChanged={() => void refreshWeather()} onEdit={() => setDetailEditing(true)} />}

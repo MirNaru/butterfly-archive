@@ -1,5 +1,5 @@
 // 등록·검색은 왼쪽에 두고 종별 한살이 그림과 생태 정보를 표로 표시합니다.
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { addSpecies, getReference, listCatalog } from './api'
@@ -9,6 +9,32 @@ import LifeCycleChart from './LifeCycleChart'
 import { collectLifeSamples, LIFE_STAGES } from './lifeCycle'
 import type { LifeFilter } from './lifeCycle'
 import { speciesStatuses } from './speciesStatus'
+// 탭을 닫아도 자료만 재사용합니다. 명시적 새로고침·편집은 revision으로 무효화합니다.
+let catalogCache: { key: string; promise: Promise<SpeciesCatalog[]> } | undefined
+function cachedCatalog(key: string) {
+  if (!catalogCache || catalogCache.key !== key) {
+    const promise = listCatalog()
+    catalogCache = { key, promise }
+    void promise.catch(() => { if (catalogCache?.promise === promise) catalogCache = undefined })
+  }
+  return catalogCache.promise
+}
+const noSamples: ReturnType<typeof collectLifeSamples> = []
+// 화면 가까이에 있는 그래프만 만들고 같은 높이를 예약합니다.
+const VisibleLifeChart = memo(function VisibleLifeChart(props: Parameters<typeof LifeCycleChart>[0]) {
+  const element = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const node = element.current
+    if (!node) return
+    const observer = new IntersectionObserver(entries => {
+      setVisible(entries.some(entry => entry.isIntersecting))
+    }, { root: node.closest('.catalog-scroll-area'), rootMargin: '300px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  return <div ref={element} className="life-chart-slot">{visible ? <LifeCycleChart {...props} /> : <button type="button" className="link" onFocus={() => setVisible(true)} onClick={() => setVisible(true)}>{props.name} 한살이 그림 보기</button>}</div>
+})
 // 기주식물 원문은 유지하고 괄호 밖의 구분자만 화면에서 줄로 나눕니다.
 function hostPlantLines(value: string): string[] {
   const lines: string[] = []
@@ -23,6 +49,33 @@ function hostPlantLines(value: string): string[] {
   }
   if (current.trim()) lines.push(current.trim())
   return lines
+}
+// 저장된 개조식 줄은 실제 글머리 목록으로 표시하고 구분 제목을 유지합니다.
+function CatalogNotes({ text }: { text: string }) {
+  if (!text) return <span className="catalog-unregistered">미등록</span>
+  const groups: { title: string; items: string[] }[] = []
+  for (const line of text.split('\n').map(value => value.trim()).filter(Boolean)) {
+    if (/^[-•]\s*/.test(line)) {
+      if (!groups.length) groups.push({ title: '', items: [] })
+      groups[groups.length - 1].items.push(line.replace(/^[-•]\s*/, ''))
+    } else groups.push({ title: line, items: [] })
+  }
+  return <div className="catalog-notes">{groups.map((group, index) => {
+    const items: { label: string; lines: string[] }[] = []
+    for (const item of group.items) {
+      const match = /^(수컷|암컷|공통):\s*(.*)$/.exec(item)
+      const label = match ? match[1] : ''
+      const body = match ? match[2] : item
+      const previous = items[items.length - 1]
+      if (label && previous?.label === label) {
+        // 앞날개·뒷날개 열거 도중 나뉜 짧은 조각은 문장에 다시 연결합니다.
+        const last = previous.lines.length - 1
+        if (/^(앞날개|뒷날개)$/.test(previous.lines[last])) previous.lines[last] += ', ' + body
+        else previous.lines.push(body)
+      } else items.push({ label, lines: [body] })
+    }
+    return <div key={index}>{group.title && <div className="catalog-note-heading">{group.title}</div>}{items.length > 0 && <ul>{items.map((item, i) => <li key={i} className={item.lines[0].startsWith('참고 문헌:') ? 'catalog-citation' : undefined}>{item.label ? <div className="catalog-sex-description"><span>{item.label}:</span><div>{item.lines.map((line, n) => <div key={n}>{line}</div>)}</div></div> : item.lines[0]}</li>)}</ul>}</div>
+  })}</div>
 }
 export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing, sidebar, query, revision, surveys, registerOpen, onRegisterOpen }: { species: Species[]; onCreated: (s: Species) => void; onUpdated: (s: Species) => void; onEditing: (v: boolean) => void; sidebar: HTMLDivElement | null; query: string; revision: number; surveys: Survey[]; registerOpen: boolean; onRegisterOpen: (open: boolean) => void }) {
   const scrollArea = useRef<HTMLDivElement>(null)
@@ -59,7 +112,7 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
   const loading = loaded !== requestKey
   useEffect(() => {
     let active = true
-    listCatalog().then(rows => { if (active) { setCatalog(rows); setError('') } })
+    cachedCatalog(requestKey).then(rows => { if (active) { setCatalog(rows); setError('') } })
       .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : '나비 목록을 읽지 못했습니다.') })
       .finally(() => { if (active) setLoaded(requestKey) })
     return () => { active = false }
@@ -95,7 +148,7 @@ export default function ButterflyInfo({ species, onCreated, onUpdated, onEditing
   return <section className="butterfly-info" aria-label="나비 도감 표">
     {sidebar ? createPortal(controls, sidebar) : controls}
     <div className="catalog-toolbar"><h2>나비 도감</h2></div>
-    <div className="table-wrap catalog-scroll-area" id="catalog-scroll-area" ref={scrollArea} onScroll={e => { const left = e.currentTarget.scrollLeft; setScroll(previous => previous.left === left ? previous : { ...previous, left }) }}><table className="catalog-table"><thead><tr><th>국명 · 학명</th><th>한살이 기간</th><th>기주식물</th><th>서식지</th><th>습성</th><th>기타</th><th>동정 포인트</th></tr></thead><tbody>{filtered.map(s => <tr key={s.id}><td className="catalog-name"><button className="link" disabled={busy} title={`${s.korean_name} 정보 편집`} onClick={() => void open(s)}>{s.korean_name}</button><small>{s.scientific_name || '학명 미등록'}</small><div className="species-statuses" aria-label={`${s.korean_name} 상태`}>{speciesStatuses(s.reference).map((badge, index) => <span key={index} className={`species-status status-${badge.tone}`} title={badge.detail}>{badge.label}</span>)}</div></td><td><LifeCycleChart name={s.korean_name} reference={s.reference} samples={samples.get(s.id) || []} filter={filter} /></td><td title={s.reference.host_plants}>{s.reference.host_plants ? <ul className="host-plant-list">{hostPlantLines(s.reference.host_plants).map((plant, index) => <li key={index}>{plant}</li>)}</ul> : '미등록'}</td><td>{s.reference.habitat || '미등록'}</td><td>{s.reference.habits || '미등록'}</td><td>{s.reference.other_notes || '미등록'}</td><td>{s.reference.identification_points || '미등록'}</td></tr>)}{!filtered.length && <tr><td colSpan={7}>{loading ? '목록을 읽는 중입니다.' : error ? '왼쪽 오류 안내에서 다시 읽어 주세요.' : catalog.length ? '검색 결과가 없습니다.' : '왼쪽에서 나비를 등록해 주세요.'}</td></tr>}</tbody></table></div>
+    <div className="table-wrap catalog-scroll-area" id="catalog-scroll-area" ref={scrollArea} onScroll={e => { const left = e.currentTarget.scrollLeft; setScroll(previous => previous.left === left ? previous : { ...previous, left }) }}><table className="catalog-table"><thead><tr><th>국명 · 학명</th><th>한살이 기간</th><th>기주식물</th><th>서식지</th><th>습성</th><th>기타</th><th>동정 포인트</th></tr></thead><tbody>{filtered.map(s => <tr key={s.id}><td className="catalog-name"><button className="link" disabled={busy} title={`${s.korean_name} 정보 편집`} onClick={() => void open(s)}>{s.korean_name}</button><small>{s.scientific_name || '학명 미등록'}</small><div className="species-statuses" aria-label={`${s.korean_name} 상태`}>{speciesStatuses(s.reference).map((badge, index) => <span key={index} className={`species-status status-${badge.tone}`} title={badge.detail}>{badge.label}</span>)}</div></td><td><VisibleLifeChart name={s.korean_name} reference={s.reference} samples={samples.get(s.id) || noSamples} filter={filter} /></td><td title={s.reference.host_plants}>{s.reference.host_plants ? <ul className="host-plant-list">{hostPlantLines(s.reference.host_plants).map((plant, index) => <li key={index}>{plant}</li>)}</ul> : <span className="catalog-unregistered">미등록</span>}</td><td>{s.reference.habitat || <span className="catalog-unregistered">미등록</span>}</td><td><CatalogNotes text={s.reference.habits} /></td><td><CatalogNotes text={s.reference.other_notes} /></td><td><div className="catalog-identification"><CatalogNotes text={s.reference.identification_points} /></div></td></tr>)}{!filtered.length && <tr><td colSpan={7}>{loading ? '목록을 읽는 중입니다.' : error ? '왼쪽 오류 안내에서 다시 읽어 주세요.' : catalog.length ? '검색 결과가 없습니다.' : '왼쪽에서 나비를 등록해 주세요.'}</td></tr>}</tbody></table></div>
     <div className="catalog-scrollbar"><input ref={scrollInput} type="range" min={0} max={scroll.max} step={1} value={scroll.left} disabled={scroll.max === 0} aria-label="도감 가로 스크롤" aria-controls="catalog-scroll-area" aria-valuetext={`${Math.round(scroll.max ? scroll.left / scroll.max * 100 : 0)}%`} style={{ '--scroll-thumb-width': `${scroll.thumbWidth}px` } as CSSProperties} onChange={e => moveScroll(Number(e.target.value))} onKeyDown={e => {
       const page = scrollArea.current?.clientWidth || 0
       const deltas: Record<string, number> = { ArrowLeft: -48, ArrowRight: 48, PageUp: -page, PageDown: page }
