@@ -51,7 +51,26 @@ class Protection(InputModel):
         return self
 
 
+class SpeciesDetail(InputModel):
+    """종별 생태·사육·표본 참고 사례와 근거를 보존합니다."""
+    id: str = Field(min_length=1, max_length=100)
+    category: Literal['host_rearing', 'activity', 'traits', 'diapause', 'rearing', 'breeding', 'specimen', 'memo']
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default='', max_length=5000)
+    evidence: Literal['field', 'rearing', 'literature', 'inferred'] = 'literature'
+    scope: str = Field(default='', max_length=500)
+    timing: str = Field(default='', max_length=500)
+    source: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode='after')
+    def require_description(self) -> Self:
+        if self.category != 'host_rearing' and not self.body:
+            raise ValueError('세부 정보 내용을 입력해 주세요.')
+        return self
+
+
 class Reference(InputModel):
+    details: list[SpeciesDetail] = Field(default_factory=list, max_length=100)
     region_codes: list[str] = Field(default_factory=list, max_length=500)
     region_search: str = Field(default='', max_length=50000)
     region_unmatched: list[str] = Field(default_factory=list, max_length=1000)
@@ -95,6 +114,8 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if len({p.id for p in self.details}) != len(self.details):
+            raise ValueError('세부 정보 항목의 ID가 중복되었습니다.')
         if self.sighting_years:
             self.sighting_years = [max(self.sighting_years)]
         if self.domestic_extinct is not None and not self.extinction_source:
@@ -187,7 +208,7 @@ def save_reference(species_id: int, value: ReferenceUpdate):
             raise HTTPException(409, '다른 창에서 참고자료를 수정했습니다. 입력을 보관한 뒤 다시 열어 주세요.')
         payload = value.model_dump(mode='json', exclude={'expected_updated_at'})
         # 기존 화면이 새 항목을 생략해도 상태 자료와 원문은 보존합니다.
-        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source'):
+        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source', 'details'):
             if key not in value.model_fields_set:
                 payload[key] = old['reference'][key]
         payload = normalized_reference(payload)

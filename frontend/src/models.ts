@@ -100,6 +100,7 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  details?: SpeciesDetail[]
   region_codes?: string[]
   region_search?: string
   region_unmatched?: string[]
@@ -114,6 +115,13 @@ export interface SpeciesReference {
   sighting_years: number[]; sighting_source?: string; protected: boolean | null; capture_history: 'unknown' | 'captured' | 'not_captured'
   source: string; capture_source: string; protection_source: string; protection_checked: string | null
   permission: 'unknown' | 'permitted' | 'prohibited'; permission_region: string; permission_start: string | null; permission_end: string | null; permission_source: string
+}
+export interface SpeciesDetail {
+  id: string
+  category: 'host_rearing' | 'activity' | 'traits' | 'diapause' | 'rearing' | 'breeding' | 'specimen' | 'memo'
+  title: string; body: string; source: string
+  evidence: 'field' | 'rearing' | 'literature' | 'inferred'
+  scope: string; timing: string
 }
 export interface Protection { kind: 'endangered_i' | 'endangered_ii' | 'monument' | 'regional'; region: string; designation: string; source: string; checked: string }
 export type LifeStage = 'egg' | 'larva' | 'pupa' | 'adult'

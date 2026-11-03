@@ -366,3 +366,12 @@ species_references의 기존 JSON 구조를 확장하며 DB 테이블·버전은
 ### 관찰 지역의 지도 표시 단위
 
 검수 후 등록한 관찰 근거는 시·군 전체에 적용합니다. 구로 나뉜 일반 시는 같은 시의 모든 구 경계에 적용하고, 특별시·광역시·세종은 해당 시 전체 경계를 사용합니다. 도 전체로 확대하지 않습니다. 원본 좌표·장소 및 마라도·한라산 특별 경계 판정은 유지합니다. 도 전체 참고 경계가 있어도 관찰 시·군 경계는 진한 녹색으로 표시합니다. 미발견·대기 자료·휴지통 자료는 관찰 근거에서 제외합니다.
+
+
+### 종별 세부 정보
+
+종 참고자료의 JSON에 details 배열을 추가합니다. 기존 자료에 없으면 빈 배열로 응답하며 DB 일괄 변환은 필요하지 않습니다. 기존 other_notes와 ecology_source는 기존 기타 원문·출처를 보존합니다. 이전 클라이언트가 details를 생략한 저장 요청을 보내면 기존 배열을 유지합니다. 빈 배열을 명시하면 세부 정보 사례만 제거합니다.
+
+details는 최대 100건입니다. 각 사례의 id는 종 안에서 고유해야 합니다. category는 host_rearing, activity, traits, diapause, rearing, breeding, specimen, memo 중 하나입니다. title은 1~200자, body는 1~5000자, source는 1~2000자입니다. evidence는 field, rearing, literature, inferred 중 하나이고 기본값은 literature입니다. scope와 timing은 각각 최대 500자의 선택 입력입니다. 개인 표본·사육 개체 기록과 구분한 종별 참고 자료이며 관찰 통계로 자동 편입하지 않습니다.
+
+기주식물(사육)의 host_rearing 사례는 title에 식물 이름을 저장하며 body는 비울 수 있습니다. 다른 항목의 body는 필수입니다.

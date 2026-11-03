@@ -502,3 +502,17 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 /* 과별 비율은 키보드와 마우스로 도감 첫 종에 이동합니다. */
 .catalog-family-link { border: 0; border-radius: 7px; background: transparent; color: inherit; min-height: 0; }
 .catalog-ratios .catalog-family-link:hover:not(:disabled), .catalog-ratios .catalog-family-link:focus-visible { background: var(--accent); }
+
+/* 세부 정보 항목마다 노란색 단색을 사용하고 테두리로 상호작용을 표시합니다. */
+.species-details { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 7px; }
+.species-detail { max-width: 100%; min-width: 0; }
+.species-detail > summary { display: inline-block; cursor: pointer; list-style: none; border: 1px solid transparent; border-radius: 10px; padding: 5px 9px; background: var(--detail-color); font-size: 12px; line-height: 1.4; }
+.species-detail > summary::-webkit-details-marker { display: none; }
+.species-detail > summary:hover, .species-detail > summary:focus-visible, .species-detail[open] > summary { border-color: #a66f00; }
+.species-detail[open] { width: 100%; }
+.species-detail-content { margin-top: 7px; padding: 10px; border-radius: 10px; background: var(--accent-faint); overflow-wrap: anywhere; }
+.species-detail-content article + article { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.species-detail-content p { white-space: pre-wrap; margin: 5px 0; font-size: 12px; }
+.species-detail-content small { display: block; font-size: 11px; line-height: 1.5; }
+.detail-source { white-space: pre-wrap; color: var(--muted); }
+.species-detail-entry { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }

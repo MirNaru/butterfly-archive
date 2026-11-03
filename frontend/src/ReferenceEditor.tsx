@@ -7,6 +7,7 @@ import LifeCycleEditor from './LifeCycleEditor'
 import { LIFE_STAGES, periodLabel } from './lifeCycle'
 import { PROTECTION_LABELS } from './speciesStatus'
 import RegionPicker from './RegionPicker'
+import { SpeciesDetailsEditor } from './SpeciesDetails'
 const slotName = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
 export default function ReferenceEditor({ species, initial, onClose, onSaved, onBusyChange }: { species: Species; initial: ReferenceDocument; onClose: () => void; onSaved: (reference: SpeciesReference) => void; onBusyChange?: (busy: boolean) => void }) {
   const [value, setValue] = useState(initial.reference)
@@ -34,7 +35,8 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     {(value.family || value.subfamily) && <p className="hint">분류: {value.family || '과 미확인'} / {value.subfamily || '아과 미확인'}<br />분류·표시 순서 출처: {value.taxonomy_source}</p>}
     <h3>동정 포인트</h3><label>동정 포인트<textarea value={value.identification_points} maxLength={5000} rows={3} onChange={e => update('identification_points', e.target.value)} placeholder="날개 윗면·아랫면 특징, 유사종과 구별할 점 등" /></label><label>동정 포인트 자료 출처<input value={value.identification_source} maxLength={2000} onChange={e => update('identification_source', e.target.value)} placeholder="도감명·판본·쪽수 또는 직접 관찰 근거" /></label>
     <h3>기주식물</h3><label>기주식물<textarea value={value.host_plants} maxLength={5000} rows={2} onChange={e => update('host_plants', e.target.value)} /></label><label>기주식물 자료 출처<input value={value.host_plants_source} maxLength={2000} onChange={e => update('host_plants_source', e.target.value)} /></label>
-    <div className="field-grid">{(['habitat', 'habits', 'other_notes'] as const).map(key => <label key={key}>{({ habitat: '서식지', habits: '습성', other_notes: '기타' })[key]}<textarea value={value[key]} rows={2} maxLength={5000} onChange={e => update(key, e.target.value)} /></label>)}</div>{text('ecology_source', '서식지·습성·기타 자료 출처')}
+    <div className="field-grid">{(['habitat', 'habits', 'other_notes'] as const).map(key => <label key={key}>{({ habitat: '서식지', habits: '습성', other_notes: '기존 기타 메모' })[key]}<textarea value={value[key]} rows={2} maxLength={5000} onChange={e => update(key, e.target.value)} /></label>)}</div>{text('ecology_source', '서식지·습성·기타 자료 출처')}
+    {value.details !== undefined ? <SpeciesDetailsEditor value={value.details} onChange={next => update('details', next)} /> : <p className="hint">새 세부 정보 편집은 프로그램을 다시 실행한 뒤 사용할 수 있습니다.</p>}
     <section><h3>한살이 기간</h3>{value.lifecycle.length ? value.lifecycle.map(p => <p key={p.id}>{LIFE_STAGES.find(s => s.key === p.stage)?.label} · {periodLabel(p)}{!p.enabled && ' · 사용 안 함'}</p>) : <p className="hint">등록된 기간 없음</p>}
     <details open={lifeEditing} onToggle={e => setLifeEditing(e.currentTarget.open)}><summary>한살이 기간 수정</summary>{lifeEditing && <LifeCycleEditor value={value.lifecycle} onChange={next => update('lifecycle', next)} history={initial.lifecycle_history || []} />}</details></section>
     <details><summary>기존 어른벌레 출현 참고 기간</summary><p className="hint">기존 36구간 자료입니다. 새 한살이 어른벌레 구간이 없을 때만 어른벌레 그림과 탐사 계산에 사용합니다. 상순 1~10일 · 중순 11~20일 · 하순 21일~월말입니다.</p>

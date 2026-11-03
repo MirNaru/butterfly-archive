@@ -45,6 +45,38 @@ def new_species(client, name='탐사 시험 종'):
     return client.post('/api/species', json={'korean_name': name}).json()['id']
 
 
+def test_species_details_roundtrip_legacy_and_conflict(client):
+    key = new_species(client)
+    url = f'/api/species/{key}/reference'
+    original = client.put(url, json={'other_notes': '기존 기타 원문', 'ecology_source': '기존 출처'}).json()
+    entry = {'id': 'case-1', 'category': 'host_rearing', 'title': '사육 먹이',
+             'body': '시험 식물을 공급해 어른벌레까지 사육', 'source': '직접 사육 일지',
+             'evidence': 'rearing', 'scope': '국내 · 애벌레', 'timing': '2026년'}
+    saved = client.put(url, json={**original['reference'], 'details': [entry],
+                                 'expected_updated_at': original['updated_at']})
+    assert saved.status_code == 200
+    result = saved.json()
+    assert client.get(url).json() == result
+    assert result['reference']['other_notes'] == '기존 기타 원문'
+    assert result['reference']['details'] == [entry]
+    assert client.put(url, json={**original['reference'], 'expected_updated_at': original['updated_at']}).status_code == 409
+    legacy = {k: v for k, v in result['reference'].items() if k != 'details'}
+    preserved = client.put(url, json={**legacy, 'expected_updated_at': result['updated_at']})
+    assert preserved.json()['reference']['details'] == [entry]
+    version = preserved.json()['updated_at']
+    simple = {**entry, 'body': '', 'title': '시험 먹이식물'}
+    accepted = client.put(url, json={**legacy, 'details': [simple], 'expected_updated_at': version})
+    assert accepted.status_code == 200
+    assert accepted.json()['reference']['details'][0]['body'] == ''
+    version = accepted.json()['updated_at']
+    for entries in [[{**entry, 'source': ''}], [{**entry, 'category': 'unknown'}], [entry, entry], [{**simple, 'category': 'activity'}]]:
+        assert client.put(url, json={**legacy, 'details': entries, 'expected_updated_at': version}).status_code == 422
+        assert client.get(url).json()['updated_at'] == version
+    cleared = client.put(url, json={**legacy, 'details': [], 'expected_updated_at': version})
+    assert cleared.json()['reference']['details'] == []
+    assert cleared.json()['reference']['other_notes'] == '기존 기타 원문'
+
+
 def test_host_plants_roundtrip_validation_and_legacy(client):
     key = new_species(client)
     assert client.get('/api/species').json()[0]['host_plants'] == ''
