@@ -38,6 +38,7 @@ def test_register_selected_preserves_original_and_skips_duplicates(client):
     assert result.status_code==200 and len(result.json()['results'])==1
     assert result.json()['results'][0]['status']=='registered'
     surveys=client.get('/api/surveys').json()
+    assert result.json()['surveys'] == surveys
     observation=surveys[0]['observations'][0]
     assert observation['source_type']=='indirect' and observation['source_note']==value['url']
     assert observation['observation_date']=='2026-10-29' and observation['stage']=='adult'

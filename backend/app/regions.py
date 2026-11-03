@@ -146,6 +146,8 @@ def contains(feature, lat, lng):
     return any(ring_contains(p[0],lng,lat) and not any(ring_contains(h,lng,lat) for h in p[1:]) for p in polygons)
 
 
+# 서버 실행 중 경계는 고정됩니다. 관찰이나 종별 근거가 아닌 위치 판정만 재사용합니다.
+@lru_cache(maxsize=8192)
 def locate(place, lat=None, lng=None):
     if lat is not None and lng is not None:
         found = [code for code,f in index().items() if f['properties']['level']=='sigungu' and contains(f,lat,lng)]

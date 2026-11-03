@@ -92,7 +92,8 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
     }
   }, [ready, satellite])
   useEffect(() => {
-    if (!ready || !map.current || !sdk.current) return
+    if (!shown || !ready || !map.current || !sdk.current) return
+    if (hidden) { for (const marker of markers.current.values()) marker.setMap(null); return }
     const api = sdk.current
     const groups = new Map<string, MapPin[]>()
     for (const pin of pins) {
@@ -122,7 +123,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
       appearances.current.set(key, appearance.signature)
     }
     for (const marker of markers.current.values()) marker.setMap(hidden ? null : map.current)
-  }, [pins, hidden, ready])
+  }, [pins, hidden, ready, shown])
   const latitude = focus?.latitude
   const longitude = focus?.longitude
   useEffect(() => {

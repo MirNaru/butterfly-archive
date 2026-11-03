@@ -155,7 +155,16 @@ def register_selected(value: CollectionSelection, request: Request):
             results.append({'id':item_id, 'status':'registered', 'observation_id':observation_id})
         from app.vagrant_years import sync_vagrant_years
         sync_vagrant_years(db)
-    return {'results':results}
+        from app.records import read_survey
+        ids = [r['observation_id'] for r in results if r.get('observation_id')]
+        surveys = []
+        if ids:
+            marks = ','.join('?' for _ in ids)
+            for row in db.execute(f'SELECT DISTINCT survey_id FROM observations WHERE id IN ({marks})', ids):
+                survey = read_survey(db, row[0])
+                if survey is not None:
+                    surveys.append(survey)
+    return {'results':results, 'surveys':surveys}
 
 @router.post('/discard')
 def discard_selected(value: CollectionSelection, request: Request):

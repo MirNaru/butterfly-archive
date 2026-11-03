@@ -38,7 +38,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-export const registerCollected = (ids: number[]) => request<{results: {id: number; status: 'registered' | 'already_registered' | 'skipped'; reason?: string}[]}>('/collection/register', { ...post({ids}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
+export const registerCollected = (ids: number[]) => request<{surveys?: Survey[]; results: {id: number; status: 'registered' | 'already_registered' | 'skipped'; reason?: string}[]}>('/collection/register', { ...post({ids}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
 export const editCollectedStage = (item: import('./models').CollectedItem, stage: keyof typeof import('./models').STAGE) => request<{id:number;stage:keyof typeof import('./models').STAGE;version:string}>(`/collection/${item.id}/stage`, {...post({stage,expected_version:item.version}),method:'PUT',headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const discardCollected = (ids: number[]) => request<{ids: number[]}>('/collection/discard', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const restoreCollected = (ids: number[]) => request<{ids: number[]}>('/collection/restore', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
@@ -88,3 +88,18 @@ export const paperStatus = () => request<{kci_ready:boolean}>('/papers/status')
 export const listPapers = (offset: number, query: string, topic: string, language: string, speciesId = '', start = '', end = '', provider = 'all') => request<{total:number; items:Paper[]}>(`/papers?${new URLSearchParams({offset:String(offset),query,topic,language,provider,...(speciesId ? {species_id:speciesId} : {}),...(start ? {start} : {}),...(end ? {end} : {})})}`)
 export const refreshPapers = (value: PaperQuery) => request<{received:number; created:number; duplicate:number; excluded:number; warnings:string[]}>('/papers/refresh', {...post(value), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const addPaperObservation = (paperId: number, evidence: string, survey: SurveyInput) => request<Survey>(`/papers/${paperId}/observations`, {...post({evidence,survey}),headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+
+
+// 동일한 자료 버전의 진행 중 요청과 결과를 공유하고, 실패하면 다시 요청합니다.
+export function latestRequest<A extends unknown[], T>(fetcher: (...args: A) => Promise<T>) {
+  let entry: {key: string; promise: Promise<T>} | undefined
+  return (version: string, ...args: A) => {
+    const key = JSON.stringify([version, ...args])
+    if (entry?.key === key) return entry.promise
+    const promise = fetcher(...args)
+    entry = {key, promise}
+    void promise.catch(() => { if (entry?.promise === promise) entry = undefined })
+    return promise
+  }
+}
+export const catalogExploration = latestRequest(findExploration)

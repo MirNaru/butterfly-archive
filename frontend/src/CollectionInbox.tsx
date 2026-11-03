@@ -2,10 +2,10 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { collectionItems, createCollectionConnection, registerCollected, discardCollected, editCollectedStage } from './api'
-import { STAGE, type CollectedItem } from './models'
+import { STAGE, type Survey, type CollectedItem } from './models'
 import InaturalistControls from './InaturalistControls'
 
-export default function CollectionInbox({ onRegistered, source = 'naturing', remoteTarget }: { remoteTarget?: HTMLDivElement | null; onRegistered: () => Promise<void>; source?: 'naturing' | 'inaturalist' }) {
+export default function CollectionInbox({ onRegistered, source = 'naturing', remoteTarget }: { remoteTarget?: HTMLDivElement | null; onRegistered: (surveys?: Survey[]) => Promise<void>; source?: 'naturing' | 'inaturalist' }) {
   const [items, setItems] = useState<CollectedItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
@@ -53,11 +53,11 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
   async function register() {
     setBusy(true); setError(''); setNotice('')
     try {
-      const {results} = await registerCollected(registrationIds)
+      const {results,surveys} = await registerCollected(registrationIds)
       const added = results.filter(r => r.status === 'registered').length
       const skipped = results.filter(r => r.status === 'skipped')
       setNotice(`간접 관찰 ${added}건 등록 · 기존 등록 ${results.filter(r => r.status === 'already_registered').length}건 · 제외 ${skipped.length}건${skipped.length ? '\n' + skipped.map(r => `자료 ${r.id}: ${r.reason}`).join('\n') : ''}`)
-      reload(); await onRegistered()
+      reload(); await onRegistered(surveys)
     } catch (e) { setError(e instanceof Error ? e.message : '등록 실패') }
     finally { setBusy(false) }
   }

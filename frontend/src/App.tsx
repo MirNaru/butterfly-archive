@@ -1,6 +1,6 @@
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { listSpecies, listSurveys, integrationStatus, recordWeather, findExploration, listTags } from './api'
+import { listSpecies, listSurveys, integrationStatus, recordWeather, catalogExploration, listTags } from './api'
 import { CAPTURE, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
 import SurveyForm, { type SurveyFormHandle } from './SurveyForm'
@@ -108,6 +108,7 @@ export default function App() {
   ]
   const selectedSource = collectionSources.find(source => source.id === collectionSource)!
   const holdingShown = mode === 'records' && tab === 'table' && tableMode === 'holdings'
+  const needsRecords = mode === 'records' && !holdingShown
   const [targets, setTargets] = useState(emptyTargets)
   const [references, setReferences] = useState<ExplorationRow[]>([])
   const [referenceLoading, setReferenceLoading] = useState(true)
@@ -128,9 +129,22 @@ export default function App() {
       .catch((e: unknown) => { if (active) setTagsError(e instanceof Error ? e.message : '태그 목록을 읽지 못했습니다.') })
     return () => { active = false }
   }, [])
+  const snapshot = useRef(0)
+  const initialized = useRef(false)
+  async function registered(changes?: Survey[]) {
+    if (!changes || !initialized.current) { await load(); return }
+    if (!changes.length) return
+    snapshot.current++
+    const updated = new Map(changes.map(s => [s.id,s]))
+    setSurveys(current => [...changes,...current.filter(s => !updated.has(s.id))].sort((a,b) => b.survey_date.localeCompare(a.survey_date) || b.id-a.id))
+    refreshReferences()
+  }
   async function load() {
+    const version = ++snapshot.current
     try {
       const [nextSpecies, nextSurveys, nextWeather] = await Promise.all([listSpecies(), listSurveys(), recordWeather()])
+      if (version !== snapshot.current) return
+      initialized.current = true
       setSpecies(nextSpecies); setSurveys(nextSurveys); setWeather(nextWeather); setError('')
       refreshReferences(); void refreshTags()
     } catch (error) { setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.') }
@@ -138,9 +152,10 @@ export default function App() {
   }
   useEffect(() => {
     let active = true
+    const version = snapshot.current
     Promise.all([listSpecies(), listSurveys(), recordWeather()])
       .then(([nextSpecies, nextSurveys, nextWeather]) => {
-        if (active) { setSpecies(nextSpecies); setSurveys(nextSurveys); setWeather(nextWeather); setError('') }
+        if (active && version === snapshot.current) { initialized.current = true; setSpecies(nextSpecies); setSurveys(nextSurveys); setWeather(nextWeather); setError('') }
       })
       .catch((error: unknown) => {
         if (active) setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.')
@@ -150,19 +165,20 @@ export default function App() {
   }, [])
   useEffect(() => {
     let active = true
-    const request = targets.on ? findExploration(targets.on, '') : Promise.reject(new Error('출현 기준일을 입력해 주세요.'))
+    if (!needsRecords) return
+    const request = targets.on ? catalogExploration(String(referenceRevision), targets.on, '') : Promise.reject(new Error('출현 기준일을 입력해 주세요.'))
     request.then(next => { if (active) setReferences(next) })
       .catch((e: unknown) => { if (active) setReferenceError(e instanceof Error ? e.message : '종 참고자료를 읽지 못했습니다.') })
       .finally(() => { if (active) setReferenceLoading(false) })
     return () => { active = false }
-  }, [targets.on, targets.region, referenceRevision])
+  }, [targets.on, needsRecords, referenceRevision])
   const referencesReady = !referenceLoading && !referenceError
   const referenceMap = useMemo(() => new Map(references.map(row => [row.id, row])), [references])
   const ranks = useMemo(() => new Map(species.map((s, index) => [s.id, index])), [species])
-  const allRecords = useMemo(() => rowsFor(surveys, species, weather), [surveys, species, weather])
+  const allRecords = useMemo(() => needsRecords ? rowsFor(surveys, species, weather) : [], [needsRecords, surveys, species, weather])
   const matchedRows = useMemo(() => allRecords.filter(row => matches(row, filters, query)), [allRecords, filters, query])
   const speciesGroups=useMemo(()=>groupSpecies(matchedRows,filters.place||query,ranks),[matchedRows,filters.place,query,ranks])
-  const matchedCandidates = useMemo(() => referencesReady ? referenceCandidates(references, allRecords, filters, emptyTargets(), query) : [], [referencesReady, references, allRecords, filters, query])
+  const matchedCandidates = useMemo(() => needsRecords && referencesReady ? referenceCandidates(references, allRecords, filters, emptyTargets(), query) : [], [needsRecords, referencesReady, references, allRecords, filters, query])
   const exactSpecies=species.find(s=>query.trim()&&[s.korean_name,s.scientific_name].some(n=>n?.toLowerCase()===query.trim().toLowerCase()))
   const activeSpeciesId=selectedSpeciesId!==null&&(speciesGroups.some(g=>g.id===selectedSpeciesId)||matchedCandidates.some(r=>r.id===selectedSpeciesId))?selectedSpeciesId:exactSpecies?.id??(filters.species.length===1&&filters.species[0]!=='unknown'?Number(filters.species[0]):null)
   const distribution=useMemo(()=>{
@@ -172,18 +188,21 @@ export default function App() {
   const rows=useMemo(()=>activeSpeciesId===null?matchedRows:matchedRows.filter(r=>(r.record.species_id??-1)===activeSpeciesId),[matchedRows,activeSpeciesId])
   const candidates=useMemo(()=>activeSpeciesId===null?matchedCandidates:matchedCandidates.filter(r=>r.id===activeSpeciesId),[matchedCandidates,activeSpeciesId])
   const surveyIds = useMemo(() => new Set(rows.map(row => row.survey.id)), [rows])
-  const emptySurveys = useMemo(() => surveys.filter(s => s.purpose !== 'online_research' && emptySurveyMatches(s, filters, query)), [surveys, filters, query])
-  const filtered = useMemo(() => surveys.filter(s => surveyIds.has(s.id) || emptySurveys.includes(s)), [surveys, surveyIds, emptySurveys])
+  const emptySurveys = useMemo(() => !needsRecords ? [] : surveys.filter(s => s.purpose !== 'online_research' && emptySurveyMatches(s, filters, query)), [needsRecords, surveys, filters, query])
+  const filtered = useMemo(() => !needsRecords ? [] : surveys.filter(s => surveyIds.has(s.id) || emptySurveys.includes(s)), [needsRecords, surveys, surveyIds, emptySurveys])
   const selected = filtered.find(s => s.id === selectedId)
-  const pins: MapPin[] = useMemo(() => [
+  const mapShown = mode === 'records' && tab === 'map'
+  const pins: MapPin[] = useMemo(() => !mapShown ? [] : [
     ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, source: pinSource(r), latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}` }] : []),
     ...(activeSpeciesId===null?emptySurveys:[]).flatMap(s => s.latitude !== null && s.longitude !== null ? [{ id: `survey-${s.id}`, surveyId: s.id, latitude: s.latitude, longitude: s.longitude, label: `${s.survey_date} · ${s.display_place || s.place_name || '탐사 위치'} · 종별 기록 없음` }] : []),
-  ], [rows, emptySurveys,activeSpeciesId])
+  ], [mapShown,rows, emptySurveys,activeSpeciesId])
   const selectSurvey = useCallback((s: Survey, recordId?: number) => {
     setSelectedId(s.id); setSelectedRecord(recordId ?? null)
-    const point = recordId ? pins.find(p => p.id === `record-${recordId}`) : pins.find(p => p.surveyId === s.id)
-    setMapFocus(point || null)
-  }, [pins])
+    const record = recordId ? s.observations.find(o => o.id === recordId) : rows.find(row => row.survey.id === s.id && row.record.effective_latitude !== null && row.record.effective_longitude !== null)?.record
+    const latitude = record?.effective_latitude ?? (!recordId && !s.observations.length ? s.latitude : null)
+    const longitude = record?.effective_longitude ?? (!recordId && !s.observations.length ? s.longitude : null)
+    setMapFocus(latitude !== null && longitude !== null ? {latitude,longitude} : null)
+  }, [rows])
   const openRecordDetail = useCallback((s: Survey, recordId?: number) => {
     setDetailEditing(false)
     selectSurvey(s, recordId)
@@ -194,6 +213,7 @@ export default function App() {
     else setDetailOpen(false)
   }
   async function saveDetail(saved: Survey) {
+    snapshot.current++
     setSurveys(current => current.map(item => item.id === saved.id ? saved : item))
     setDetailEditing(false); refreshReferences(); void refreshTags(); await refreshWeather()
   }
@@ -223,7 +243,7 @@ export default function App() {
     setReferences([]); setReferenceError(''); setReferenceLoading(true); setReferenceRevision(n => n + 1)
   }
   function changeTargets(next: typeof targets) {
-    if (next.on !== targets.on || next.region !== targets.region) { setReferences([]); setReferenceError(''); setReferenceLoading(true) }
+    if (next.on !== targets.on) { setReferences([]); setReferenceError(''); setReferenceLoading(true) }
     setTargets(next)
   }
   async function refreshWeather() {
@@ -238,11 +258,14 @@ export default function App() {
     setDeleteTarget(target); setTrashOpen(true)
   }
   async function reloadAfterTrash() {
+    const version = ++snapshot.current
     const [nextSurveys, nextWeather] = await Promise.all([listSurveys(), recordWeather()])
+    if (version !== snapshot.current) { await load(); return }
     setSurveys(nextSurveys); setWeather(nextWeather); setSelectedId(null); setSelectedRecord(null)
     refreshReferences(); void refreshTags(); setNotice('휴지통 변경을 반영했습니다.')
   }
   const form = (creating || !!editing) && <SurveyForm sourcePaper={paperSource || undefined} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} key={editing ? `edit-${editing.id}-${editing.updated_at}` : 'new'} initial={editing} species={species} onCancel={() => { setCreating(false); setEditing(undefined); setPaperSource(null); setPaperRevision(n => n + 1) }} onSaved={saved => {
+    snapshot.current++
     setSurveys(current => [saved, ...current.filter(item => item.id !== saved.id)].sort((a, b) => b.survey_date.localeCompare(a.survey_date) || b.id - a.id))
     setSelectedId(saved.id); refreshReferences(); void refreshTags(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
     setCreating(false); setEditing(undefined); setPaperSource(null); setPaperRevision(n => n + 1); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '탐사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
@@ -286,8 +309,8 @@ export default function App() {
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
-        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={load} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
-        {mode === 'info' && <ButterflyInfo targets={targets} onTargets={changeTargets} species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
+        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={registered} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
+        {mode === 'info' && <ButterflyInfo currentReferences={referencesReady && references.length ? references : undefined} targets={targets} onTargets={changeTargets} species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={distribution} shown={tab === 'map' && mode === 'records'} pins={pins} onOpen={pin=>{
           const survey=surveys.find(s=>s.id===pin.surveyId)
           if(!survey)return
