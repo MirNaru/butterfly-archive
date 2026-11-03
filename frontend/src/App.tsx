@@ -295,7 +295,6 @@ export default function App() {
           {selected && !pins.some(p => p.surveyId === selected.id) && <p>선택한 기록에는 좌표가 없습니다. 지도에 임의 위치를 표시하지 않습니다.</p>}
           {!pins.length && <p className="hint">현재 검색 결과에 표시할 관찰 핀 좌표가 없습니다.</p>}</div>}
         {mode === 'records' && tab === 'table' && <>
-          <div className="catalog-toolbar"><h2>{holdingShown ? '소장 목록' : '관찰 기록표'}</h2></div>
 
           {referenceLoading && <p role="status">종 참고자료를 읽는 중입니다.</p>}
           {referenceError && <p role="alert" className="error">{referenceError}<button disabled={referenceEditing || formOpen} onClick={refreshReferences}>참고자료 다시 읽기</button></p>}

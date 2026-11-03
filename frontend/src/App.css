@@ -474,13 +474,14 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .record-results:has(.record-scroll) > .record-controls { flex-shrink: 0; }
 .record-scroll { flex: 1; min-height: 0; overflow-anchor: none; overflow: auto; }
 .record-table { table-layout: fixed; }
-.record-table thead th { position: sticky; top: 0; z-index: 2; height: 48px; box-sizing: border-box; }
+.record-table thead th { position: sticky; top: 0; z-index: 2; height: 37.3px; padding-block: 7.3px; box-sizing: border-box; }
 .record-table thead th:first-child { z-index: 3; }
 .record-table tbody tr:not(.record-spacer) { height: 72px; }
 .record-table td { height: 72px; box-sizing: border-box; padding: 12px 16px; }
 .record-cell { height: 47px; line-height: 23px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-cell small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.record-table .record-spacer td { padding: 0; border: 0; }
+/* 가상 스크롤의 큰 빈 셀을 고정 열로 그리지 않습니다. */
+.record-table .record-spacer td { position: static; z-index: auto; background: transparent; padding: 0; border: 0; pointer-events: none; }
 .catalog-conditions { margin-block: 12px; }
 .catalog-conditions .record-ratio { padding: 8px; margin-block: 10px 0; }
 
@@ -490,3 +491,14 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .catalog-ratios { margin-left: auto; display: flex; gap: 0; min-width: 0; overflow-x: auto; background: var(--accent-soft); border-radius: 9px; padding: 2px 6px; }
 .catalog-ratio { flex-shrink: 0; padding: 0 8px; text-align: center; font-size: 10px; line-height: 12px; white-space: nowrap; }
 .catalog-ratio strong, .catalog-ratio span { display: block; }
+
+/* 기록 제목과 선택 항목을 한 행에 배치하고 도감과 표 머리 높이를 맞춥니다. */
+.record-controls.catalog-toolbar { gap: 8px; }
+.record-controls > h2 { margin-right: auto; }
+.record-controls select, .record-controls > button, .record-controls .record-column-menu > summary { height: 29px; box-sizing: border-box; padding: 4px 10px; font-size: 12px; line-height: 19px; }
+.record-controls .record-sort { font-size: 12px; }
+.record-table thead .link { padding: 0; margin: 0; line-height: inherit; }
+
+/* 과별 비율은 키보드와 마우스로 도감 첫 종에 이동합니다. */
+.catalog-family-link { border: 0; border-radius: 7px; background: transparent; color: inherit; min-height: 0; }
+.catalog-ratios .catalog-family-link:hover:not(:disabled), .catalog-ratios .catalog-family-link:focus-visible { background: var(--accent); }

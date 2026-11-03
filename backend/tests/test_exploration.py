@@ -8,6 +8,17 @@ from app.database import connect_database
 from test_integrations import client, upstream, record
 
 
+def test_reference_accepts_large_administrative_region_list():
+    from app.exploration import Reference
+    from pydantic import ValidationError
+
+    regions = [f'지역 {index}' for index in range(500)]
+    reference = Reference(regions=regions, source='사용자 확인 자료')
+    assert reference.regions == regions
+    with pytest.raises(ValidationError):
+        Reference(regions=[*regions, '추가 지역'], source='사용자 확인 자료')
+
+
 @pytest.mark.parametrize('periods,on,days,next_period', [
     ([{'start': 6, 'end': 6}], '2024-02-21', 8, False),
     ([{'start': 6, 'end': 6}], '2025-02-21', 7, False),

@@ -61,7 +61,7 @@ export default function RecordTable({ rows, surveys, references, ranks, onSelect
     }
   }
   return <section className="record-results">
-    <div className="record-controls">
+    <div className="record-controls catalog-toolbar"><h2>{mode === 'holdings' ? '소장 목록' : '관찰 기록표'}</h2>
       <select aria-label="표 종류" value={mode} onChange={e => onModeChange(e.target.value)}><option value="records">관찰 기록</option><option value="surveys">탐사 목록</option><option value="holdings">소장 목록</option></select>
       {mode !== 'holdings' && <><label className="record-sort">정렬<select value={sort} disabled={mode !== 'records'} onChange={e => { resetScroll(); setSort(e.target.value) }}><option value="classification">분류 순서</option><option value="date">관찰 날짜·시각</option><option value="name">국명</option><option value="count">관찰 개체 수</option><option value="days">예상 출현 기간 남은 일수</option></select></label>
       <button disabled={mode !== 'records'} onClick={() => {resetScroll();setDirection(direction === 'asc' ? 'desc' : 'asc')}}>{direction === 'asc' ? '오름차순' : '내림차순'}</button>

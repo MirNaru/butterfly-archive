@@ -75,7 +75,7 @@ class Reference(InputModel):
     host_plants: str = Field(default='', max_length=5000)
     host_plants_source: str = Field(default='', max_length=2000)
     periods: list[Period] = Field(default_factory=list, max_length=36)
-    regions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=100)
+    regions: list[Annotated[str, Field(min_length=1, max_length=100)]] = Field(default_factory=list, max_length=500)
     north_only: bool | None = None
     vagrant: bool | None = None
     sighting_years: list[Year] = Field(default_factory=list, max_length=200)
