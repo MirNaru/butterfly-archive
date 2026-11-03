@@ -98,6 +98,7 @@ export default function App() {
   const [weather, setWeather] = useState<Record<number, SavedWeather>>({})
   const [referenceEditing, setReferenceEditing] = useState(false)
   const [mode, setMode] = useState<'records' | 'info' | 'collection'>('records')
+  const [collectionRemote, setCollectionRemote] = useState<HTMLDivElement | null>(null)
   const [collectionSource, setCollectionSource] = useState('inaturalist')
   const collectionSources = [
     { id: 'inaturalist', name: 'iNaturalist', method: '공식 API', description: '공식 API로 공개 나비 관찰 자료를 조회합니다.' },
@@ -254,6 +255,7 @@ export default function App() {
         <div className="sidebar-scroll" role="region" aria-label="왼쪽 정보" tabIndex={0}>
         <div className="sidebar-card">
         {mode === 'collection' && <section className="collection-sidebar"><h2>수집처 선택</h2><div className="collection-source-list" role="group" aria-label="자료 수집처">{collectionSources.map(source => <button key={source.id} aria-pressed={collectionSource === source.id} onClick={() => setCollectionSource(source.id)}>{source.name}</button>)}</div><p className="hint">수집처를 선택한 뒤 오른쪽에서 준비 상태를 확인하세요.</p></section>}
+        <div ref={setCollectionRemote} hidden={mode !== 'collection' || !['naturing', 'inaturalist'].includes(collectionSource)} />
         <div ref={setInfoSidebar} hidden={mode !== 'info'} />
         <div ref={setHoldingSidebar} hidden={!holdingShown} />
         <div hidden={mode !== 'records' || holdingShown}>
@@ -284,7 +286,7 @@ export default function App() {
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
-        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} onRegistered={load} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
+        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={load} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
         {mode === 'info' && <ButterflyInfo targets={targets} onTargets={changeTargets} species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={distribution} shown={tab === 'map' && mode === 'records'} pins={pins} onOpen={pin=>{
           const survey=surveys.find(s=>s.id===pin.surveyId)

@@ -26,7 +26,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [group, setGroup] = useState<string | null>(null)
-  const [hidden, setHidden] = useState(false)
+  const [hidden, setHidden] = useState(true)
   const [satellite, setSatellite] = useState(false)
   const [regionsOn,setRegionsOn]=useState(false)
   const [boundaryData,setBoundaryData]=useState<BoundaryData|null>(null)

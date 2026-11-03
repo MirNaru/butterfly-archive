@@ -516,3 +516,13 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .species-detail-content small { display: block; font-size: 11px; line-height: 1.5; }
 .detail-source { white-space: pre-wrap; color: var(--muted); }
 .species-detail-entry { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+
+.collection-remote { margin: 16px 0; }
+.collection-remote > summary { cursor: pointer; font-weight: 700; }
+.collection-remote-actions { display: grid; gap: 8px; }
+.collection-remote-actions button { width: 100%; white-space: normal; }
+.collection-delete-confirm { font-size: 12px; }
+.collection-delete-confirm .actions { flex-wrap: wrap; gap: 8px; }
+.collection-inbox .collection-table-wrap { overflow: visible; }
+.collection-inbox .collection-table { min-width: 0; }
+.collection-table thead th { position: sticky; top: 0; z-index: 2; background: var(--accent-faint, #fff9e9); }
