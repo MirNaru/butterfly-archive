@@ -24,7 +24,7 @@ test('휴대폰 원문 촬영 시각과 시간대·기기명 추출',()=>{
 })
 test('EXIF 없는 파일은 촬영 시각·좌표를 만들어 내지 않음',()=>{
   const result=parseMetadata(Uint8Array.from([255,216,255,217]).buffer)
-  assert.equal(result.taken_at_raw,'');assert.equal(result.latitude,null)
+  assert.equal(result.taken_at_raw,'');assert.equal(result.latitude,null);assert.match(result.warnings.join(' '),/GPS 정보가 없습니다/)
 })
 test('손상된 EXIF는 경고하고 범위 밖을 읽지 않음',()=>{
   const bytes=fixture();bytes.writeUInt32LE(999999,18)
@@ -44,7 +44,7 @@ test('GPS의 위도·경도 순서와 남·서 방향 및 0 분모 검증',()=>{
   const jpeg=()=>{const data=Buffer.concat([Buffer.from('Exif\0\0'),t]),len=Buffer.alloc(2);len.writeUInt16BE(data.length+2);return raw(Buffer.concat([Buffer.from([255,216,255,225]),len,data,Buffer.from([255,217])]))}
   const result=parseMetadata(jpeg());assert.equal(result.latitude,-37.1);assert.equal(result.longitude,-127.2)
   t.writeUInt32LE(0,104)
-  const invalid=parseMetadata(jpeg());assert.equal(invalid.latitude,null);assert.equal(invalid.longitude,null);assert.ok(invalid.warnings.length)
+  const invalid=parseMetadata(jpeg());assert.equal(invalid.latitude,null);assert.equal(invalid.longitude,null);assert.match(invalid.warnings.join(' '),/GPS 항목을 읽지 못했습니다/)
 })
 test('미지원 HEIC와 파일 크기 제한·파일 해시',async()=>{
   assert.throws(()=>parseMetadata(Uint8Array.from([0,0,0,0]).buffer),/JPEG/)

@@ -13,7 +13,7 @@ function showLogin(){$('login').hidden=false;$('transfer').hidden=true}
 function controls(){
   $('send').disabled=busy||!items.some(i=>i.metadata&&i.status==='ready')
   $('retry').disabled=busy||!items.some(i=>i.metadata&&i.status==='failed')
-  $('clear').disabled=busy||!items.length;$('files').disabled=busy;$('logout').disabled=busy
+  $('clear').disabled=busy||!items.length;$('files').disabled=busy;$('original-files').disabled=busy;$('logout').disabled=busy
 }
 function render(){
   $('list').replaceChildren()
@@ -24,7 +24,7 @@ function render(){
     info.textContent=m?`촬영 ${m.taken_at_raw||'날짜 없음'}${m.offset_raw?' · '+m.offset_raw:' · 시간대 확인 필요'} / GPS ${m.latitude===null?'없음':m.latitude+', '+m.longitude}`:''
     state.textContent=({ready:'전송 대기',sending:'전송 중',sent:'PC 대기함에 전송 완료',duplicate:'이미 전송한 파일',failed:'전송 실패',invalid:'정보 읽기 실패'})[item.status]+(item.error?' · '+item.error:'')
     if(item.status==='failed'||item.status==='invalid')state.className='error'
-    article.append(title,info,state)
+    const route=document.createElement('p');route.textContent='선택 경로: '+(item.paths||[]).join(' / ');article.append(title,route,info,state)
     if(m?.warnings.length){const note=document.createElement('p');note.textContent=m.warnings.join(' / ');article.append(note)}
     $('list').append(article)
   }
@@ -37,19 +37,21 @@ $('login-form').addEventListener('submit',async event=>{
 async function initialize(){
   try{const session=await api('session');authenticated=true;$('identity').textContent=session.label+' · PC에 연결됨';$('login').hidden=true;$('transfer').hidden=false;message('');render()}catch{showLogin()}
 }
-$('files').addEventListener('change',async event=>{
+async function readSelection(event,selection){
   const files=Array.from(event.target.files||[])
   if(files.length+items.length>500){message('한 번에 최대 500장까지 선택해 주세요.');event.target.value='';return}
   busy=true;controls();message('')
   for(let i=0;i<files.length;i++){
     $('progress').textContent=`정보 읽는 중 ${i+1} / ${files.length}`
     const file=files[i]
-    try{const metadata=await inspectPhoto(file);if(!items.some(item=>item.metadata?.sha256===metadata.sha256))items.push({name:file.name,metadata,status:'ready'})}
-    catch(error){items.push({name:file.name,status:'invalid',error:error.message})}
+    try{const metadata=await inspectPhoto(file);const existing=items.find(item=>item.metadata?.sha256===metadata.sha256);if(existing){if(!existing.paths.includes(selection))existing.paths.push(selection)}else items.push({name:file.name,metadata,status:'ready',paths:[selection]})}
+    catch(error){items.push({name:file.name,status:'invalid',error:error.message,paths:[selection]})}
     await new Promise(resolve=>setTimeout(resolve,0))
   }
-  event.target.value='';busy=false;$('progress').textContent=`${items.length}장 · 날짜와 좌표를 확인한 뒤 전송해 주세요.`;render()
-})
+  event.target.value='';busy=false;$('progress').textContent=`${items.length}장 · 날짜와 좌표를 확인한 뒤 전송해 주세요. 같은 파일은 선택 경로만 추가하고 중복 전송하지 않습니다.`;render()
+}
+$('files').addEventListener('change',event=>readSelection(event,'갤러리'))
+$('original-files').addEventListener('change',event=>readSelection(event,'원본 파일'))
 async function send(retry){
   if(busy)return
   const pending=items.filter(i=>i.metadata&&i.status===(retry?'failed':'ready'))

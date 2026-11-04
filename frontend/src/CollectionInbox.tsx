@@ -1,12 +1,15 @@
 // 확장 연결 키 발급과 외부 관찰 자료의 검토 대기 목록을 표시합니다.
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { collectionItems, createCollectionConnection, registerCollected, discardCollected, editCollectedStage } from './api'
-import { STAGE, type Survey, type CollectedItem } from './models'
+import { collectionItems, createCollectionConnection, registerCollected, discardCollected, editCollectedStage, listSpecies } from './api'
+import { STAGE, type Survey, type Species, type CollectedItem } from './models'
 import InaturalistControls from './InaturalistControls'
 
 export default function CollectionInbox({ onRegistered, source = 'naturing', remoteTarget }: { remoteTarget?: HTMLDivElement | null; onRegistered: (surveys?: Survey[]) => Promise<void>; source?: 'naturing' | 'inaturalist' }) {
   const [items, setItems] = useState<CollectedItem[]>([])
+  const [species, setSpecies] = useState<Species[]>([])
+  const [speciesId, setSpeciesId] = useState('')
+  const [sort, setSort] = useState<'default' | 'asc' | 'desc'>('default')
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [token, setToken] = useState('')
@@ -20,15 +23,17 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
   const busy = working || fetching || stageSaving
   function openStage(item:CollectedItem) {
     if(busy)return
+    setSpeciesId(item.species_id ? String(item.species_id) : '');
+    void listSpecies().then(setSpecies).catch(e=>setStageError(e.message))
     setStage(item.inferred_stage);setStageError('');setEditing(item)
   }
   async function saveStage() {
     if(!editing||stageSaving)return
     setStageSaving(true);setStageError('')
     try {
-      const saved=await editCollectedStage(editing,stage)
-      setItems(current=>current.map(item=>item.id===saved.id?{...item,inferred_stage:saved.stage,stage_manual:true,version:saved.version}:item))
-      setNotice(`${editing.korean_name} · ${STAGE[saved.stage]}로 수정했습니다. 선택 후 관찰 기록에 추가할 수 있습니다.`)
+      const saved=await editCollectedStage(editing,stage,speciesId ? Number(speciesId) : undefined)
+      reload()
+      setNotice(`${species.find(s=>s.id===Number(speciesId))?.korean_name || editing.korean_name} · ${STAGE[saved.stage]}로 수정했습니다. 선택 후 관찰 기록에 추가할 수 있습니다.`)
       setEditing(null)
     } catch(e) {setStageError(e instanceof Error?e.message:'단계 수정에 실패했습니다.')}
     finally {setStageSaving(false)}
@@ -64,13 +69,13 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
   useEffect(() => {
     let active = true
     setBusy(true); setError('')
-    collectionItems(page, source).then(result => { if (active) {
+    collectionItems(page, source, sort).then(result => { if (active) {
       const lastPage = Math.max(0, Math.ceil(result.total / 25) - 1)
       if (page > lastPage) { setPage(lastPage); return }
       setItems(result.items); setTotal(result.total)
     } }).catch(e => { if (active) setError(e.message) }).finally(() => { if (active) setBusy(false) })
     return () => { active = false }
-  }, [page, revision, source])
+  }, [page, revision, source, sort])
   async function connect() {
     setBusy(true); setError('')
     try { setToken((await createCollectionConnection()).token) }
@@ -88,17 +93,18 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
     </div></details>, remoteTarget)}
     <div className="toolbar"><h3>수집 자료 · {total}건</h3><button disabled={busy} onClick={reload}>목록 새로고침</button><button disabled={busy || !registrationIds.length} onClick={() => void register()}>선택 자료 관찰 기록에 추가 · {registrationIds.length}건</button><button className="danger" disabled={busy || !selected.size} onClick={() => setConfirmDelete(true)}>선택 자료 삭제 · {selected.size}건</button></div>
 
-    <p className="hint">자료를 더블클릭하면 성장 단계를 수정합니다. 체크한 자료는 검수 완료로 보고 등록합니다. 전체 선택은 현재 페이지에 적용합니다. 원본 날짜는 유지하며 직접 수정하지 않은 단계는 도감 추정입니다.</p>
+    <p className="hint">자료를 더블클릭하면 종과 성장 단계를 수정합니다. 체크한 자료는 검수 완료로 보고 등록합니다. 전체 선택은 현재 페이지에 적용합니다. 원본 날짜는 유지하며 직접 수정하지 않은 단계는 도감 추정입니다.</p>
     {notice && <p role="status" style={{whiteSpace:'pre-wrap'}}>{notice}</p>}
     {error && <p role="alert" className="error">{error}</p>}{busy && <p role="status">처리 중입니다.</p>}
     {!busy && !error && !items.length && <p>수집된 자료가 없습니다.</p>}
-    <div className="collection-table-wrap"><table className="collection-table"><colgroup><col className="collection-check"/><col/><col/><col/><col className="collection-location"/><col/><col className="collection-source"/></colgroup><thead><tr><th><input type="checkbox" aria-label="현재 페이지 전체 선택" disabled={busy || !selectable.length} checked={allSelected} ref={node => { if (node) node.indeterminate = !allSelected && selectable.some(item => selected.has(item.id)) }} onChange={e => setSelected(e.target.checked ? new Set(selectable.map(item => item.id)) : new Set())} /></th><th>종</th><th>관찰시각</th><th>성장 단계·등록 상태</th><th>장소·공개 좌표</th><th>기상</th><th>출처</th></tr></thead><tbody>{items.map(item => <tr key={item.id} tabIndex={0} onDoubleClick={e=>{if(e.target instanceof Element&&!e.target.closest('a,input,button'))openStage(item)}} onKeyDown={e=>{if(e.key==='Enter'&&e.target===e.currentTarget){e.preventDefault();openStage(item)}}}><td><input type="checkbox" aria-label={`${item.korean_name} 자료 ${item.id} 선택`} disabled={busy} checked={selected.has(item.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(item.id); else next.delete(item.id); return next })} /></td><td>{item.korean_name}<br /><i>{item.scientific_name}</i></td><td>{item.observed_raw || '미상'}</td><td>{STAGE[item.inferred_stage]} · {item.stage_manual?'사용자 지정':'도감 추정'}<br />{item.observation_id !== null ? `등록 완료 · 기록 ${item.observation_id}` : item.eligible ? '검토 후 체크하여 등록' : item.reason}{item.source_changed && <><br />등록 후 원문 변경 · 기존 기록 유지</>}</td><td><span className="collection-place-fade" title={item.display_place || item.place_raw || '미상'}>{item.display_place || item.place_raw || '미상'}</span>{item.location_note&&<small>{item.location_note}</small>}<br />{item.latitude !== null ? `${item.latitude}, ${item.longitude} · ${typeof item.location_accuracy === 'number' ? '정확도 ' + item.location_accuracy + 'm' : '정확도 미상'}` : '좌표 없음'}</td><td>{item.weather_raw || '미상'}</td><td><a href={item.url} target="_blank" rel="noopener noreferrer">{source === 'inaturalist' ? 'iNaturalist' : '네이처링'} #{item.source_id}</a></td></tr>)}</tbody></table></div>
+    <div className="collection-table-wrap"><table className="collection-table"><colgroup><col className="collection-check"/><col/><col/><col/><col className="collection-location"/><col/><col className="collection-source"/></colgroup><thead><tr><th><input type="checkbox" aria-label="현재 페이지 전체 선택" disabled={busy || !selectable.length} checked={allSelected} ref={node => { if (node) node.indeterminate = !allSelected && selectable.some(item => selected.has(item.id)) }} onChange={e => setSelected(e.target.checked ? new Set(selectable.map(item => item.id)) : new Set())} /></th><th>종</th><th><button className="collection-date-sort" disabled={busy} onClick={()=>{setSort(current=>current==='desc'?'asc':'desc');setPage(0);setSelected(new Set());setConfirmDelete(false)}}>관찰시각 {sort==='asc'?'↑':sort==='desc'?'↓':'↕'}</button></th><th>성장 단계·등록 상태</th><th>장소·공개 좌표</th><th>기상</th><th>출처</th></tr></thead><tbody>{items.map(item => <tr key={item.id} tabIndex={0} onDoubleClick={e=>{if(e.target instanceof Element&&!e.target.closest('a,input,button'))openStage(item)}} onKeyDown={e=>{if(e.key==='Enter'&&e.target===e.currentTarget){e.preventDefault();openStage(item)}}}><td><input type="checkbox" aria-label={`${item.korean_name} 자료 ${item.id} 선택`} disabled={busy} checked={selected.has(item.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(item.id); else next.delete(item.id); return next })} /></td><td>{item.korean_name}<br /><i>{item.scientific_name}</i></td><td>{item.observed_raw || '미상'}</td><td>{STAGE[item.inferred_stage]} · {item.stage_manual?'사용자 지정':'도감 추정'}<br />{item.observation_id !== null ? `등록 완료 · 기록 ${item.observation_id}` : item.eligible ? '검토 후 체크하여 등록' : item.reason}{item.source_changed && <><br />등록 후 원문 변경 · 기존 기록 유지</>}</td><td><span className="collection-place-fade" title={item.display_place || item.place_raw || '미상'}>{item.display_place || item.place_raw || '미상'}</span>{item.location_note&&<small>{item.location_note}</small>}<br />{item.latitude !== null ? `${item.latitude}, ${item.longitude} · ${typeof item.location_accuracy === 'number' ? '정확도 ' + item.location_accuracy + 'm' : '정확도 미상'}` : '좌표 없음'}</td><td>{item.weather_raw || '미상'}</td><td><a href={item.url} target="_blank" rel="noopener noreferrer">{source === 'inaturalist' ? 'iNaturalist' : '네이처링'} #{item.source_id}</a></td></tr>)}</tbody></table></div>
     <div className="toolbar"><button disabled={busy || page === 0} onClick={() => { setSelected(new Set()); setPage(p => p - 1) }}>이전</button><span>{page + 1} / {Math.max(1, Math.ceil(total / 25))}</span><button disabled={busy || (page + 1) * 25 >= total} onClick={() => { setSelected(new Set()); setPage(p => p + 1) }}>다음</button></div>
     {editing&&<dialog className="collection-stage-dialog" aria-labelledby="collection-stage-title" ref={node=>{if(node&&!node.open)node.showModal()}} onCancel={e=>{e.preventDefault();if(!stageSaving)setEditing(null)}}>
-      <form onSubmit={e=>{e.preventDefault();void saveStage()}}><h2 id="collection-stage-title">성장 단계 수정</h2><p>{editing.korean_name} · {editing.observed_raw||'관찰 시각 미상'}</p>
-        <label>성장 단계<select autoFocus value={stage} disabled={stageSaving} onChange={e=>setStage(e.target.value as keyof typeof STAGE)}>{Object.entries(STAGE).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-        <p className="hint">이 자료의 단계를 덮어씁니다. 저장 후 목록에서 선택해 관찰 기록에 추가해 주세요.</p>{stageError&&<p role="alert" className="error">{stageError}</p>}
-        <div className="actions"><button type="button" disabled={stageSaving} onClick={()=>setEditing(null)}>취소</button><button type="submit" disabled={stageSaving}>{stageSaving?'저장 중…':'단계 저장'}</button></div>
+      <form onSubmit={e=>{e.preventDefault();void saveStage()}}><h2 id="collection-stage-title">종·성장 단계 수정</h2><p>{editing.korean_name} · {editing.observed_raw||'관찰 시각 미상'}</p>
+        <label>종<select autoFocus value={speciesId} disabled={stageSaving} onChange={e=>setSpeciesId(e.target.value)}><option value="" disabled>도감 종 선택</option>{species.map(item=><option key={item.id} value={item.id}>{item.korean_name}{item.scientific_name ? ` · ${item.scientific_name}` : ''}</option>)}</select></label>
+        <label>성장 단계<select value={stage} disabled={stageSaving} onChange={e=>setStage(e.target.value as keyof typeof STAGE)}>{Object.entries(STAGE).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+        <p className="hint">이 대기 자료의 종·성장 단계를 수정합니다. 수집 원문과 이미 등록한 기록은 유지합니다. 저장 후 목록에서 선택해 관찰 기록에 추가해 주세요.</p>{stageError&&<p role="alert" className="error">{stageError}</p>}
+        <div className="actions"><button type="button" disabled={stageSaving} onClick={()=>setEditing(null)}>취소</button><button type="submit" disabled={stageSaving}>{stageSaving?'저장 중…':'수정 저장'}</button></div>
       </form></dialog>}
   </section>
 }

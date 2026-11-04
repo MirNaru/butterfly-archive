@@ -79,3 +79,55 @@ def test_inaturalist_stage_survives_source_update_and_register(client):
     observed=client.get('/api/surveys').json()[0]['observations'][0]
     assert observed['stage']=='pupa' and not observed['stage_inferred']
     assert observed['observation_date']=='2026-05-10'
+
+
+def test_species_override_preserves_original_resend_and_registration(client):
+    item,value,auth=naturing_item(client)
+    target=client.post('/api/species',json={'korean_name':'산호랑나비','scientific_name':'Papilio machaon'}).json()
+    path=f"/api/collection/{item['id']}/stage"
+    body={'stage':'adult','species_id':target['id'],'expected_version':item['version']}
+    assert client.put(path,json={**body,'species_id':999999},headers=HEADERS).status_code==422
+    assert client.put(path,json=body,headers=HEADERS).status_code==200
+    assert client.put(path,json=body,headers=HEADERS).status_code==409
+    fresh=client.get('/api/collection').json()['items'][0]
+    assert fresh['species_id']==target['id'] and fresh['korean_name']=='산호랑나비'
+    assert client.post('/api/collection/naturing',json=value,headers=auth).json()['outcome']=='unchanged'
+    with connect_database() as db:
+        payload=json.loads(db.execute('SELECT payload_json FROM collected_observations').fetchone()[0])
+        assert payload['korean_name']=='네발나비' and payload['_species_override']==target['id']
+    client.post('/api/collection/register',json={'ids':[item['id']]},headers=HEADERS)
+    assert client.get('/api/surveys').json()[0]['observations'][0]['species_id']==target['id']
+    assert client.put(path,json={**body,'expected_version':fresh['version']},headers=HEADERS).status_code==409
+
+
+def test_observed_sort_before_pagination_and_unknown_last(client):
+    auth={'Authorization':f'Bearer {key(client)}'}
+    for source_id,raw in [('1','2026년 2월 1일'),('2','미상'),('3','2025년 12월 31일')]:
+        client.post('/api/collection/naturing',json={**record(),'source_id':source_id,'url':f'https://www.naturing.net/o/{source_id}','observed_raw':raw},headers=auth)
+    asc=client.get('/api/collection?sort=asc&limit=1').json()
+    assert asc['total']==3 and asc['items'][0]['source_id']=='3'
+    assert client.get('/api/collection?sort=desc&limit=1').json()['items'][0]['source_id']=='1'
+    assert client.get('/api/collection?sort=asc&offset=2').json()['items'][0]['source_id']=='2'
+    assert client.get('/api/collection?sort=invalid').status_code==422
+
+
+def test_inaturalist_species_override_and_time_sort(client):
+    original=client.post('/api/species',json={'korean_name':'호랑나비','scientific_name':'Papilio xuthus'}).json()
+    target=client.post('/api/species',json={'korean_name':'산호랑나비','scientific_name':'Papilio machaon'}).json()
+    payload={'source':'inaturalist','source_id':'11','url':'https://www.inaturalist.org/observations/11',
+             'korean_name':'Papilio xuthus','scientific_name':'Papilio xuthus','observed_raw':'2026-05-10',
+             'observed_date':'2026-05-10','observed_time':'10:00:00','place_raw':'Jeju, South Korea',
+             'latitude':33.36,'longitude':126.53,'original':{},'location_accuracy':50}
+    with connect_database() as db:
+        save_payload(db,payload,'2026-11-02T01:00:00Z')
+        save_payload(db,{**payload,'source_id':'12','url':'https://www.inaturalist.org/observations/12','observed_time':'09:00:00'},'2026-11-02T01:00:00Z')
+    item=client.get('/api/collection?source=inaturalist&sort=desc&limit=1').json()['items'][0]
+    assert item['source_id']=='11' and item['species_id']==original['id']
+    assert client.get('/api/collection?source=inaturalist&sort=asc&limit=1').json()['items'][0]['source_id']=='12'
+    assert client.put(f"/api/collection/{item['id']}/stage",json={'stage':'adult','species_id':target['id'],'expected_version':item['version']},headers=HEADERS).status_code==200
+    with connect_database() as db:
+        save_payload(db,{**payload,'place_raw':'Jeju Island'},'2026-11-02T02:00:00Z')
+    fresh=client.get('/api/collection?source=inaturalist&sort=desc').json()['items'][0]
+    assert fresh['species_id']==target['id'] and fresh['scientific_name']=='Papilio machaon'
+    client.post('/api/collection/register',json={'ids':[fresh['id']]},headers=HEADERS)
+    assert client.get('/api/surveys').json()[0]['observations'][0]['species_id']==target['id']

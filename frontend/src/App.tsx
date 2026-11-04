@@ -102,9 +102,9 @@ export default function App() {
   const [collectionRemote, setCollectionRemote] = useState<HTMLDivElement | null>(null)
   const [collectionSource, setCollectionSource] = useState('inaturalist')
   const collectionSources = [
+    { id: 'mobile', name: '내 사진', method: '휴대폰 전송', description: '내 사진의 촬영 정보를 검수하고 직접 관찰로 등록합니다.' },
     { id: 'inaturalist', name: 'iNaturalist', method: '공식 API', description: '공식 API로 공개 나비 관찰 자료를 조회합니다.' },
     { id: 'naturing', name: '네이처링', method: '현재 관찰 페이지 가져오기', description: '브라우저 확장 프로그램으로 직접 열어 둔 관찰 기록을 가져옵니다.' },
-    { id: 'mobile', name: '내 사진', method: '휴대폰 전송', description: '내 사진의 촬영 정보를 검수하고 직접 관찰로 등록합니다.' },
     { id: 'papers', name: '논문 탐색', method: '공식 서지 API', description: '나비 관련 논문을 모으고 원문 근거로 간접 관찰 사례를 등록합니다.' },
     { id: 'google', name: '구글링', method: '관심 종 웹 검색', description: '관심 종과 기간을 기준으로 블로그·공개 커뮤니티의 자료를 찾습니다.' },
   ]

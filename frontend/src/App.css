@@ -466,6 +466,8 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .collection-table .collection-location { width: 25%; }
 .collection-table .collection-source { width: 150px; }
 .collection-table td { overflow-wrap: anywhere; }
+.collection-date-sort { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.collection-table td:nth-child(6) { white-space: normal; font-size: 11px; line-height: 1.3; overflow: hidden; }
 .collection-place-fade { display: block; overflow: hidden; white-space: nowrap; mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
 
 /* 기록은 일정한 행 높이로 화면 주변만 그리며 긴 내용은 상세에서 확인합니다. */

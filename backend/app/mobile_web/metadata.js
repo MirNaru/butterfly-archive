@@ -44,7 +44,7 @@ function tiff(bytes) {
       if(result.gps_datum && !/^WGS[ -]?84$/i.test(result.gps_datum))throw new Error('GPS 좌표계가 WGS84인지 확인해 주세요.')
       const lat=degree(2,1,'N','S',90),lng=degree(4,3,'E','W',180)
       result.latitude=lat;result.longitude=lng
-    }catch(error){result.warnings.push(error.message)}
+    }catch(error){result.warnings.push('선택된 파일의 GPS 항목을 읽지 못했습니다. '+error.message+' 원본 파일에서 같은 사진을 다시 선택해 비교해 주세요.')}
   }
   return result
 }
@@ -81,6 +81,7 @@ export function parseMetadata(buffer) {
       }
     }
   }catch(error){metadata.warnings.push(error.message)}
+  if(metadata.latitude===null&&!metadata.warnings.length)metadata.warnings.push('선택된 파일에 촬영 GPS 정보가 없습니다. 갤러리에 위치가 보인다면 원본 파일 선택으로 비교해 주세요.')
   return {format,width,height,...metadata}
 }
 

@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.database import connect_database
-from app.collection_import import registration_info, import_item, preserve_stage_override
+from app.collection_import import registration_info, import_item, preserve_stage_override, observed_datetime
 from app.regions import display_location
 
 router = APIRouter(prefix='/api/collection', tags=['collection'])
@@ -82,22 +82,39 @@ def receive(value: CollectedObservation, request: Request):
     return {'id': item_id, 'outcome': outcome}
 
 @router.get('')
-def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), source: Literal['naturing', 'inaturalist'] = 'naturing'):
+def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=100), source: Literal['naturing', 'inaturalist'] = 'naturing', sort: Literal['default','asc','desc'] = 'default'):
     with connect_database() as db:
         pending = "source=? AND review_status!='discarded' AND NOT EXISTS (SELECT 1 FROM collection_imports i WHERE i.item_id=collected_observations.id)"
         total = db.execute(f'SELECT count(*) FROM collected_observations WHERE {pending}', (source,)).fetchone()[0]
         ordering = 'CAST(source_id AS INTEGER) DESC' if source == 'inaturalist' else 'last_received_at DESC,id DESC'
+        if sort != 'default':
+            def observed_key(encoded):
+                payload = json.loads(encoded)
+                try:
+                    if payload.get('source') == 'inaturalist':
+                        from datetime import date, time
+                        day = date.fromisoformat(payload.get('observed_date') or '')
+                        clock = time.fromisoformat(payload['observed_time']) if payload.get('observed_time') else None
+                    else:
+                        day, clock = observed_datetime(payload.get('observed_raw', ''))
+                    return day.isoformat() + 'T' + (clock.isoformat() if clock else '00:00:00')
+                except (ValueError, TypeError):
+                    return None
+            db.create_function('collection_observed_key', 1, observed_key)
+            direction = 'ASC' if sort == 'asc' else 'DESC'
+            ordering = f'collection_observed_key(payload_json) IS NULL, collection_observed_key(payload_json) {direction}, id {direction}'
         rows = db.execute(f'SELECT * FROM collected_observations WHERE {pending} ORDER BY {ordering} LIMIT ? OFFSET ?', (source, limit, offset)).fetchall()
         items = []
         for row in rows:
             payload = json.loads(row['payload_json'])
             info = registration_info(db, payload)
-            if source == 'inaturalist' and info['species_id']:
-                payload['korean_name'] = db.execute('SELECT korean_name FROM species WHERE id=?', (info['species_id'],)).fetchone()[0]
+            if info['species_id']:
+                species = db.execute('SELECT korean_name,scientific_name FROM species WHERE id=?', (info['species_id'],)).fetchone()
+                payload = {**payload, 'korean_name':species['korean_name'], 'scientific_name':species['scientific_name'] or ''}
             imported = db.execute('SELECT observation_id,payload_json,inference_json FROM collection_imports WHERE item_id=?', (row['id'],)).fetchone()
             items.append({**payload, **display_location(payload.get('place_raw',''),payload.get('latitude'),payload.get('longitude')), 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
                           'eligible':info['eligible'], 'reason':info['reason'], 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],
-                          'stage_manual':bool(info['inference'].get('manual_stage_override')), 'version':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
+                          'species_id':info['species_id'], 'stage_manual':bool(info['inference'].get('manual_stage_override')), 'version':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
                           'observation_id':imported['observation_id'] if imported else None,
                           'source_changed':bool(imported and imported['payload_json'] != row['payload_json'])})
         return {'total': total, 'items': items}
@@ -110,6 +127,7 @@ class CollectionSelection(BaseModel):
 class StageEdit(BaseModel):
     model_config=ConfigDict(extra='forbid')
     stage: Literal['unknown','egg','larva','pupa','adult']
+    species_id: Annotated[int, Field(strict=True, gt=0)] | None = None
     expected_version: str = Field(pattern=r'^[a-f0-9]{64}$')
 
 
@@ -125,6 +143,10 @@ def edit_stage(item_id:int,value:StageEdit,request:Request):
         if hashlib.sha256(row['payload_json'].encode()).hexdigest()!=value.expected_version:
             raise HTTPException(409,'다른 창에서 수정되거나 재수집한 자료입니다. 창을 닫고 목록을 새로고침해 주세요.')
         payload=json.loads(row['payload_json']);payload['_stage_override']=value.stage
+        if value.species_id is not None:
+            if not db.execute('SELECT 1 FROM species WHERE id=?',(value.species_id,)).fetchone():
+                raise HTTPException(422,'도감에서 종을 선택해 주세요.')
+            payload['_species_override']=value.species_id
         encoded=json.dumps(payload,ensure_ascii=False,sort_keys=True)
         db.execute('UPDATE collected_observations SET payload_json=? WHERE id=?',(encoded,item_id))
         return {'id':item_id,'stage':value.stage,'version':hashlib.sha256(encoded.encode()).hexdigest()}

@@ -16,6 +16,8 @@ def preserve_stage_override(old, payload):
         saved=json.loads(old['payload_json'])
         if saved.get('_stage_override') in (*STAGES,'unknown'):
             payload['_stage_override']=saved['_stage_override']
+        if saved.get('_species_override'):
+            payload['_species_override']=saved['_species_override']
     return payload
 DATE_PATTERN = re.compile(r'\s*(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일(?:\s*(오전|오후)\s*(\d{1,2})시(?:\s*(\d{1,2})분)?)?\s*')
 
@@ -63,6 +65,8 @@ def registration_info(db, payload):
         name = species['korean_name'] if species else name
     else:
         species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', (name,)).fetchone()
+    if payload.get('_species_override'):
+        species = db.execute('SELECT id,korean_name FROM species WHERE id=?', (payload['_species_override'],)).fetchone()
     reason = ''
     observed = clock = None
     if not species:
