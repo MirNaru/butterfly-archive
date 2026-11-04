@@ -23,12 +23,16 @@ test('휴대폰 원문 촬영 시각과 시간대·기기명 추출',()=>{
   assert.equal(result.camera,'S23-U');assert.equal(result.taken_at_raw,'2026:05:10 12:30:00');assert.equal(result.offset_raw,'+09:00');assert.equal(result.latitude,null)
 })
 test('EXIF 없는 파일은 촬영 시각·좌표를 만들어 내지 않음',()=>{
-  const result=parseMetadata(Uint8Array.from([255,216,255,217]).buffer)
+  const diagnostic={}
+  const result=parseMetadata(Uint8Array.from([255,216,255,217]).buffer,diagnostic)
+  assert.equal(diagnostic.exif_blocks,0);assert.equal(diagnostic.gps_pointer,false);assert.deepEqual(diagnostic.errors,[])
   assert.equal(result.taken_at_raw,'');assert.equal(result.latitude,null);assert.match(result.warnings.join(' '),/GPS 정보가 없습니다/)
 })
 test('손상된 EXIF는 경고하고 범위 밖을 읽지 않음',()=>{
   const bytes=fixture();bytes.writeUInt32LE(999999,18)
-  const result=parseMetadata(raw(bytes));assert.ok(result.warnings.length)
+  const diagnostic={}
+  const result=parseMetadata(raw(bytes),diagnostic);assert.ok(result.warnings.length)
+  assert.equal(diagnostic.exif_blocks,1);assert.ok(diagnostic.errors.length)
 })
 test('GPS의 위도·경도 순서와 남·서 방향 및 0 분모 검증',()=>{
   const t=Buffer.alloc(180)
@@ -42,15 +46,51 @@ test('GPS의 위도·경도 순서와 남·서 방향 및 0 분모 검증',()=>{
   }
   for(const [start,parts] of [[100,[37,6,0]],[124,[127,12,0]]])for(let i=0;i<3;i++){t.writeUInt32LE(parts[i],start+i*8);t.writeUInt32LE(1,start+i*8+4)}
   const jpeg=()=>{const data=Buffer.concat([Buffer.from('Exif\0\0'),t]),len=Buffer.alloc(2);len.writeUInt16BE(data.length+2);return raw(Buffer.concat([Buffer.from([255,216,255,225]),len,data,Buffer.from([255,217])]))}
-  const result=parseMetadata(jpeg());assert.equal(result.latitude,-37.1);assert.equal(result.longitude,-127.2)
+  const diagnostic={}
+  const result=parseMetadata(jpeg(),diagnostic);assert.equal(result.latitude,-37.1);assert.equal(result.longitude,-127.2)
+  assert.equal(diagnostic.gps_pointer,true);assert.deepEqual(diagnostic.gps_tags,[1,2,3,4]);assert.deepEqual(diagnostic.errors,[])
+  assert.equal(diagnostic.gps_fields[0].type,2);assert.equal(diagnostic.gps_fields[0].count,2)
+  assert.equal(diagnostic.gps_fields[0].direction_valid,true)
+  assert.equal(diagnostic.gps_fields[1].zero_denominator,false)
+  assert.equal(diagnostic.gps_fields[1].all_numerators_zero,false)
+  assert.ok(diagnostic.gps_checks.every(c=>c.parts_valid&&c.minutes_seconds_valid&&c.range_valid&&c.direction_valid))
+  assert.equal(JSON.stringify(diagnostic).includes('37.1'),false)
   t.writeUInt32LE(0,104)
-  const invalid=parseMetadata(jpeg());assert.equal(invalid.latitude,null);assert.equal(invalid.longitude,null);assert.match(invalid.warnings.join(' '),/GPS 항목을 읽지 못했습니다/)
+  const invalid=parseMetadata(jpeg(),diagnostic);assert.equal(invalid.latitude,null);assert.equal(invalid.longitude,null);assert.match(invalid.warnings.join(' '),/GPS 항목을 읽지 못했습니다/)
+  assert.ok(diagnostic.errors.length)
+  assert.equal(diagnostic.gps_fields[1].zero_denominator,true)
+  assert.equal(diagnostic.gps_checks[0].parts_valid,false)
+  t.writeUInt32LE(1,104)
+  t.write('\0\0',50)
+  parseMetadata(jpeg(),diagnostic)
+  assert.equal(diagnostic.gps_fields[0].direction_valid,false)
+  assert.equal(diagnostic.gps_checks[0].direction_valid,false)
+  assert.equal(diagnostic.gps_checks[0].parts_valid,true)
+  t.write('S\0',50)
+  for(let i=0;i<3;i++)t.writeUInt32LE(0,100+i*8)
+  parseMetadata(jpeg(),diagnostic)
+  assert.equal(diagnostic.gps_fields[1].all_numerators_zero,true)
+  // 예기치 않은 자료형과 값 개수도 값을 노출하지 않고 진단합니다.
+  t.writeUInt16LE(7,56)
+  parseMetadata(jpeg(),diagnostic)
+  assert.equal(diagnostic.gps_fields[1].type,7)
+  assert.equal(diagnostic.gps_checks[0].parts_valid,false)
+  t.writeUInt16LE(5,56);t.writeUInt32LE(2,58)
+  parseMetadata(jpeg(),diagnostic)
+  assert.equal(diagnostic.gps_fields[1].count,2)
+  assert.equal(diagnostic.gps_checks[0].parts_valid,false)
+  t.writeUInt32LE(3,58);t.writeUInt32LE(999999,62)
+  parseMetadata(jpeg(),diagnostic)
+  assert.equal(diagnostic.gps_fields[1].in_bounds,false)
+  assert.ok(diagnostic.errors.length)
 })
 test('미지원 HEIC와 파일 크기 제한·파일 해시',async()=>{
   assert.throws(()=>parseMetadata(Uint8Array.from([0,0,0,0]).buffer),/JPEG/)
   await assert.rejects(inspectPhoto({name:'a.heic',size:100}),/JPEG/)
   await assert.rejects(inspectPhoto({name:'a.jpg',size:33*1024*1024}),/32MB/)
   const bytes=fixture(),file={name:'a.jpg',size:bytes.length,arrayBuffer:async()=>raw(bytes)}
-  const first=await inspectPhoto(file),second=await inspectPhoto(file)
+  const diagnostic={}
+  const first=await inspectPhoto(file,diagnostic),second=await inspectPhoto(file)
+  assert.equal(diagnostic.exif_blocks,1);assert.equal('diagnostic' in first,false)
   assert.match(first.sha256,/^[a-f0-9]{64}$/);assert.equal(first.sha256,second.sha256)
 })

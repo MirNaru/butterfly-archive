@@ -236,17 +236,18 @@ class Registration(Selection):
 @local_router.post('/register', response_model=Survey)
 def register(value: Registration, request: Request):
     local_screen(request)
-    if len(value.survey.observations) != 1 or value.survey.observations[0].source_type != 'direct' or value.survey.observations[0].result != 'observed' or not value.survey.observations[0].species_id:
-        raise HTTPException(422, '직접 관찰할 종을 선택해 주세요.')
+    observations = value.survey.observations
+    if observations and (len(observations) != 1 or observations[0].source_type != 'direct' or observations[0].result != 'observed' or not observations[0].species_id):
+        raise HTTPException(422, '탐사만 등록하거나 직접 관찰 한 건으로 등록해 주세요.')
     ids = list(dict.fromkeys(value.ids))
     with connect_database() as db:
         db.execute('BEGIN IMMEDIATE')
         rows = db.execute('SELECT * FROM mobile_photos WHERE id IN ('+','.join('?' for _ in ids)+')',ids).fetchall()
         if len(rows) != len(ids) or any(r['status'] != 'pending' for r in rows):
             raise HTTPException(409,'이미 등록되었거나 삭제된 사진이 있습니다. 목록을 다시 읽어 주세요.')
-        if not db.execute('SELECT 1 FROM species WHERE id=?',(value.survey.observations[0].species_id,)).fetchone():
+        if observations and not db.execute('SELECT 1 FROM species WHERE id=?',(observations[0].species_id,)).fetchone():
             raise HTTPException(422,'선택한 종이 없습니다.')
-        observation = value.survey.observations[0]
+        target = observations[0] if observations else value.survey
         for row in rows:
             metadata = json.loads(row['payload_json'])
             photo = db.execute('SELECT id FROM photos WHERE sha256=?',(row['sha256'],)).fetchone()
@@ -254,8 +255,8 @@ def register(value: Registration, request: Request):
                 photo_id = photo[0]
             else:
                 photo_id = db.execute('INSERT INTO photos(sha256,metadata_json,created_at) VALUES(?,?,?)',(row['sha256'],json.dumps(metadata,ensure_ascii=False),stamp())).lastrowid
-            observation.photo_ids.append(photo_id)
-        observation.photo_ids = list(dict.fromkeys(observation.photo_ids))
+            target.photo_ids.append(photo_id)
+        target.photo_ids = list(dict.fromkeys(target.photo_ids))
         try:
             survey = records.create_survey(value.survey, db)
         except records.UnknownSpecies as exc:

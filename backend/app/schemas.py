@@ -100,7 +100,8 @@ class SurveyInput(TaggedInput):
     def survey_location(self) -> Self:
         if len({item.source_type for item in self.observations}) > 1:
             raise ValueError('직접 관찰과 간접 관찰은 서로 다른 탐사로 등록해 주세요.')
-        if not self.place_name and self.latitude is None:
+        indirect_only = bool(self.observations) and all(item.source_type == 'indirect' for item in self.observations)
+        if not self.place_name and self.latitude is None and not indirect_only:
             raise ValueError("탐사 장소명 또는 좌표를 입력해 주세요.")
         return self
 

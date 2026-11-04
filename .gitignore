@@ -36,6 +36,12 @@ secrets*.json
 .vscode/
 .DS_Store
 Thumbs.db
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/local.properties
+android/*.jks
+android/*.keystore
 
 *.inat-sync.json
 *.inat-sync.writing

@@ -21,6 +21,8 @@ class CollectedObservation(BaseModel):
     scientific_name: str = Field(default='', max_length=200)
     observed_raw: str = ''
     place_raw: str = ''
+    manual_capture: bool = Field(default=False, strict=True)
+    location_status: Literal['public','private_location','missing_location'] = 'public'
     altitude_raw: str = ''
     weather_raw: str = ''
     latitude: float | None = Field(default=None, ge=-90, le=90)
@@ -35,6 +37,8 @@ class CollectedObservation(BaseModel):
             raise ValueError('출처 주소와 관찰 번호가 일치해야 합니다.')
         if (self.latitude is None) != (self.longitude is None):
             raise ValueError('위도와 경도를 함께 입력해야 합니다.')
+        if self.location_status != 'public' and (not self.manual_capture or self.latitude is not None or self.place_raw):
+            raise ValueError('위치 없는 수동 자료에는 장소·좌표를 지정하지 않습니다.')
         if self.collected_at.tzinfo is None:
             raise ValueError('수집 시각에는 시간대가 필요합니다.')
         return self

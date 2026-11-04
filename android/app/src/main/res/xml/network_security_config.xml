@@ -1,0 +1,8 @@
+<!-- 고정 내부 주소에는 로컬 공개 CA만 신뢰하며 인증서 검증을 유지합니다. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">192.168.75.181</domain>
+        <trust-anchors><certificates src="@raw/lan_ca" /></trust-anchors>
+    </domain-config>
+</network-security-config>

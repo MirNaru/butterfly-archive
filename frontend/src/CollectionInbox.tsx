@@ -93,7 +93,7 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
     </div></details>, remoteTarget)}
     <div className="toolbar"><h3>수집 자료 · {total}건</h3><button disabled={busy} onClick={reload}>목록 새로고침</button><button disabled={busy || !registrationIds.length} onClick={() => void register()}>선택 자료 관찰 기록에 추가 · {registrationIds.length}건</button><button className="danger" disabled={busy || !selected.size} onClick={() => setConfirmDelete(true)}>선택 자료 삭제 · {selected.size}건</button></div>
 
-    <p className="hint">자료를 더블클릭하면 종과 성장 단계를 수정합니다. 체크한 자료는 검수 완료로 보고 등록합니다. 전체 선택은 현재 페이지에 적용합니다. 원본 날짜는 유지하며 직접 수정하지 않은 단계는 도감 추정입니다.</p>
+    <p className="hint">자료를 더블클릭하면 종과 성장 단계를 수정합니다. 체크한 자료는 검수 완료로 보고 등록합니다. 전체 선택은 현재 페이지에 적용합니다. 원본 날짜는 유지하며 직접 수정하지 않은 단계는 도감 추정입니다. 네이처링에서 수동으로 읽은 위치 없는 자료도 간접 관찰로 등록할 수 있으며 지도 핀·관찰 지역 근거는 만들지 않습니다.</p>
     {notice && <p role="status" style={{whiteSpace:'pre-wrap'}}>{notice}</p>}
     {error && <p role="alert" className="error">{error}</p>}{busy && <p role="status">처리 중입니다.</p>}
     {!busy && !error && !items.length && <p>수집된 자료가 없습니다.</p>}

@@ -25,6 +25,25 @@ function render(){
     state.textContent=({ready:'전송 대기',sending:'전송 중',sent:'PC 대기함에 전송 완료',duplicate:'이미 전송한 파일',failed:'전송 실패',invalid:'정보 읽기 실패'})[item.status]+(item.error?' · '+item.error:'')
     if(item.status==='failed'||item.status==='invalid')state.className='error'
     const route=document.createElement('p');route.textContent='선택 경로: '+(item.paths||[]).join(' / ');article.append(title,route,info,state)
+    if(m&&item.diagnostic){
+      const d=item.diagnostic,details=document.createElement('details'),summary=document.createElement('summary'),report=document.createElement('p')
+      summary.textContent='사진 진단 · 이 기기에서만 표시'
+      report.style.overflowWrap='anywhere'
+      report.textContent=`파일 ${m.size_bytes} bytes · ${m.format} · ${m.width} × ${m.height} / SHA-256: ${m.sha256} / EXIF 블록 ${d.exif_blocks}개 / GPS 디렉터리: ${d.gps_pointer?'있음':'확인되지 않음'} / GPS 태그: ${d.gps_tags.join(', ')||'확인되지 않음'} / 읽기 오류: ${d.errors.join(' / ')||'없음'}`
+      details.append(summary,report)
+      const status=value=>value===null?'확인 불가':value?'예':'아니요'
+      for(const field of d.gps_fields){
+        const line=document.createElement('p'),name=({1:'위도 방향',2:'위도',3:'경도 방향',4:'경도'})[field.tag]
+        line.textContent=`${name} · 자료형 ${field.type} (${({2:'ASCII 문자',5:'RATIONAL 분수'})[field.type]||'예상과 다른 형식'}) · 값 개수 ${field.count} · 파일 범위 정상 ${status(field.in_bounds)}${[2,4].includes(field.tag)?` · 분모 0 있음 ${status(field.zero_denominator)} · 분자 모두 0 ${status(field.all_numerators_zero)}`:` · 방향값 유효 ${status(field.direction_valid)}`}`
+        details.append(line)
+      }
+      for(const check of d.gps_checks){
+        const line=document.createElement('p')
+        line.textContent=`${check.tag===2?'위도':'경도'} 검사 · 유효한 숫자 3개 ${status(check.parts_valid)} · 분·초 범위 정상 ${status(check.minutes_seconds_valid)} · 좌표 상한 이내 ${status(check.range_valid)} · 방향값 유효 ${status(check.direction_valid)}`
+        details.append(line)
+      }
+      article.append(details)
+    }
     if(m?.warnings.length){const note=document.createElement('p');note.textContent=m.warnings.join(' / ');article.append(note)}
     $('list').append(article)
   }
@@ -44,7 +63,7 @@ async function readSelection(event,selection){
   for(let i=0;i<files.length;i++){
     $('progress').textContent=`정보 읽는 중 ${i+1} / ${files.length}`
     const file=files[i]
-    try{const metadata=await inspectPhoto(file);const existing=items.find(item=>item.metadata?.sha256===metadata.sha256);if(existing){if(!existing.paths.includes(selection))existing.paths.push(selection)}else items.push({name:file.name,metadata,status:'ready',paths:[selection]})}
+    try{const diagnostic={},metadata=await inspectPhoto(file,diagnostic);const existing=items.find(item=>item.metadata?.sha256===metadata.sha256);if(existing){if(!existing.paths.includes(selection))existing.paths.push(selection)}else items.push({name:file.name,metadata,diagnostic,status:'ready',paths:[selection]})}
     catch(error){items.push({name:file.name,status:'invalid',error:error.message,paths:[selection]})}
     await new Promise(resolve=>setTimeout(resolve,0))
   }

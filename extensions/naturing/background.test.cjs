@@ -69,13 +69,35 @@ test('보관 자료 일괄 전송도 실제 전송 직전에 위치 없는 자�
   assert.match(h.element('#status').textContent,/2건 제외/);
 });
 
-test('개별 가져오기에서 위치 미입력이면 저장과 전송 버튼을 열지 않음',async()=>{
+test('구버전 추출 결과만 남은 경우 확장 갱신 안내',async()=>{
   const h=popupHarness([],{source_id:'123',skip_reason:'missing_location'});
   await h.element('#read').handlers.click();
   assert.equal(h.element('#save').disabled,true);
   assert.equal(h.element('#send').disabled,true);
-  assert.match(h.element('#status').textContent,/가져오지 않습니다/);
+  assert.match(h.element('#status').textContent,/확장을 새로고침/);
   assert.equal(h.sent.length,0);
+});
+
+test('수동 읽기는 비공개·미입력에서도 숨겨진 좌표 없이 종과 날짜를 읽음',()=>{
+  for(const place of ['게시자의 요청에 따라 위치정보가 공개되지 않습니다.','정보가 없습니다.']) {
+    const context=vm.createContext({location:{pathname:'/o/123',hostname:'www.naturing.net'},document:{
+      querySelectorAll:s=>s==='h1'?[{innerText:'모시나비 Parnassius stubbendorfii',querySelector:()=>null}]:[{innerText:'관찰정보',parentElement:{innerText:`위치\n${place}\n고도\n정보가 없습니다.\n관찰시각\n2026년 5월 10일`}}],
+      getElementById:()=>{throw Error('숨겨진 좌표 접근');}
+    }});
+    vm.runInContext(extraction,context);
+    const r=vm.runInContext('extractObservation(true)',context);
+    assert.equal(r.korean_name,'모시나비');assert.equal(r.observed_raw,'2026년 5월 10일');
+    assert.equal(r.manual_capture,true);assert.equal(r.latitude,null);assert.equal(r.longitude,null);assert.equal(r.place_raw,'');
+  }
+});
+
+test('명시적 수동 읽기 자료만 위치 없이 전송하고 오래된 위치 없는 자료는 제외',async()=>{
+  const manual={source_id:'1',manual_capture:true,location_status:'private_location',place_raw:'',latitude:null,longitude:null};
+  const h=popupHarness([manual,{...manual,source_id:'2',manual_capture:false}],manual);
+  await h.element('#read').handlers.click();
+  assert.equal(h.element('#save').disabled,false);assert.equal(h.element('#send').disabled,false);
+  await h.element('#send-all').handlers.click();
+  assert.deepEqual(h.sent.map(r=>r.source_id),['1']);
 });
 
 test('기존 보관 자료도 위치 미입력·좌표 누락·잘못된 좌표는 전송 제외',()=>{

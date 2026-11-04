@@ -60,7 +60,16 @@ def registration_info(db, payload):
     # 원문은 보존하며 줄바꿈 전 첫 국명만 완전 일치에 사용합니다.
     name = payload['korean_name'].splitlines()[0].strip()
     if payload.get('source') == 'inaturalist':
-        matches = db.execute('SELECT id,korean_name FROM species WHERE scientific_name=?', (payload.get('scientific_name', ''),)).fetchall()
+        scientific = payload.get('scientific_name', '')
+        taxon_id = (payload.get('original') or {}).get('taxon', {}).get('id')
+        matches = db.execute('''SELECT s.id,s.korean_name FROM species s
+            LEFT JOIN species_references r ON r.species_id=s.id
+            WHERE s.scientific_name=? OR EXISTS (
+                SELECT 1 FROM json_each(COALESCE(r.payload_json,'{}'),'$.inaturalist_names') a
+                WHERE json_extract(a.value,'$.status')='linked'
+                AND json_extract(a.value,'$.name')=?
+                AND (? IS NULL OR json_extract(a.value,'$.taxon_id')=?)
+            )''', (scientific, scientific, taxon_id, taxon_id)).fetchall()
         species = matches[0] if len(matches) == 1 else None
         name = species['korean_name'] if species else name
     else:
@@ -79,7 +88,7 @@ def registration_info(db, payload):
             observed, clock = observed_datetime(payload.get('observed_raw', ''))
     except (ValueError, TypeError):
         reason = reason or '관찰 날짜·시각 확인 필요'
-    if not payload.get('place_raw') and payload.get('latitude') is None:
+    if not payload.get('place_raw') and payload.get('latitude') is None and not (payload.get('source') == 'naturing' and payload.get('manual_capture') is True and payload.get('location_status') in ('private_location','missing_location')):
         reason = reason or '관찰 위치 확인 필요'
     if len(payload.get('place_raw', '')) > 200:
         reason = reason or '장소명 길이 확인 필요'

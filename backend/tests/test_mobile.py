@@ -101,6 +101,41 @@ def test_metadata_duplicate_register_and_rollback(client,remote):
     assert saved['taken_at_raw']==photo()['taken_at_raw'] and not saved['original_stored']
 
 
+def test_survey_first_then_multiple_species_preserves_photo_metadata(client, remote):
+    authenticate(client, remote)
+    ids = [remote.post('/m/api/photos', json=photo(sha * 64), headers=HEADERS).json()['id'] for sha in ('a', 'b')]
+    survey = dict(survey_date='2026-05-11', latitude=37.1, longitude=127.2, observations=[])
+    result = client.post('/api/mobile/register', json={'ids': ids, 'survey': survey}, headers=PC)
+    assert result.status_code == 200, result.text
+    saved = result.json()
+    assert saved['observations'] == [] and len(saved['photo_ids']) == 2
+    assert client.get('/api/surveys').json() == [saved]
+    assert client.get('/api/mobile/photos').json()['total'] == 0
+    assert client.post('/api/mobile/register', json={'ids': ids, 'survey': survey}, headers=PC).status_code == 409
+    species = [client.post('/api/species', json={'korean_name': name}).json()['id'] for name in ('시험나비 하나', '시험나비 둘')]
+    update = {**survey, 'photo_ids': saved['photo_ids'], 'expected_updated_at': saved['updated_at'],
+              'observations': [dict(species_id=s, source_type='direct') for s in species]}
+    response = client.put(f"/api/surveys/{saved['id']}", json=update)
+    assert response.status_code == 200, response.text
+    final = client.get('/api/surveys').json()[0]
+    assert final == response.json()
+    assert final['photo_ids'] == saved['photo_ids']
+    assert [o['species_id'] for o in final['observations']] == species
+    assert all(o['observation_time'] is None and o['photo_ids'] == [] for o in final['observations'])
+    for item in client.get('/api/photos/library').json()['items']:
+        assert item['taken_at_raw'] == photo()['taken_at_raw'] and not item['original_stored']
+
+
+def test_survey_first_missing_location_keeps_pending(client, remote):
+    authenticate(client, remote)
+    item_id = remote.post('/m/api/photos', json=photo(), headers=HEADERS).json()['id']
+    response = client.post('/api/mobile/register', json={'ids': [item_id], 'survey': {'survey_date': '2026-05-11'}}, headers=PC)
+    assert response.status_code == 422
+    assert client.get('/api/mobile/photos').json()['total'] == 1
+    assert client.get('/api/surveys').json() == []
+    assert client.get('/api/photos/library').json()['items'] == []
+
+
 def test_group_photos_discard_missing_metadata_disable(client,remote):
     authenticate(client,remote)
     value=photo();value.update(taken_at_raw='',offset_raw='',latitude=None,longitude=None)

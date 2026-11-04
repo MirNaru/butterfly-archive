@@ -69,7 +69,17 @@ class SpeciesDetail(InputModel):
         return self
 
 
+class TaxonName(InputModel):
+    """대표 학명과 분리한 제공자 연결명 및 검토 후보입니다."""
+    name: str = Field(min_length=3, max_length=200)
+    taxon_id: Annotated[int, Field(strict=True, gt=0)]
+    status: Literal['linked', 'pending'] = 'pending'
+    source: str = Field(min_length=1, max_length=2000)
+    notes: str = Field(default='', max_length=2000)
+
+
 class Reference(InputModel):
+    inaturalist_names: list[TaxonName] = Field(default_factory=list, max_length=100)
     details: list[SpeciesDetail] = Field(default_factory=list, max_length=100)
     region_codes: list[str] = Field(default_factory=list, max_length=500)
     region_search: str = Field(default='', max_length=50000)
@@ -114,6 +124,8 @@ class Reference(InputModel):
 
     @model_validator(mode='after')
     def evidence(self) -> Self:
+        if len({p.taxon_id for p in self.inaturalist_names}) != len(self.inaturalist_names):
+            raise ValueError('같은 iNaturalist 종 연결이 중복되었습니다.')
         if len({p.id for p in self.details}) != len(self.details):
             raise ValueError('세부 정보 항목의 ID가 중복되었습니다.')
         if self.sighting_years:
@@ -208,7 +220,7 @@ def save_reference(species_id: int, value: ReferenceUpdate):
             raise HTTPException(409, '다른 창에서 참고자료를 수정했습니다. 입력을 보관한 뒤 다시 열어 주세요.')
         payload = value.model_dump(mode='json', exclude={'expected_updated_at'})
         # 기존 화면이 새 항목을 생략해도 상태 자료와 원문은 보존합니다.
-        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source', 'details'):
+        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source', 'details', 'inaturalist_names'):
             if key not in value.model_fields_set:
                 payload[key] = old['reference'][key]
         payload = normalized_reference(payload)

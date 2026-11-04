@@ -100,6 +100,7 @@ export interface IntegrationStatus {
 }
 
 export interface SpeciesReference {
+  inaturalist_names?: { name: string; taxon_id: number; status: 'linked' | 'pending'; source: string; notes: string }[]
   details?: SpeciesDetail[]
   region_codes?: string[]
   region_search?: string
