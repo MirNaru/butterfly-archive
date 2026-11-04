@@ -118,6 +118,8 @@ def test_kci_xml_and_cross_provider_doi_merge(client, monkeypatch):
 def test_version_eleven_migration_backup_and_rollback(client, monkeypatch):
     client.post('/api/species', json={'korean_name': '기존 자료'})
     with connect_database() as db:
+        for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
+            db.execute('DROP TABLE '+table)
         db.execute('DROP TABLE paper_files')
         db.execute('DROP TABLE paper_observations'); db.execute('DROP TABLE papers')
         db.execute('PRAGMA user_version=11')

@@ -375,3 +375,23 @@ species_references의 기존 JSON 구조를 확장하며 DB 테이블·버전은
 details는 최대 100건입니다. 각 사례의 id는 종 안에서 고유해야 합니다. category는 host_rearing, activity, traits, diapause, rearing, breeding, specimen, memo 중 하나입니다. title은 1~200자, body는 1~5000자, source는 1~2000자입니다. evidence는 field, rearing, literature, inferred 중 하나이고 기본값은 literature입니다. scope와 timing은 각각 최대 500자의 선택 입력입니다. 개인 표본·사육 개체 기록과 구분한 종별 참고 자료이며 관찰 통계로 자동 편입하지 않습니다.
 
 기주식물(사육)의 host_rearing 사례는 title에 식물 이름을 저장하며 body는 비울 수 있습니다. 다른 항목의 body는 필수입니다.
+
+
+### 모바일 사진 대기함과 연결 정보 · DB v14
+
+기존 테이블은 유지하고 mobile_settings, mobile_sessions, mobile_limits, mobile_photos 및 대기 상태 인덱스를 추가합니다. 버전 이전은 기존 SQLite 보호 복사본 생성 후 한 트랜잭션으로 수행합니다. 실패 시 버전·추가 테이블이 함께 되돌아갑니다. 이전 버전 실행 파일로 되돌릴 경우 서버를 중지한 뒤 보호 복사본으로 복구해야 하며 이전 이후 새로 들어온 자료는 별도 보존해야 합니다.
+
+mobile_settings는 전송 허용 여부와 일회용 연결 코드의 SHA-256·만료 시각을 보관합니다. mobile_sessions는 기기명·발급 시각·만료 시각과 세션 토큰의 SHA-256만 보관합니다. 실제 토큰은 Secure·HttpOnly·SameSite=Strict 쿠키로만 전달합니다. 연결 코드는 10분·한 번, 세션은 최대 30일이며 PC에서 기기별 또는 전체 해제합니다. mobile_limits는 로그인·전송의 기간별 요청 수를 보관합니다.
+
+mobile_photos는 파일 SHA-256 고유 키, 추출 원문과 한국 시각 입력 후보의 JSON, 전송 기기명·수신 시각·pending/registered/discarded 상태·연결 탐사 번호를 저장합니다. 수신만으로 photos·surveys·observations에 편입하지 않습니다. 같은 파일 재전송은 기존 상태를 반환하고 삭제한 대기 자료를 되살리거나 등록한 관찰을 다시 만들지 않습니다. 서로 다른 사진은 자동으로 같은 관찰로 합치지 않습니다.
+
+PC에서 선택한 사진을 같은 사례로 검수 등록할 때 기존 photos의 해시를 재사용하거나 메타데이터 전용 항목을 만들고 직접 관찰 한 건에 연결합니다. 사진 연결·탐사 저장·대기함 상태 변경은 같은 트랜잭션입니다. 종·성장 단계·날짜·장소·좌표는 검수값이며 사진별 원문을 덮어쓰지 않습니다. 휴대폰이 추출한 값은 PC에서 사진 원본을 검증한 결과와 구분하여 provenance에 기록합니다. GPS 없는 사진도 수신할 수 있고 등록 전 사용자가 위치를 입력해야 합니다.
+
+
+### 집 안 입력·외부 조회 분리
+
+mobile_* 테이블은 집 안 사진 전송용으로만 사용합니다. 주소는 data/mobile-lan.json의 지정된 내부 IP와 허용 네트워크로 제한합니다. 외부 도메인의 서버는 원본 DB에 연결하지 않습니다.
+
+외부 조회 인증은 별도 계정 실행 폴더의 auth/viewer.sqlite3에 코드 해시·세션 해시·요청 제한만 보관합니다. 원본 관찰 테이블과 사진 파일은 이 인증 DB에 없습니다. snapshots/current.json은 PC 사용자의 명시적 갱신 시 등록 관찰·도감·소장을 내보낸 읽기 전용 사본입니다. 한 읽기 트랜잭션으로 만들고 임시 파일에서 교체하므로 실패 중에는 이전 사본을 유지합니다. 대기 수집 자료·원본 이미지·PC 키·API 설정은 제외합니다.
+
+PC API 인증 키와 조회 서버 실행 자격은 Git 제외 data에 저장하며 조회 계정은 읽을 수 없습니다. 조회 실행 자격은 Windows DPAPI로 현재 사용자에 묶입니다. 원본 DB와 프로젝트의 계정별 ACL을 적용하므로 원본 코드만 되돌리는 것으로 접근 권한이 복구되지는 않습니다.

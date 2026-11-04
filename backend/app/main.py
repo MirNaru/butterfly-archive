@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 from app.database import connect_database
 from app.migrations import initialize_database
 from app import records
+from app import local_access
+from app.viewer_export import router as viewer_router
 from app.schemas import Species, SpeciesInput, Survey, SurveyInput, SurveyUpdate
 from app.integrations import router as integration_router
 from app.integration_settings import IntegrationError
@@ -22,6 +24,7 @@ from app.inaturalist import router as inaturalist_router
 from app.papers import router as papers_router
 from app.paper_pdf import router as paper_pdf_router
 from app.regions import router as regions_router
+from app.mobile import local_router as mobile_router
 
 
 @asynccontextmanager
@@ -31,6 +34,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Butterfly Archive", version="0.3.0", lifespan=lifespan)
+app.include_router(local_access.router)
+app.include_router(viewer_router)
+
+@app.middleware('http')
+async def pc_authentication(request: Request, call_next):
+    public = request.url.path in ('/api/health','/openapi.json','/api/local/session','/api/collection/naturing')
+    if not public and not local_access.authenticated(request):
+        return JSONResponse({'detail':'PC 실행 파일로 화면을 다시 열어 주세요.'},status_code=401)
+    return await call_next(request)
+
 app.include_router(integration_router)
 app.include_router(exploration_router)
 app.include_router(tags_router)
@@ -42,6 +55,7 @@ app.include_router(inaturalist_router)
 app.include_router(papers_router)
 app.include_router(paper_pdf_router)
 app.include_router(regions_router)
+app.include_router(mobile_router)
 
 
 @app.get('/api/record-weather')

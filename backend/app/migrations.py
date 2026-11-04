@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -135,6 +135,15 @@ PAPER_FILE_STATEMENTS = (
 )
 
 
+MOBILE_STATEMENTS = (
+    'CREATE TABLE mobile_settings(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL DEFAULT 0,code_hash TEXT,code_expires REAL NOT NULL DEFAULT 0)',
+    'CREATE TABLE mobile_sessions(id INTEGER PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,label TEXT NOT NULL,created_at TEXT NOT NULL,expires REAL NOT NULL)',
+    'CREATE TABLE mobile_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,window_end REAL NOT NULL)',
+    "CREATE TABLE mobile_photos(id INTEGER PRIMARY KEY,sha256 TEXT NOT NULL UNIQUE,payload_json TEXT NOT NULL,device_label TEXT NOT NULL,received_at TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('pending','registered','discarded')),survey_id INTEGER REFERENCES surveys(id))",
+    'CREATE INDEX mobile_photos_status ON mobile_photos(status,id)',
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -160,7 +169,10 @@ def initialize_database() -> None:
             expected_new.add('collection_imports')
         if version < 12:
             expected_new.update({'papers', 'paper_observations'})
-        expected_new.add('paper_files')
+        if version < 13:
+            expected_new.add('paper_files')
+        if version < 14:
+            expected_new.update({'mobile_settings','mobile_sessions','mobile_limits','mobile_photos'})
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -179,7 +191,7 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + PAPER_FILE_STATEMENTS):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + (PAPER_FILE_STATEMENTS if version < 13 else ()) + (MOBILE_STATEMENTS if version < 14 else ())):
             connection.execute(statement)
         if version < 5:
             connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])

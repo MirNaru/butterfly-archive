@@ -1,0 +1,19 @@
+# 외부에는 원본 DB를 읽을 권한이 없는 조회 서버만 연결합니다.
+{
+    admin off
+    storage file_system {
+        root "tls"
+    }
+}
+archive.mirnaru.kro.kr {
+    log {
+        output file logs/https-access.log {
+            roll_size 2MiB
+            roll_keep 3
+        }
+    }
+    request_body {
+        max_size 2KB
+    }
+    reverse_proxy 127.0.0.1:8010
+}

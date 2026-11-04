@@ -133,6 +133,8 @@ def test_migration_from_ten_preserves_existing_rows(client):
     from app.migrations import initialize_database, SCHEMA_VERSION
     client.post('/api/species',json={'korean_name':'네발나비'})
     with connect_database() as db:
+        for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
+            db.execute('DROP TABLE '+table)
         db.execute('DROP TABLE collection_imports')
         db.execute('DROP TABLE paper_files')
         db.execute('DROP TABLE paper_observations')

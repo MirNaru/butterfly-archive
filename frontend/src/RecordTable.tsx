@@ -8,7 +8,7 @@ import type { RecordRow, TableEntry } from './recordSearch'
 const extras = { tags: '환경 태그', result: '관찰·미발견', source: '관찰 출처', sourceNote: '출처 근거', stage: '성장 단계', sex: '성별', count: '관찰 개체 수', capture: '채집 여부', captured: '채집 개체 수', coords: '좌표', method: '위치 입력 방식', notes: '메모', updated: '최근 수정', period: '어른벌레 출현 참고 기간', days: '예상 출현 기간 남은 일수', history: '내 채집 이력', regions: '분포 참고', evidence: '참고자료 출처' }
 type Extra = keyof typeof extras
 const slot = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
-export default function RecordTable({ rows, surveys, references, ranks, onSelect, onOpen, selectedId, mode, onModeChange, holdingsView }: { mode: string; onModeChange: (mode: string) => void; holdingsView: ReactNode; rows: RecordRow[]; surveys: Survey[]; references: Map<number, ExplorationRow>; candidates: ExplorationRow[]; ranks: Map<number, number>; onSelect: (s: Survey, id?: number) => void; onOpen: (s: Survey, id?: number) => void; selectedId: number | null }) {
+export default function RecordTable({ rows, surveys, references, ranks, onSelect, onOpen, selectedId, mode, holdingsView }: { mode: string; holdingsView: ReactNode; rows: RecordRow[]; surveys: Survey[]; references: Map<number, ExplorationRow>; candidates: ExplorationRow[]; ranks: Map<number, number>; onSelect: (s: Survey, id?: number) => void; onOpen: (s: Survey, id?: number) => void; selectedId: number | null }) {
   const [columns, setColumns] = useState<Extra[]>([])
   const [sort, setSort] = useState('classification')
   const [direction, setDirection] = useState<'asc' | 'desc'>('asc')
@@ -62,7 +62,6 @@ export default function RecordTable({ rows, surveys, references, ranks, onSelect
   }
   return <section className="record-results">
     <div className="record-controls catalog-toolbar"><h2>{mode === 'holdings' ? '소장 목록' : '관찰 기록표'}</h2>
-      <select aria-label="표 종류" value={mode} onChange={e => onModeChange(e.target.value)}><option value="records">관찰 기록</option><option value="surveys">탐사 목록</option><option value="holdings">소장 목록</option></select>
       {mode !== 'holdings' && <><label className="record-sort">정렬<select value={sort} disabled={mode !== 'records'} onChange={e => { resetScroll(); setSort(e.target.value) }}><option value="classification">분류 순서</option><option value="date">관찰 날짜·시각</option><option value="name">국명</option><option value="count">관찰 개체 수</option><option value="days">예상 출현 기간 남은 일수</option></select></label>
       <button disabled={mode !== 'records'} onClick={() => {resetScroll();setDirection(direction === 'asc' ? 'desc' : 'asc')}}>{direction === 'asc' ? '오름차순' : '내림차순'}</button>
       <details className="record-column-menu" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.open = false }}><summary>표시 열 선택</summary><div className="column-options">{Object.entries(extras).map(([key, text]) => <label className="check" key={key}><input type="checkbox" disabled={mode !== 'records'} checked={columns.includes(key as Extra)} onChange={e => setColumns(e.target.checked ? [...columns, key as Extra] : columns.filter(k => k !== key))} />{text}</label>)}</div></details></>}

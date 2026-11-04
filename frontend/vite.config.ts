@@ -8,6 +8,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
+    fs: { strict: true, deny: ['**/.env*', '**/data/**', '**/.tmp/**', '**/*.sqlite*', '**/*.key', '**/*.bak'] },
     proxy: { '/api': process.env.BUTTERFLY_API_TARGET || 'http://127.0.0.1:8000' },
   },
 })

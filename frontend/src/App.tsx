@@ -5,6 +5,7 @@ import { CAPTURE, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
 import SurveyForm, { type SurveyFormHandle } from './SurveyForm'
 import MapView from './MapView'
+import MobileInbox from './MobileInbox'
 import { pinSource } from './mapPinStyle'
 import WeatherPanel from './WeatherPanel'
 import { PhotoGallery } from './PhotoPicker'
@@ -103,6 +104,7 @@ export default function App() {
   const collectionSources = [
     { id: 'inaturalist', name: 'iNaturalist', method: '공식 API', description: '공식 API로 공개 나비 관찰 자료를 조회합니다.' },
     { id: 'naturing', name: '네이처링', method: '현재 관찰 페이지 가져오기', description: '브라우저 확장 프로그램으로 직접 열어 둔 관찰 기록을 가져옵니다.' },
+    { id: 'mobile', name: '내 사진', method: '휴대폰 전송', description: '내 사진의 촬영 정보를 검수하고 직접 관찰로 등록합니다.' },
     { id: 'papers', name: '논문 탐색', method: '공식 서지 API', description: '나비 관련 논문을 모으고 원문 근거로 간접 관찰 사례를 등록합니다.' },
     { id: 'google', name: '구글링', method: '관심 종 웹 검색', description: '관심 종과 기간을 기준으로 블로그·공개 커뮤니티의 자료를 찾습니다.' },
   ]
@@ -218,7 +220,7 @@ export default function App() {
     setDetailEditing(false); refreshReferences(); void refreshTags(); await refreshWeather()
   }
   const changeTableMode = useCallback((next: string) => { setTableMode(next); setNotice('') }, [])
-  const recordTable = useMemo(() => <RecordTable mode={tableMode} onModeChange={changeTableMode} holdingsView={null} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />, [tableMode, changeTableMode, rows, filtered, referenceMap, candidates, ranks, selectSurvey, openRecordDetail, selectedId])
+  const recordTable = useMemo(() => <RecordTable mode={tableMode} holdingsView={null} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />, [tableMode, rows, filtered, referenceMap, candidates, ranks, selectSurvey, openRecordDetail, selectedId])
   function chooseSpecies(id:number) {
     setSelectedSpeciesId(id);setSelectedId(null);setSelectedRecord(null)
     const latest=matchedRows.filter(r=>r.record.species_id===id&&r.record.effective_latitude!==null).sort((a,b)=>b.record.effective_date.localeCompare(a.record.effective_date))[0]?.record
@@ -280,6 +282,7 @@ export default function App() {
         {mode === 'collection' && <section className="collection-sidebar"><h2>수집처 선택</h2><div className="collection-source-list" role="group" aria-label="자료 수집처">{collectionSources.map(source => <button key={source.id} aria-pressed={collectionSource === source.id} onClick={() => setCollectionSource(source.id)}>{source.name}</button>)}</div><p className="hint">수집처를 선택한 뒤 오른쪽에서 준비 상태를 확인하세요.</p></section>}
         <div ref={setCollectionRemote} hidden={mode !== 'collection' || !['naturing', 'inaturalist'].includes(collectionSource)} />
         <div ref={setInfoSidebar} hidden={mode !== 'info'} />
+        {mode === 'records' && tab === 'table' && <label className="record-view-select"><span className="sr-only">표 종류</span><select aria-label="표 종류" value={tableMode} disabled={referenceEditing || formOpen} onChange={e => changeTableMode(e.target.value)}><option value="records">관찰 기록</option><option value="surveys">탐사 목록</option><option value="holdings">소장 목록</option></select></label>}
         <div ref={setHoldingSidebar} hidden={!holdingShown} />
         <div hidden={mode !== 'records' || holdingShown}>
         <SearchFilters key={filterRevision} tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} expanded={tab === 'table'} />
@@ -309,7 +312,7 @@ export default function App() {
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
-        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={registered} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
+        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={registered} /> : collectionSource === 'mobile' ? <MobileInbox species={species} onRegistered={registered} onEditing={setReferenceEditing} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
         {mode === 'info' && <ButterflyInfo currentReferences={referencesReady && references.length ? references : undefined} targets={targets} onTargets={changeTargets} species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={distribution} shown={tab === 'map' && mode === 'records'} pins={pins} onOpen={pin=>{
           const survey=surveys.find(s=>s.id===pin.surveyId)
@@ -323,7 +326,7 @@ export default function App() {
 
           {referenceLoading && <p role="status">종 참고자료를 읽는 중입니다.</p>}
           {referenceError && <p role="alert" className="error">{referenceError}<button disabled={referenceEditing || formOpen} onClick={refreshReferences}>참고자료 다시 읽기</button></p>}
-          {tableMode !== 'holdings' ? recordTable : <RecordTable mode={tableMode} onModeChange={next => { setTableMode(next); setNotice('') }} holdingsView={<HoldingsView species={species} surveys={surveys} query={holdingQuery} sidebar={holdingSidebar} revision={holdingRevision} registerOpen={holdingRegisterOpen} onRegisterOpen={setHoldingRegisterOpen} onEditing={setReferenceEditing} onChanged={() => refreshReferences()} />} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />}
+          {tableMode !== 'holdings' ? recordTable : <RecordTable mode={tableMode} holdingsView={<HoldingsView species={species} surveys={surveys} query={holdingQuery} sidebar={holdingSidebar} revision={holdingRevision} registerOpen={holdingRegisterOpen} onRegisterOpen={setHoldingRegisterOpen} onEditing={setReferenceEditing} onChanged={() => refreshReferences()} />} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />}
 
         </>}
       </main>

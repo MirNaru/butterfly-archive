@@ -103,3 +103,23 @@ export function latestRequest<A extends unknown[], T>(fetcher: (...args: A) => P
   }
 }
 export const catalogExploration = latestRequest(findExploration)
+
+
+// 모바일 수신 서버와 구분된 PC 전용 관리·검수 요청입니다.
+export interface MobilePhoto {
+  id:number;device_label:string;received_at:string;
+  metadata:{sha256:string;filename:string;size_bytes:number;camera:string;taken_at_raw:string;offset_raw:string;date_candidate:string|null;time_candidate:string|null;latitude:number|null;longitude:number|null;warnings:string[]}
+}
+export const mobileStatus = () => request<{url:string;enabled:boolean;sessions:{id:number;label:string;expires:number;created_at:string}[]}>('/mobile/status')
+const mobilePost = (body:unknown) => ({...post(body),headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const mobileConnection = () => request<{code:string;expires_in:number;url:string}>('/mobile/connection',mobilePost({}))
+export const mobileDisable = () => request('/mobile/disable',mobilePost({}))
+export const mobileRevoke = (id:number) => request('/mobile/revoke',mobilePost({id}))
+export const mobilePhotos = (page:number) => request<{items:MobilePhoto[];total:number}>('/mobile/photos?offset='+page*25)
+export const mobileDiscard = (ids:number[]) => request('/mobile/discard',mobilePost({ids}))
+export const mobileRegister = (ids:number[],survey:SurveyInput) => request<Survey>('/mobile/register',mobilePost({ids,survey}))
+
+export const viewerStatus = () => request<{configured:boolean;url:string;published_at:string|null;sessions:{label:string;expires:number}[]}>('/viewer/status')
+export const viewerPublish = () => request<{records:number;catalog:number;holdings:number}>('/viewer/snapshot',mobilePost({}))
+export const viewerConnection = () => request<{code:string;url:string}>('/viewer/connection',mobilePost({}))
+export const viewerDisable = () => request('/viewer/disable',mobilePost({}))

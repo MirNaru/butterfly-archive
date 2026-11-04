@@ -1,0 +1,17 @@
+# 집 안 주소의 8443 포트만 사용하며 공인 인증서 발급이나 80 포트를 사용하지 않습니다.
+{
+    admin off
+    skip_install_trust
+    auto_https disable_redirects
+    storage file_system {
+        root "{$BUTTERFLY_LAN_TLS_STORAGE}"
+    }
+}
+https://{$BUTTERFLY_LAN_IP}:8443 {
+    bind {$BUTTERFLY_LAN_IP}
+    tls internal
+    request_body {
+        max_size 32KB
+    }
+    reverse_proxy 127.0.0.1:8001
+}

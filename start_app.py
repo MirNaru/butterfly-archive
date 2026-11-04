@@ -86,7 +86,11 @@ def main():
             start_server('frontend', 5173, [node, str(vite), '--host', '127.0.0.1', '--port',
                          '5173', '--strictPort'], ROOT / 'frontend')
             if '--no-browser' not in sys.argv:
-                if not webbrowser.open(FRONT_URL):
+                sys.path.insert(0,str(ROOT/'backend'))
+                from app.local_access import key
+                local_key=key()
+                address=FRONT_URL+('#local='+local_key if local_key else '')
+                if not webbrowser.open(address):
                     raise RuntimeError(f'서버는 실행 중입니다. 브라우저에서 {FRONT_URL} 주소를 열어 주세요.')
         finally:
             lock.seek(0)

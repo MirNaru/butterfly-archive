@@ -62,6 +62,8 @@ def test_pdf_merges_existing_doi_without_replacing_metadata(client):
 def test_version_twelve_migration_failure_preserves_rows(client, monkeypatch):
     client.post('/api/species', json={'korean_name': '보존 시험'})
     with connect_database() as db:
+        for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
+            db.execute('DROP TABLE '+table)
         db.execute('DROP TABLE paper_files'); db.execute('PRAGMA user_version=12')
     with monkeypatch.context() as patch:
         patch.setattr(migrations, 'PAPER_FILE_STATEMENTS', migrations.PAPER_FILE_STATEMENTS + ('INVALID SQL',))
@@ -72,6 +74,6 @@ def test_version_twelve_migration_failure_preserves_rows(client, monkeypatch):
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='paper_files'").fetchone()
     migrations.initialize_database(); migrations.initialize_database()
     with connect_database() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 13
+        assert db.execute('PRAGMA user_version').fetchone()[0] == migrations.SCHEMA_VERSION
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    assert list(database_path().parent.glob('*.before-v13-*.bak'))
+    assert list(database_path().parent.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'))

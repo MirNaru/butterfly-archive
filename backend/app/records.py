@@ -176,10 +176,11 @@ def get_survey(survey_id: int) -> dict | None:
         return read_survey(connection, survey_id)
 
 
-def list_surveys() -> list[dict]:
+def list_surveys(connection: sqlite3.Connection | None = None) -> list[dict]:
     """목록 전체의 연결 자료를 일괄 조회하고 단건 조회와 같은 표시 규칙을 적용합니다."""
-    with connect_database() as connection:
-        connection.execute("BEGIN")
+    with (connect_database() if connection is None else nullcontext(connection)) as connection:
+        if not connection.in_transaction:
+            connection.execute("BEGIN")
         surveys = {r['id']: {**dict(r), 'tags': [], 'photo_ids': [], 'observations': []}
                    for r in connection.execute(f"SELECT s.* FROM surveys s WHERE {ACTIVE_SURVEY} ORDER BY s.survey_date DESC, s.id DESC")}
         tags, photos = {}, {}
