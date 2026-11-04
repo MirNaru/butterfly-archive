@@ -1,7 +1,7 @@
 // 한살이 통계의 표본 단위와 연말·윤일·구간 경계를 검증합니다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, BOX_MINIMUM } from '../src/lifeCycle.ts'
+import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, densityShape, BOX_MINIMUM } from '../src/lifeCycle.ts'
 const window = (start, end, extra={}) => ({id:'test',stage:'adult',start,end,source:'시험 도감',edition:'2026',region:'',enabled:true,...extra})
 const reference = {lifecycle:[],periods:[],source:'시험 도감'}
 const filter = {year:'',region:'',source:''}
@@ -84,4 +84,54 @@ test('개체 수로 가중하지 않고 미확정·미발견·단계 미상 제�
  const result=collectLifeSamples(surveys)
  assert.equal(result.length,1)
  assert.deepEqual(result[0].observationIds,[1,2])
+})
+
+
+test('표시 밀도는 수염 안에 제한하고 원래 사분위수와 이상값을 바꾸지 않음',()=>{
+ const samples=[...Array.from({length:30},(_,i)=>sample(`2026-05-${String(i%20+1).padStart(2,'0')}`)),sample('2026-09-20')]
+ const group=observationGroups(samples)[0], before=structuredClone(group.box)
+ const shape=densityShape(group)
+ assert.deepEqual(group.box,before)
+ assert.ok(shape.paths.length)
+ for(const path of shape.paths){
+  const points=[...path.curve.matchAll(/[ML] ([\d.]+) ([\d.]+)/g)].map(m=>[Number(m[1]),Number(m[2])])
+  assert.equal(points[0][0],group.box.low-1)
+  assert.equal(points.at(-1)[0],group.box.high-1)
+  assert.ok(points.every(([x,y])=>Number.isFinite(x)&&y>=5&&y<=20))
+ }
+ assert.ok(shape.medianY>=5&&shape.medianY<=20)
+})
+
+test('겨울 밀도는 연말 경계에서 두 조각으로 이어지고 높이가 일치함',()=>{
+ const group=observationGroups(['2026-12-15','2026-12-25','2027-01-05','2027-01-15'].flatMap(d=>Array.from({length:10},()=>sample(d))))[0]
+ const shape=densityShape(group)
+ assert.equal(shape.paths.length,2)
+ const points=shape.paths.map(path=>[...path.curve.matchAll(/[ML] ([\d.]+) ([\d.]+)/g)].map(m=>[Number(m[1]),Number(m[2])]))
+ assert.equal(points[0].at(-1)[0],366)
+ assert.equal(points[1][0][0],0)
+ assert.equal(points[0].at(-1)[1],points[1][0][1])
+ assert.ok(points.flat().every(([x,y])=>x>=0&&x<=366&&y>=5&&y<=20))
+})
+
+test('동일 날짜 20사례도 유한한 표시를 만들고 19사례는 밀도를 만들지 않음',()=>{
+ const same=observationGroups(Array.from({length:20},()=>sample('2026-05-10')))[0]
+ const shape=densityShape(same)
+ assert.equal(shape.medianY,5)
+ assert.equal(shape.paths.length,1)
+ assert.ok(!JSON.stringify(shape).match(/NaN|Infinity/))
+ assert.equal(densityShape(observationGroups(Array.from({length:19},()=>sample('2026-05-10')))[0]),null)
+})
+
+
+test('전체 높이 밀도에서 채움은 사분위 구간만 차지하며 피크와 골이 남음',()=>{
+ const samples=[...Array.from({length:40},(_,i)=>sample('2026-04-15',{day:100+i%20})),...Array.from({length:60},(_,i)=>sample('2026-08-15',{day:220+i%20}))]
+ const group=observationGroups(samples)[0],shape=densityShape(group)
+ const curve=shape.paths.flatMap(path=>[...path.curve.matchAll(/[ML] ([\d.]+) ([\d.]+)/g)].map(m=>[Number(m[1]),Number(m[2])]))
+ assert.equal(Math.min(...curve.map(([,y])=>y)),5)
+ const near=day=>curve.reduce((a,b)=>Math.abs(a[0]-(day-1))<Math.abs(b[0]-(day-1))?a:b)[1]
+ assert.ok(near(110)<near(170)&&near(230)<near(170))
+ const fill=shape.paths.filter(p=>p.fill).flatMap(path=>[...path.fill.matchAll(/[ML] ([\d.]+) ([\d.]+)/g)].map(m=>[Number(m[1]),Number(m[2])]))
+ assert.equal(Math.min(...fill.map(([x])=>x)),group.box.q1-1)
+ assert.equal(Math.max(...fill.map(([x])=>x)),group.box.q3-1)
+ assert.ok(fill.some(([,y])=>y===20))
 })

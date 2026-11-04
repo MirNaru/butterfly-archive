@@ -66,6 +66,46 @@ export function observationGroups(samples: LifeSample[]) {
   const values = samples.map(p => p.day < start ? p.day + 366 : p.day)
   return [{ start, end: Math.max(...values), samples, box: boxStats(values) }]
 }
+// 표시 전용 14일 밀도곡선입니다. 이상값도 계산에 포함하고, 수염 안에서만 그립니다.
+export function densityShape(group: ReturnType<typeof observationGroups>[number]) {
+  const box = group.box
+  if (!box) return null
+  const counts = new Map<number, number>()
+  for (const sample of group.samples) counts.set(sample.day, (counts.get(sample.day) || 0) + 1)
+  const density = (day: number) => {
+    let sum = 0
+    for (const [observed, count] of counts) {
+      const distance = Math.abs(((day - observed + 183) % 366 + 366) % 366 - 183)
+      sum += count * Math.exp(-.5 * (distance / 14) ** 2)
+    }
+    return sum
+  }
+  const values = [...new Set([box.low, box.high, box.q1, box.median, box.q3,
+    ...Array.from({length: Math.max(0, Math.floor(box.high) - Math.ceil(box.low) + 1)}, (_, i) => Math.ceil(box.low) + i)])].sort((a,b) => a-b)
+  const heights = new Map(values.map(day => [day, density(day)]))
+  const maximum = Math.max(...heights.values())
+  const roof = (day: number) => 20 - 15 * (heights.get(day) ?? density(day)) / maximum
+  const paths: { fill: string; curve: string }[] = []
+  if (box.low === box.high) {
+    const x = ((box.low - 1) % 366 + 366) % 366
+    const left = x, right = Math.min(366, x + 1)
+    paths.push({fill:`M ${left} 20 L ${left} 5 L ${right} 5 L ${right} 20 Z`, curve:`M ${left} 5 L ${right} 5`})
+  } else {
+    for (let base = Math.floor((box.low - 1) / 366) * 366; base < box.high - 1; base += 366) {
+      const low = Math.max(box.low, base + 1), high = Math.min(box.high, base + 367)
+      const points = [...new Set([low, ...values.filter(day => day > low && day < high), high])]
+      const curve = points.map((day, i) => `${i ? 'L' : 'M'} ${day - 1 - base} ${roof(day)}`).join(' ')
+      const fillLow = Math.max(low, box.q1), fillHigh = Math.min(high, box.q3)
+      let fill = ''
+      if (fillHigh > fillLow) {
+        const fillPoints = [fillLow, ...values.filter(day => day > fillLow && day < fillHigh), fillHigh]
+        fill = `M ${fillLow - 1 - base} 20 ${fillPoints.map(day => `L ${day - 1 - base} ${roof(day)}`).join(' ')} L ${fillHigh - 1 - base} 20 Z`
+      }
+      paths.push({curve, fill})
+    }
+  }
+  return { paths, medianY:roof(box.median), q1Y:roof(box.q1), q3Y:roof(box.q3) }
+}
 export function stageData(reference: SpeciesReference, allSamples: LifeSample[], stage: LifeStage, filter: LifeFilter) {
   const windows = lifeWindows(reference, stage, filter.region)
   const samples = allSamples.filter(p => p.stage === stage && (!filter.year || p.date.startsWith(filter.year + '-')) && (!filter.region.trim() || p.place.toLowerCase().includes(filter.region.trim().toLowerCase())) && (!filter.source || p.sourceType === filter.source))
