@@ -1,3 +1,5 @@
+import DetailPhotos from './DetailPhotos'
+import {readView,writeView} from './viewMemory'
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listSpecies, listSurveys, integrationStatus, recordWeather, catalogExploration, listTags } from './api'
@@ -8,7 +10,6 @@ import MapView from './MapView'
 import MobileInbox from './MobileInbox'
 import { pinSource } from './mapPinStyle'
 import WeatherPanel from './WeatherPanel'
-import { PhotoGallery } from './PhotoPicker'
 import HoldingsView from './HoldingsView'
 import TrashDialog from './TrashDialog'
 import SearchFilters from './SearchFilters'
@@ -28,23 +29,23 @@ function SourceText({ text }: { text: string }) {
     : part)}</>
 }
 
-function Detail({ survey, onEdit, onDelete, onWeatherChanged, selectedRecord }: { survey: Survey; onEdit: () => void; onDelete: (observationId: number | null) => void; onWeatherChanged: () => void; selectedRecord: number | null }) {
-  return <article className="detail"><span className="eyebrow">탐사 기록 #{survey.id}</span>
-    <div className="detail-actions"><button type="button" onClick={onEdit}>기록 수정</button><button type="button" className="danger" onClick={() => onDelete(null)}>탐사 전체 삭제</button></div><h2>{survey.display_place || survey.place_name || '좌표로 등록한 장소'}</h2>
+function Detail({ survey, species, tagOptions, onDelete, onWeatherChanged, selectedRecord }: { survey: Survey; species:Species[]; tagOptions:Tag[]; onEdit: () => void; onDelete: (observationId: number | null) => void; onWeatherChanged: () => void; selectedRecord: number | null }) {
+  const namesFor=(names:string[],category:'environment'|'individual')=>names.filter(name=>(tagOptions.find(t=>t.name===name)?.category||'environment')===category)
+  return <article className="detail detail-with-photos"><div className="detail-information"><section className="detail-survey-panel"><span className="eyebrow">탐사 기록 #{survey.id}</span>
+    <h2>{survey.display_place || survey.place_name || '좌표로 등록한 장소'}</h2>
     {survey.location_note&&<p className="hint">{survey.location_note}</p>}
     <p>{survey.survey_date} · {PURPOSE[survey.purpose]}</p>
     <p className="hint">{survey.latitude === null ? '탐사 좌표 미지정' : `위도 ${survey.latitude} · 경도 ${survey.longitude}`}</p>
-    {(survey.tags || []).length > 0 && <p className="tag-summary">탐사 공통 태그: {survey.tags.join(', ')}</p>}
+    {(['environment','individual'] as const).map(category=>namesFor(survey.tags||[],category).length>0&&<p key={category} className="tag-summary">탐사 공통 {category==='environment'?'환경':'개체'} 태그: {namesFor(survey.tags||[],category).join(', ')}</p>)}
     {survey.notes && <p className="memo"><SourceText text={survey.notes} /></p>}
-    <PhotoGallery ids={survey.photo_ids || []} />
+
     <WeatherPanel key={`survey-${survey.id}`} targetType="survey" targetId={survey.id} />
-    <h3>종별 기록 {survey.observations.length}건</h3>
+    </section><h3>종별 기록 {survey.observations.length}건</h3>
     {survey.observations.length === 0 && <p className="empty">종별 기록이 없는 탐사입니다. 특정 종의 미발견을 뜻하지 않습니다.</p>}
     {survey.observations.map(record => <section className={`observation${selectedRecord === record.id ? ' selected' : ''}`} key={record.id}>
-      <div className="record-title"><h3>{record.species_name || '동정 미확정'}</h3><span className={`badge ${record.result}`}>{RESULT[record.result]}</span></div>
-      <button type="button" className="danger" onClick={() => onDelete(record.id)}>이 관찰 삭제</button>
-      <p>{record.effective_date} · {record.observation_time || '시각 미상'}</p>
-      <p>{record.display_place || record.effective_place || '좌표 지정 위치'}{record.effective_latitude !== null && ` · ${record.effective_latitude}, ${record.effective_longitude}`}</p>
+      <div className="record-title"><div><h3>{record.species_name || '동정 미확정'}</h3><small className="detail-scientific">{species.find(s=>s.id===record.species_id)?.scientific_name || ''}</small></div><span className={`badge ${record.result}`}>{RESULT[record.result]}</span></div>
+      <p>{record.effective_date} · {record.observation_time ? record.observation_time.slice(0,5) : '시각 미상'}</p>
+      <p>{record.display_place || record.effective_place || '좌표 지정 위치'}</p><p className="hint">{record.effective_latitude !== null && `위도 ${record.effective_latitude} · 경도 ${record.effective_longitude}`}</p>
       {record.location_note&&<p className="hint">{record.location_note}</p>}
       <p className="hint">{SOURCE_TYPE[record.source_type]}{record.source_note && <> · <SourceText text={record.source_note} /></>}</p>
       {record.result === 'observed' && <dl>
@@ -52,17 +53,19 @@ function Detail({ survey, onEdit, onDelete, onWeatherChanged, selectedRecord }: 
         <dt>관찰 개체 수</dt><dd>{record.count === null ? '미상' : `${record.count}마리${record.count_estimated ? ' (추정)' : ''}`}</dd>
         <dt>채집</dt><dd>{CAPTURE[record.capture_status]}{record.capture_status === 'captured' && ` · ${record.captured_count === null ? '수량 미상' : `${record.captured_count}마리`}`}</dd>
       </dl>}
-      {(record.tags || []).length > 0 && <p className="tag-summary">종별 추가 태그: {record.tags.join(', ')}</p>}
+      {(['environment','individual'] as const).map(category=>namesFor(record.tags||[],category).length>0&&<p key={category} className="tag-summary">{category==='environment'?'환경':'개체'} 태그: {namesFor(record.tags||[],category).join(', ')}</p>)}
       {record.notes && <p className="memo">{record.notes}</p>}
-      <PhotoGallery ids={record.photo_ids || []} />
+
       <WeatherPanel key={`observation-${record.id}`} targetType="observation" targetId={record.id} sourceWeather={record.source_weather} onChanged={onWeatherChanged} />
+      <div className="observation-delete"><button type="button" className="danger" onClick={() => onDelete(record.id)}>이 관찰 삭제</button></div>
     </section>)}
-    <p className="hint">등록 {new Date(survey.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} · 로컬 보관</p>
-    <p className="hint">최근 수정 {new Date(survey.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}</p>
-  </article>
+    <p className="hint">등록 {new Date(survey.created_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit' })} · 로컬 보관</p>
+    <p className="hint">최근 수정 {new Date(survey.updated_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul',year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit' })}</p>
+  </div><DetailPhotos ids={[...new Set([...(selectedRecord ? survey.observations.find(r=>r.id===selectedRecord)?.photo_ids || [] : []),...(survey.photo_ids || []),...survey.observations.flatMap(r=>r.photo_ids || [])])]} /></article>
 }
 
 export default function App() {
+  const [savedView] = useState(() => readView('app'))
   const [species, setSpecies] = useState<Species[]>([])
   const [tags, setTags] = useState<Tag[]>([])
   const [tagsError, setTagsError] = useState('')
@@ -72,8 +75,8 @@ export default function App() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailEditing, setDetailEditing] = useState(false)
   const detailForm = useRef<SurveyFormHandle>(null)
-  const [tab, setTab] = useState<'map' | 'table'>('table')
-  const [mapVisited, setMapVisited] = useState(false)
+  const [tab, setTab] = useState<'map' | 'table'>(savedView.tab === 'map' ? 'map' : 'table')
+  const [mapVisited, setMapVisited] = useState(savedView.tab === 'map')
   const [mapFocus, setMapFocus] = useState<Coordinate | null>(null)
   const [integration, setIntegration] = useState<IntegrationStatus | null>(null)
   const [integrationError, setIntegrationError] = useState('')
@@ -84,10 +87,10 @@ export default function App() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ survey: Survey; observationId: number | null } | null>(null)
   const formOpen = creating || !!editing || trashOpen || detailOpen
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(typeof savedView.query === 'string' ? savedView.query : '')
   const [filterRevision, setFilterRevision] = useState(0)
-  const [infoQuery, setInfoQuery] = useState('')
-  const [holdingQuery, setHoldingQuery] = useState('')
+  const [infoQuery, setInfoQuery] = useState(typeof savedView.infoQuery === 'string' ? savedView.infoQuery : '')
+  const [holdingQuery, setHoldingQuery] = useState(typeof savedView.holdingQuery === 'string' ? savedView.holdingQuery : '')
   const [tableMode, setTableMode] = useState('records')
   const [holdingSidebar, setHoldingSidebar] = useState<HTMLDivElement | null>(null)
   const [holdingRevision, setHoldingRevision] = useState(0)
@@ -95,12 +98,20 @@ export default function App() {
   const [infoSidebar, setInfoSidebar] = useState<HTMLDivElement | null>(null)
   const [mapInfoFooter, setMapInfoFooter] = useState<HTMLDivElement | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
-  const [filters, setFilters] = useState(emptyFilters)
+  const [filters, setFilters] = useState(() => {
+    const defaults = emptyFilters(), stored = savedView.filters
+    if (stored && typeof stored === 'object') for (const key of Object.keys(defaults) as (keyof typeof defaults)[]) {
+      const value = (stored as Record<string,unknown>)[key]
+      if (Array.isArray(defaults[key]) ? Array.isArray(value) && value.every(v => typeof v === 'string') : typeof value === 'string') Object.assign(defaults,{[key]:value})
+    }
+    return defaults
+  })
   const [weather, setWeather] = useState<Record<number, SavedWeather>>({})
   const [referenceEditing, setReferenceEditing] = useState(false)
-  const [mode, setMode] = useState<'records' | 'info' | 'collection'>('records')
+  const [mode, setMode] = useState<'records' | 'info' | 'collection'>(savedView.mode === 'info' || savedView.mode === 'collection' ? savedView.mode : 'records')
   const [collectionRemote, setCollectionRemote] = useState<HTMLDivElement | null>(null)
   const [collectionSource, setCollectionSource] = useState('inaturalist')
+  useEffect(() => { writeView('app',{mode,tab,query,infoQuery,holdingQuery,filters}) },[mode,tab,query,infoQuery,holdingQuery,filters])
   const collectionSources = [
     { id: 'mobile', name: '내 사진', method: '휴대폰 전송', description: '내 사진의 촬영 정보를 검수해 탐사를 등록하고 여러 종의 관찰을 추가합니다.' },
     { id: 'inaturalist', name: 'iNaturalist', method: '공식 API', description: '공식 API로 공개 나비 관찰 자료를 조회합니다.' },
@@ -120,7 +131,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
-  function rememberTag(tag: Tag) { setTags(current => current.some(t => t.name === tag.name) ? current : [...current, tag]) }
+  function rememberTag(tag: Tag) { setTags(current => current.some(t => t.name === tag.name) ? current.map(t=>t.name===tag.name?{...t,...tag}:t) : [...current, tag]) }
   async function refreshTags() {
     try { setTags(await listTags()); setTagsError('') }
     catch (e) { setTagsError(e instanceof Error ? e.message : '태그 목록을 읽지 못했습니다.') }
@@ -228,6 +239,7 @@ export default function App() {
   }
   const observedSpeciesCount=new Set(matchedRows.filter(r=>r.record.result==='observed'&&r.record.species_id!==null).map(r=>r.record.species_id)).size
   const surveyList=<nav aria-label="종별 기록" className="survey-list">
+    {tab === 'map' && selected && <button type="button" className="selected-survey-summary selected" onDoubleClick={() => { setTab('table'); openRecordDetail(selected, selectedRecord ?? undefined) }} onKeyDown={e => {if(e.key==='Enter'){setTab('table');openRecordDetail(selected,selectedRecord ?? undefined)}}} title="더블클릭하면 탐사 상세를 엽니다"><strong>선택한 탐사 · {selected.survey_date}</strong><span>{selected.display_place || selected.place_name || '좌표 지정 장소'}</span><span>{selected.observations.map(r => r.species_name || '동정 미확정').filter((v,i,a)=>a.indexOf(v)===i).join(' · ') || '종별 기록 없음'}</span><span>종별 기록 {selected.observations.length}건</span></button>}
     {activeSpeciesId!==null&&<button type="button" onClick={()=>{setSelectedSpeciesId(null);setFilters({...filters,species:[]});if(exactSpecies)setQuery('')}}>종 선택 해제 · 전체 보기</button>}
     {speciesGroups.filter(g=>g.id!==-1).map(g=><button key={g.id} disabled={referenceEditing||formOpen} className={activeSpeciesId===g.id?'selected':''} onClick={()=>chooseSpecies(g.id)}>
       <strong>{g.name}</strong><span className="species-card-region">{g.regions[0]||'행정지역 미확인'}{g.regions.length>1&&` · 외 ${g.regions.length-1}개 지역`}</span>
@@ -279,13 +291,13 @@ export default function App() {
         {mode !== 'collection' && <div className="sidebar-tools"><label className="sidebar-search"><span className="sr-only">{mode === 'info' ? '나비 검색' : holdingShown ? '소장 검색' : '기록 검색'}</span><input type="search" disabled={referenceEditing || formOpen} placeholder={mode === 'info' ? '국명·학명·태그·지역 검색' : holdingShown ? '국명·학명·취득 근거·메모' : '기록 검색'} value={mode === 'info' ? infoQuery : holdingShown ? holdingQuery : query} onChange={e => mode === 'info' ? setInfoQuery(e.target.value) : holdingShown ? setHoldingQuery(e.target.value) : setQuery(e.target.value)} /></label>{mode === 'records' && !holdingShown ? <button className="icon-button has-tooltip" aria-label="필터 전체 초기화" data-tooltip="필터 전체 초기화" disabled={formOpen || referenceEditing} onClick={() => { setQuery(''); setFilters(emptyFilters()); setFilterRevision(n => n + 1) }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: 'translateY(1px)' }}><path d="M3 3.5h18l-7 8v7l-4 2v-9L3 3.5Zm14 12 4 4m0-4-4 4" /></svg></button> : <button className="icon-button has-tooltip" aria-label="새로고침" data-tooltip="새로고침" disabled={loading || formOpen || referenceEditing} onClick={() => { if (holdingShown) setHoldingRevision(n => n + 1); setLoading(true); void load() }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 7V3m0 4h-4m4 0a8 8 0 1 0 1 8" /></svg></button>}<button className="icon-button has-tooltip" aria-label={mode === 'info' ? '나비 등록 열기' : holdingShown ? '소장 등록' : '새 탐사'} data-tooltip={mode === 'info' ? '나비 등록' : holdingShown ? '소장 등록' : '새 탐사'} disabled={referenceEditing || formOpen || loading || (mode === 'records' && !!error)} onClick={() => { if (mode === 'info') { setRegisterOpen(true); requestAnimationFrame(() => document.getElementById('catalog-new-name')?.focus()) } else if (holdingShown) { setHoldingRegisterOpen(true); setReferenceEditing(true) } else { setCreating(true); setNotice('') } }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 4v16M4 12h16" /></svg></button></div>}
         <div className="sidebar-scroll" role="region" aria-label="왼쪽 정보" tabIndex={0}>
         <div className="sidebar-card">
-        {mode === 'collection' && <section className="collection-sidebar"><h2>수집처 선택</h2><div className="collection-source-list" role="group" aria-label="자료 수집처">{collectionSources.map(source => <button key={source.id} aria-pressed={collectionSource === source.id} onClick={() => setCollectionSource(source.id)}>{source.name}</button>)}</div><p className="hint">수집처를 선택한 뒤 오른쪽에서 준비 상태를 확인하세요.</p></section>}
+        {mode === 'collection' && <section className="collection-sidebar"><h2>수집처 선택</h2><div className="collection-source-list" role="group" aria-label="자료 수집처">{collectionSources.map(source => <button key={source.id} aria-pressed={collectionSource === source.id} onClick={() => setCollectionSource(source.id)}>{source.name}</button>)}</div></section>}
         <div ref={setCollectionRemote} hidden={mode !== 'collection' || !['naturing', 'inaturalist'].includes(collectionSource)} />
         <div ref={setInfoSidebar} hidden={mode !== 'info'} />
         {mode === 'records' && tab === 'table' && <label className="record-view-select"><span className="sr-only">표 종류</span><select aria-label="표 종류" value={tableMode} disabled={referenceEditing || formOpen} onChange={e => changeTableMode(e.target.value)}><option value="records">관찰 기록</option><option value="surveys">탐사 목록</option><option value="holdings">소장 목록</option></select></label>}
         <div ref={setHoldingSidebar} hidden={!holdingShown} />
         <div hidden={mode !== 'records' || holdingShown}>
-        <SearchFilters key={filterRevision} tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} expanded={tab === 'table'} />
+        <SearchFilters key={filterRevision} tags={tags} tagsError={tagsError} retryTags={() => void refreshTags()} value={filters} onChange={setFilters} species={species} disabled={referenceEditing || formOpen} expanded={false} />
         <p className="hint">종별 기록 {rows.length}건 · 좌표 있음 {rows.filter(r => r.record.effective_latitude !== null).length}건 · 좌표 없음 {rows.filter(r => r.record.effective_latitude === null).length}건</p>
         <details open><summary style={{cursor: 'pointer', marginBottom: 12}}><strong>종별 기록</strong><small style={{float: 'right'}}>관찰 {observedSpeciesCount}종</small></summary>
         {loading && <p role="status">목록을 불러오는 중입니다.</p>}
@@ -304,10 +316,10 @@ export default function App() {
           </div>)}</>}
           {integrationError && <p className="error">{integrationError}</p>}
         </details>
-        {mode === 'records' && tab === 'map' && selected && <Detail key={`${selected.id}-${selected.updated_at}`} survey={selected} selectedRecord={selectedRecord} onDelete={id => showTrash({ survey: selected, observationId: id })} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setEditing(selected); setNotice('') }} />}
+
         </div>
         </div>
-        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
+        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setSelectedId(null); setSelectedRecord(null); setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
       </aside>
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
@@ -334,9 +346,9 @@ export default function App() {
       </div>
     </div>
     {form}
-          {detailOpen && detailSurvey && <dialog className={`record-detail-dialog${detailEditing ? ' survey-dialog' : ''}`} aria-labelledby="record-detail-title" ref={node => { if (node && !node.open) node.showModal() }} onCancel={event => { event.preventDefault(); closeRecordDetail() }}>
-            <header className="record-detail-header"><h2 id="record-detail-title">{detailEditing ? '관찰 기록 수정' : '관찰 기록 상세'}</h2><button type="button" autoFocus onClick={closeRecordDetail}>닫기</button></header>
-            {detailEditing ? <SurveyForm embedded closeRef={detailForm} selectedObservationId={selectedRecord} initial={detailSurvey} species={species} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} onCancel={() => setDetailEditing(false)} onSaved={saved => void saveDetail(saved)} /> : <Detail key={`${detailSurvey.id}-${detailSurvey.updated_at}`} survey={detailSurvey} selectedRecord={selectedRecord} onDelete={id => { setDetailOpen(false); showTrash({ survey: detailSurvey, observationId: id }) }} onWeatherChanged={() => void refreshWeather()} onEdit={() => setDetailEditing(true)} />}
+          {detailOpen && detailSurvey && <dialog className={`record-detail-dialog${detailEditing ? ' survey-dialog' : ''}`} aria-labelledby="record-detail-title" ref={node => { if (node && !node.open) { node.showModal(); node.querySelector<HTMLButtonElement>('[data-detail-close]')?.focus() } }} onCancel={event => { event.preventDefault(); closeRecordDetail() }}>
+            <header className="record-detail-header"><h2 id="record-detail-title">{detailEditing ? '관찰 기록 수정' : '관찰 기록 상세'}</h2><div className="record-detail-actions">{!detailEditing && <><button type="button" className="danger" onClick={()=>{setDetailOpen(false);showTrash({survey:detailSurvey,observationId:null})}}>탐사 전체 삭제</button><button type="button" onClick={()=>setDetailEditing(true)}>기록 수정</button></>}<button type="button" autoFocus data-detail-close onClick={closeRecordDetail}>닫기</button></div></header>
+            {detailEditing ? <SurveyForm embedded closeRef={detailForm} selectedObservationId={selectedRecord} initial={detailSurvey} species={species} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} onCancel={() => setDetailEditing(false)} onSaved={saved => void saveDetail(saved)} /> : <Detail key={`${detailSurvey.id}-${detailSurvey.updated_at}`} species={species} tagOptions={tags} survey={detailSurvey} selectedRecord={selectedRecord} onDelete={id => { setDetailOpen(false); showTrash({ survey: detailSurvey, observationId: id }) }} onWeatherChanged={() => void refreshWeather()} onEdit={() => setDetailEditing(true)} />}
           </dialog>}
     {trashOpen && <TrashDialog target={deleteTarget} onClose={() => setTrashOpen(false)} onChanged={reloadAfterTrash} />}
   </div>

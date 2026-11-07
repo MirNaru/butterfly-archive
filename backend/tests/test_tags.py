@@ -9,7 +9,9 @@ from test_updates import payload
 
 
 def test_defaults_custom_and_duplicate_names(client):
-    names = [t['name'] for t in client.get('/api/tags').json()]
+    all_tags=client.get('/api/tags').json()
+    names = [t['name'] for t in all_tags if t['category']=='environment']
+    assert any(t['name']=='사육' and t['category']=='individual' for t in all_tags)
     assert names == list(DEFAULT_TAGS)
     assert not {'흡밀','산란'} & set(names)
     first = client.post('/api/tags', json={'name': '  시험 환경  '}).json()
@@ -91,7 +93,7 @@ def test_v4_upgrade_backup_and_rollback(tmp_path,monkeypatch):
     with connect_database() as db:
         assert db.execute('PRAGMA user_version').fetchone()[0]==migrations.SCHEMA_VERSION
         assert [tuple(r) for r in db.execute('SELECT * FROM surveys')]==before
-        assert db.execute('SELECT COUNT(*) FROM tags').fetchone()[0]==len(DEFAULT_TAGS)
+        assert db.execute("SELECT COUNT(*) FROM tags WHERE category='environment'").fetchone()[0]==len(DEFAULT_TAGS)
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
     for backup in tmp_path.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'):
         with sqlite3.connect(backup) as db:

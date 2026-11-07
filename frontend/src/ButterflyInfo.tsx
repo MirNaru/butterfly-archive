@@ -1,8 +1,10 @@
+import SpeciesInfoModal from './SpeciesInfoModal'
+import {readView,writeView} from './viewMemory'
 // 등록·검색은 왼쪽에 두고 종별 한살이 그림과 생태 정보를 표로 표시합니다.
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent, CSSProperties } from 'react'
 import { createPortal, flushSync } from 'react-dom'
-import { addSpecies, getReference, listCatalog, latestRequest, catalogExploration, listHoldings } from './api'
+import { addSpecies, getReference, latestRequest, catalogExploration, listHoldings } from './api'
 import type { Species, ReferenceDocument, SpeciesCatalog, Survey, ExplorationRow } from './models'
 import ReferenceModal from './ReferenceModal'
 import { SpeciesDetails } from './SpeciesDetails'
@@ -13,7 +15,6 @@ import { hasTargetConditions, targetMatches } from './recordSearch'
 import type { TargetFilters } from './recordSearch'
 import { speciesStatuses } from './speciesStatus'
 // 탭을 닫아도 자료만 재사용합니다. 명시적 새로고침·편집은 revision으로 무효화합니다.
-const cachedCatalog = latestRequest(listCatalog)
 const cachedHoldings = latestRequest(listHoldings)
 const noSamples: ReturnType<typeof collectLifeSamples> = []
 // 화면 가까이에 있는 그래프만 만들고 같은 높이를 예약합니다.
@@ -75,6 +76,8 @@ function CatalogNotes({ text }: { text: string }) {
   })}</div>
 }
 export default function ButterflyInfo({ currentReferences, targets, onTargets, species, onCreated, onUpdated, onEditing, sidebar, query, revision, surveys, registerOpen, onRegisterOpen }: { currentReferences?: ExplorationRow[]; targets: TargetFilters; onTargets: (value: TargetFilters) => void; species: Species[]; onCreated: (s: Species) => void; onUpdated: (s: Species) => void; onEditing: (v: boolean) => void; sidebar: HTMLDivElement | null; query: string; revision: number; surveys: Survey[]; registerOpen: boolean; onRegisterOpen: (open: boolean) => void }) {
+  const [savedScroll] = useState(() => readView('catalog-scroll'))
+  const [limit,setLimit] = useState(12)
   const scrollArea = useRef<HTMLDivElement>(null)
   const scrollInput = useRef<HTMLInputElement>(null)
   const [scroll, setScroll] = useState({ left: 0, max: 0, thumbWidth: 36 })
@@ -107,19 +110,29 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
   const [retry, setRetry] = useState(0)
   const [loaded, setLoaded] = useState('')
   const [filter, setFilter] = useState<LifeFilter>({ year: '', region: '', source: '' })
+  const [editMode,setEditMode] = useState(false)
   const [editing, setEditing] = useState<{ species: Species; document: ReferenceDocument } | null>(null)
   const requestKey = `${revision}:${retry}`
   const loading = loaded !== requestKey
+  const restoredScroll = useRef(false)
+  useEffect(() => {
+    if (loading || restoredScroll.current || !scrollArea.current) return
+    const top = typeof savedScroll.top === 'number' ? savedScroll.top : 0
+    const left = typeof savedScroll.left === 'number' ? savedScroll.left : 0
+    setLimit(previous => Math.max(previous, Math.ceil(top / 24) + 50))
+    const frame = requestAnimationFrame(() => { if(scrollArea.current) { scrollArea.current.scrollTop=top;scrollArea.current.scrollLeft=left;restoredScroll.current=true } })
+    return () => cancelAnimationFrame(frame)
+  },[loading,savedScroll])
   useEffect(() => {
     let active = true
     const source = currentReferences
       ? Promise.resolve([...currentReferences].sort((a,b) => (a.reference.display_order ?? Infinity) - (b.reference.display_order ?? Infinity) || a.id-b.id))
-      : cachedCatalog(requestKey)
+      : catalogExploration(String(revision), targets.on, targets.region).then(rows => [...rows].sort((a,b) => (a.reference.display_order ?? Infinity) - (b.reference.display_order ?? Infinity) || a.id-b.id))
     source.then(rows => { if (active) { setCatalog(rows); setError('') } })
       .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : '나비 목록을 읽지 못했습니다.') })
       .finally(() => { if (active) setLoaded(requestKey) })
     return () => { active = false }
-  }, [requestKey,currentReferences])
+  }, [requestKey,currentReferences,revision,targets.on,targets.region])
   const samples = useMemo(() => {
     const grouped = new Map<number, ReturnType<typeof collectLifeSamples>>()
     for (const sample of collectLifeSamples(surveys)) {
@@ -129,7 +142,7 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
     return grouped
   }, [surveys])
   const open = useCallback(async (s: Species) => {
-    setBusy(true); setError(''); onEditing(true)
+    setBusy(true); setError(''); setEditMode(false); onEditing(true)
     try { setEditing({ species: s, document: await getReference(s.id) }) }
     catch (e) { setError(e instanceof Error ? e.message : '정보를 읽지 못했습니다.'); onEditing(false) }
     finally { setBusy(false) }
@@ -177,7 +190,7 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
       && (!ownership || (ownership === 'only' ? owned.has(s.id) : !owned.has(s.id)))
   })
   // 첫 화면을 먼저 그린 뒤 나머지 행을 프레임마다 나누어 붙입니다.
-  const [limit,setLimit] = useState(12)
+
   useEffect(() => {
     if (limit >= filtered.length) return
     const id = requestAnimationFrame(() => setLimit(n => n + 16))
@@ -204,7 +217,7 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
     </details>
     {!conditionReady && <p role="status">{conditionStatus.error || '도감 조건을 읽는 중입니다.'}{conditionStatus.error && <button onClick={()=>setRetry(n=>n+1)}>다시 읽기</button>}</p>}
     {error && <p className="error" role="alert">{error}<button type="button" disabled={busy} onClick={() => setRetry(n => n + 1)}>목록 다시 읽기</button></p>}{notice && <p className="notice" role="status">{notice}</p>}{loading && <p role="status">나비 목록을 읽는 중입니다.</p>}
-    <p className="hint">검색 {filtered.length}종 / 등록 {species.length}종<br />표의 국명을 누르면 편집창이 열립니다.<br />상태 태그에 마우스를 올리면 출처를 볼 수 있습니다. 표시가 없으면 해당 없음으로 확정한 것은 아닙니다.</p>
+    <p className="hint">검색 {filtered.length}종 / 등록 {species.length}종</p>
     <details className="catalog-graph-settings"><summary>한살이 그림 조건·범례</summary><label>관찰 연도<input type="number" min={1800} max={9999} value={filter.year} onChange={e => setFilter({ ...filter, year: e.target.value })} placeholder="전체 연도" /></label><label>그림 지역<input value={filter.region} onChange={e => setFilter({ ...filter, region: e.target.value })} placeholder="전체 지역" /></label><label>그림 관찰 출처<select value={filter.source} onChange={e => setFilter({ ...filter, source: e.target.value as LifeFilter['source'] })}><option value="">직접·간접 전체</option><option value="direct">직접 관찰</option><option value="indirect">간접 관찰</option></select></label><div className="life-legend">{LIFE_STAGES.map(s => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}</div><p className="hint">옅은 막대: 도감 참고<br />상자·수염: 관찰 분포<br />점: 소수 자료·통계적 이상값<br />각 단계를 누르면 출처·사례가 열립니다.</p><p className="hint">등록한 관찰 중 종과 성장 단계가 지정된 사례를 사용합니다. 단계별 관찰 20사례부터 상자를 표시하며 도감 기간과 독립적으로 계산합니다. 도감 밖 관찰도 포함하고 통계적 이상값은 점으로 남깁니다. 단계는 도감 추정을 포함하며 상세에서 근거를 구분합니다. 개체 수·사진 장수로 가중하지 않습니다.</p><button type="button" onClick={() => setFilter({ year: '', region: '', source: '' })}>한살이 필터 초기화</button></details>
   </div>
   return <section className="butterfly-info" aria-label="나비 도감 표">
@@ -213,7 +226,7 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
       <div className="catalog-ratio" title="도감 조건·검색 결과 중 미채집·채집 허용·보호종 아님이 확인된 종 / 전체 등록 종"><strong>포획 가능 종</strong><span>{!loading && !error && conditionReady && (!ownership || ownershipStatus === requestKey) ? ratioText(numerator,denominator) : '확인 중'}</span></div>
       {ownershipRatios.map(r => <button type="button" className="catalog-ratio catalog-family-link" key={r.label} onClick={() => { const first = filtered.find(s => r.label === '전체' || s.reference.family === r.label); if (first && filtered.indexOf(first) >= limit) flushSync(() => setLimit(filtered.indexOf(first) + 1)); const area = scrollArea.current; const row = first && area?.querySelector<HTMLElement>('[data-species-id="' + first.id + '"]'); if (area && row) area.scrollTop += row.getBoundingClientRect().top - area.getBoundingClientRect().top - (area.querySelector('thead')?.getBoundingClientRect().height || 0); }} title="소유 종 / 전체 등록 종 · 도감 조건과 검색의 영향을 받지 않습니다."><strong>{r.label}</strong><span>{!loading && ownershipStatus === requestKey ? ratioText(r.count,r.total) : ownershipStatus === 'error' ? '소장 조회 실패' : '확인 중'}</span></button>)}
     </div></div>
-    <div className="table-wrap catalog-scroll-area" id="catalog-scroll-area" ref={scrollArea} onScroll={e => { const left = e.currentTarget.scrollLeft; setScroll(previous => previous.left === left ? previous : { ...previous, left }) }}><table className="catalog-table"><thead><tr><th>국명 · 학명</th><th>한살이 기간</th><th>기주식물</th><th>서식지</th><th>습성</th><th>세부 정보</th><th>동정 포인트</th></tr></thead><tbody>{filtered.slice(0,limit).map(s => <CatalogRow key={s.id} s={s} busy={busy} onOpen={open} samples={samples.get(s.id) || noSamples} filter={filter} />)}{!filtered.length && <tr><td colSpan={7}>{loading ? '목록을 읽는 중입니다.' : error ? '왼쪽 오류 안내에서 다시 읽어 주세요.' : catalog.length ? '검색 결과가 없습니다.' : '왼쪽에서 나비를 등록해 주세요.'}</td></tr>}</tbody></table></div>
+    <div className="table-wrap catalog-scroll-area" id="catalog-scroll-area" ref={scrollArea} onScroll={e => { const left = e.currentTarget.scrollLeft; if(restoredScroll.current) writeView('catalog-scroll',{left,top:e.currentTarget.scrollTop}); setScroll(previous => previous.left === left ? previous : { ...previous, left }) }}><table className="catalog-table"><thead><tr><th>대표사진 · 국명 · 학명</th><th>한살이 기간</th><th>기주식물</th><th>서식지</th><th>습성</th><th>세부 정보</th><th>동정 포인트</th></tr></thead><tbody>{filtered.slice(0,limit).map(s => <CatalogRow key={s.id} s={s} busy={busy} onOpen={open} samples={samples.get(s.id) || noSamples} filter={filter} />)}{!filtered.length && <tr><td colSpan={7}>{loading ? '목록을 읽는 중입니다.' : error ? '왼쪽 오류 안내에서 다시 읽어 주세요.' : catalog.length ? '검색 결과가 없습니다.' : '왼쪽에서 나비를 등록해 주세요.'}</td></tr>}</tbody></table></div>
     <div className="catalog-scrollbar"><input ref={scrollInput} type="range" min={0} max={scroll.max} step={1} value={scroll.left} disabled={scroll.max === 0} aria-label="도감 가로 스크롤" aria-controls="catalog-scroll-area" aria-valuetext={`${Math.round(scroll.max ? scroll.left / scroll.max * 100 : 0)}%`} style={{ '--scroll-thumb-width': `${scroll.thumbWidth}px` } as CSSProperties} onChange={e => moveScroll(Number(e.target.value))} onKeyDown={e => {
       const page = scrollArea.current?.clientWidth || 0
       const deltas: Record<string, number> = { ArrowLeft: -48, ArrowRight: 48, PageUp: -page, PageDown: page }
@@ -221,10 +234,11 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
         e.preventDefault(); moveScroll(e.key === 'Home' ? 0 : e.key === 'End' ? scroll.max : scroll.left + deltas[e.key])
       }
     }} /></div>
-    {editing && <ReferenceModal species={editing.species} initial={editing.document} onClose={() => { setEditing(null); onEditing(false) }} onSaved={reference => { setCatalog(current => current.map(s => s.id === editing.species.id ? { ...s, reference, host_plants: reference.host_plants } : s)); onUpdated({ ...editing.species, host_plants: reference.host_plants }); setEditing(null); onEditing(false); setNotice('나비 정보를 저장했습니다.') }} />}
+    {editing && !editMode && <SpeciesInfoModal species={editing.species} document={editing.document} onClose={()=>{setEditing(null);onEditing(false)}} onEdit={()=>setEditMode(true)}/> }
+    {editing && editMode && <ReferenceModal species={editing.species} initial={editing.document} onClose={() => setEditMode(false)} onSaved={reference => { setCatalog(current => current.map(s => s.id === editing.species.id ? { ...s, reference, host_plants: reference.host_plants } : s)); onUpdated({ ...editing.species, host_plants: reference.host_plants }); setEditing(null); onEditing(false); setNotice('나비 정보를 저장했습니다.') }} />}
   </section>
 }
 
 const CatalogRow = memo(function CatalogRow({s,busy,onOpen,samples,filter}:{s:SpeciesCatalog;busy:boolean;onOpen:(s:Species)=>void;samples:typeof noSamples;filter:LifeFilter}) {
-  return <tr data-species-id={s.id}><td className="catalog-name"><button className="link" disabled={busy} title={`${s.korean_name} 정보 편집`} onClick={() => void onOpen(s)}>{s.korean_name}</button><small>{s.scientific_name || '학명 미등록'}</small><div className="species-statuses" aria-label={`${s.korean_name} 상태`}>{speciesStatuses(s.reference).map((badge, index) => <span key={index} className={`species-status status-${badge.tone}`} title={badge.detail}>{badge.label}</span>)}</div></td><td><VisibleLifeChart name={s.korean_name} reference={s.reference} samples={samples} filter={filter} /></td><td title={s.reference.host_plants}>{s.reference.host_plants ? <ul className="host-plant-list">{hostPlantLines(s.reference.host_plants).map((plant, index) => <li key={index}>{plant}</li>)}</ul> : <span className="catalog-unregistered">미등록</span>}</td><td>{s.reference.habitat || <span className="catalog-unregistered">미등록</span>}</td><td><CatalogNotes text={s.reference.habits} /></td><td><SpeciesDetails entries={s.reference.details || []} legacy={s.reference.other_notes} legacySource={s.reference.ecology_source} /></td><td><div className="catalog-identification"><CatalogNotes text={s.reference.identification_points} /></div></td></tr>
+  return <tr data-species-id={s.id}><td className="catalog-name">{s.reference.representative_photo_id&&<img className="catalog-representative" onError={e=>{e.currentTarget.style.display='none'}} src={`/api/photos/${s.reference.representative_photo_id}/display?size=small`} alt={`${s.korean_name} 대표사진`} loading="lazy" onDoubleClick={()=>void onOpen(s)}/>}<button className="link" disabled={busy} title={`${s.korean_name} 기본 정보 · 더블클릭`} onDoubleClick={() => void onOpen(s)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void onOpen(s)}}}>{s.korean_name}</button><small>{s.scientific_name || '학명 미등록'}</small><div className="species-statuses" aria-label={`${s.korean_name} 상태`}>{speciesStatuses(s.reference).map((badge, index) => <span key={index} className={`species-status status-${badge.tone}`} title={badge.detail}>{badge.label}</span>)}</div></td><td><VisibleLifeChart name={s.korean_name} reference={s.reference} samples={samples} filter={filter} /></td><td title={s.reference.host_plants}>{s.reference.host_plants ? <ul className="host-plant-list">{hostPlantLines(s.reference.host_plants).map((plant, index) => <li key={index}>{plant}</li>)}</ul> : <span className="catalog-unregistered">미등록</span>}</td><td>{s.reference.habitat || <span className="catalog-unregistered">미등록</span>}</td><td><CatalogNotes text={s.reference.habits} /></td><td><SpeciesDetails entries={s.reference.details || []} legacy={s.reference.other_notes} legacySource={s.reference.ecology_source} /></td><td><div className="catalog-identification" tabIndex={0} role="button" aria-label={`${s.korean_name} 동정 정보 열기`} onDoubleClick={()=>void onOpen(s)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();void onOpen(s)}}}><CatalogNotes text={s.reference.identification_points} /></div></td></tr>
 })

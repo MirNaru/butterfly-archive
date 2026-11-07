@@ -53,11 +53,12 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
         {capture === 'captured' && <label>채집 개체 수<input name={`${prefix}captured_count`} defaultValue={initial?.captured_count ?? ''} type="number" min={1} max={1000000} step={1} placeholder="미상" /></label>}
       </>}
     </div>
-    {source === 'indirect' && <label>간접 관찰 출처<input name={`${prefix}source_note`} value={sourceNote} readOnly={!!sourcePreset} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
+    {source === 'indirect' && <label>간접 관찰 출처 <span className="required-mark" aria-label="필수">*</span><input name={`${prefix}source_note`} value={sourceNote} readOnly={!!sourcePreset} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
     {source === 'direct' && <input type="hidden" name={`${prefix}source_note`} value={sourceNote} />}
     {result === 'not_found' && <p className="hint">실제로 찾았으나 발견하지 못한 종만 기록해 주세요.</p>}
     <div className="individual-location"><h3>개별 위치 · 선택</h3><LocationFields prefix={prefix} initial={initial} photoRef={photoLocation} /></div>
-    <TagPicker label="종별 추가 태그" name={`${prefix}tags`} value={tags} onChange={setTags} options={tagOptions} onCreated={onTagCreated} inherited={commonTags} onBusyChange={onTagBusy} />
+    <TagPicker label="환경 태그" name={`${prefix}tags`} value={tags} onChange={setTags} options={tagOptions} onCreated={onTagCreated} inherited={commonTags} onBusyChange={onTagBusy} />
+    <TagPicker category="individual" label="개체 태그" name={`${prefix}tags`} value={tags} onChange={setTags} options={tagOptions} onCreated={onTagCreated} inherited={commonTags} onBusyChange={onTagBusy} />
     <PhotoPicker name={`${prefix}photos`} initialIds={initial?.photo_ids || []} onBusy={onPhotoBusy} dateLabel={source==='direct'?'관찰 시각 적용':undefined} onDate={p => { if(source==='indirect')setObservationDate(p.date_candidate || ''); setObservationTime(p.time_candidate || '') }} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />
     <label>기록 메모<textarea name={`${prefix}notes`} defaultValue={initial?.notes ?? ''} maxLength={5000} rows={1} /></label>
     {!initial && <button type="button" className="quiet" onClick={remove}>이 입력 항목 제거</button>}
@@ -140,13 +141,14 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
       {error && <p role="alert" className="error survey-error">{error}</p>}
       <fieldset disabled={busy || tagRequests > 0} className="survey-modal-fields">
         <div className="survey-columns">
-          <section className="survey-common"><h3>탐사 공통 정보</h3>{sourcePaper && <><p className="hint">논문: {sourcePaper.title}<br />발표일을 관찰일로 사용하지 마세요. 원문에 관찰 날짜·장소가 확인되는 사례만 입력합니다.</p><label>근거 페이지·표·그림 번호<input value={evidence} onChange={e => setEvidence(e.target.value)} required maxLength={1000} placeholder="예: 12쪽 표 2, 사례 3" /></label></>}<div className="field-grid">
-            <label>관찰 출처<select value={surveySource} disabled={!!initial || !!sourcePaper} onChange={e => setSurveySource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label><label>탐사 날짜<input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
+          <section className="survey-common"><h3>탐사 공통 정보</h3>{sourcePaper && <><p className="hint">논문: {sourcePaper.title}<br />발표일을 관찰일로 사용하지 마세요. 원문에 관찰 날짜·장소가 확인되는 사례만 입력합니다.</p><label>근거 페이지·표·그림 번호 <span className="required-mark" aria-label="필수">*</span><input value={evidence} onChange={e => setEvidence(e.target.value)} required maxLength={1000} placeholder="예: 12쪽 표 2, 사례 3" /></label></>}<div className="field-grid">
+            <label>관찰 출처<select value={surveySource} disabled={!!initial || !!sourcePaper} onChange={e => setSurveySource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label><label>탐사 날짜 <span className="required-mark" aria-label="필수">*</span><input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
             <label>탐사 목적<select name="purpose" value={allIndirect ? 'online_research' : purpose} disabled={allIndirect} onChange={e => setPurpose(e.target.value as SurveyInput['purpose'])}><Options values={PURPOSE} /></select></label>
-          </div><LocationFields prefix="survey-" initial={initial} photoRef={photoLocation} />
-            <PhotoPicker name="survey-photos" initialIds={initial?.photo_ids || []} onBusy={photoBusy} dateLabel="탐사 날짜 적용" onDate={p => setSurveyDate(p.date_candidate || '')} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />
+          </div><p className="hint"><span className="required-mark">*</span> 위치: 장소명 또는 위도·경도 한 쌍 중 하나를 입력해 주세요. 위치 없는 간접 자료는 예외입니다.</p><LocationFields prefix="survey-" initial={initial} photoRef={photoLocation} />
+            <PhotoPicker maxPhotos={3} name="survey-photos" initialIds={initial?.photo_ids || []} onBusy={photoBusy} dateLabel="탐사 날짜 적용" onDate={p => setSurveyDate(p.date_candidate || '')} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />
             {tagsError && <p className="error" role="alert">{tagsError}<button type="button" onClick={onRetryTags}>태그 목록 다시 읽기</button></p>}
-            <TagPicker label="탐사 공통 태그" name="survey-tags" value={commonTags} onChange={setCommonTags} options={tagOptions} onCreated={onTagCreated} onBusyChange={tagBusy} />
+            <TagPicker label="탐사 공통 환경 태그" name="survey-tags" value={commonTags} onChange={setCommonTags} options={tagOptions} onCreated={onTagCreated} onBusyChange={tagBusy} />
+            <TagPicker category="individual" label="탐사 공통 개체 태그" name="survey-tags" value={commonTags} onChange={setCommonTags} options={tagOptions} onCreated={onTagCreated} onBusyChange={tagBusy} />
             <label>탐사 메모<textarea name="notes" defaultValue={initial?.notes} maxLength={5000} rows={3} /></label>
             <p className="hint">개별 장소명만 입력하면 탐사 좌표를 복사하지 않습니다. 모르는 수량·시각은 비워 두세요.</p>
             {initial && <p className="hint">기존 개별 지정 값과 기상자료는 보존합니다. 기상을 자동 재조회하지 않습니다.</p>}

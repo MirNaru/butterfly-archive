@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -191,8 +191,10 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + (PAPER_FILE_STATEMENTS if version < 13 else ()) + (MOBILE_STATEMENTS if version < 14 else ())):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + (PAPER_FILE_STATEMENTS if version < 13 else ()) + (MOBILE_STATEMENTS if version < 14 else ()) + (("ALTER TABLE tags ADD COLUMN category TEXT NOT NULL DEFAULT 'environment' CHECK(category IN ('environment','individual'))", "UPDATE tags SET category='individual' WHERE name IN ('사육','돌연변이','사육 개체','사육개체')") if version < 15 else ())):
             connection.execute(statement)
+        if version == 0:
+            connection.execute("INSERT INTO tags(name,category) VALUES('사육','individual') ON CONFLICT(name) DO NOTHING")
         if version < 5:
             connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

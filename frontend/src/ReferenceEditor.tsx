@@ -1,3 +1,4 @@
+import PhotoPicker from './PhotoPicker'
 // 종의 출처 있는 참고자료를 입력합니다. 소장 여부를 채집 사실로 바꾸지 않습니다.
 import { useState } from 'react'
 import type { FormEvent } from 'react'
@@ -13,6 +14,7 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
   const [value, setValue] = useState(initial.reference)
   const [years, setYears] = useState(value.sighting_years.join(', '))
   const [lifeEditing, setLifeEditing] = useState(false)
+  const [photoBusy,setPhotoBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   function update<K extends keyof SpeciesReference>(key: K, next: SpeciesReference[K]) { setValue(v => ({ ...v, [key]: next })) }
@@ -20,7 +22,7 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     setValue(previous => ({ ...previous, protections: next, ...(previous.protections.some(p => p.kind !== 'regional') && !next.some(p => p.kind !== 'regional') ? { protected: null, protection_source: '', protection_checked: null } : {}) }))
   }
   async function submit(e: FormEvent) {
-    e.preventDefault(); setError('')
+    e.preventDefault(); if(photoBusy)return; setError('')
     const parts = years.trim() ? years.split(/[,\s]+/).filter(Boolean) : []
     if (parts.some(p => !/^\d{4}$/.test(p))) { setError('목격 연도는 네 자리 숫자로 입력해 주세요.'); return }
     setBusy(true); onBusyChange?.(true)
@@ -31,11 +33,17 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
   const text = (key: 'source' | 'capture_source' | 'protection_source' | 'permission_region' | 'permission_source' | 'ecology_source' | 'extinction_source', label: string) => <label>{label}<input value={value[key]} maxLength={key === 'source' || key === 'ecology_source' || key === 'extinction_source' ? 2000 : key === 'permission_region' ? 100 : 1000} onChange={e => update(key, e.target.value)} /></label>
   const day = (key: 'protection_checked' | 'permission_start' | 'permission_end', label: string) => <label>{label}<input type="date" value={value[key] || ''} onChange={e => update(key, e.target.value || null)} /></label>
   const flag = (key: 'vagrant' | 'north_only' | 'protected' | 'domestic_extinct', label: string) => <label>{label}<select value={value[key] === null ? '' : String(value[key])} onChange={e => update(key, e.target.value === '' ? null : e.target.value === 'true')}><option value="">미확인</option><option value="true">예</option><option value="false">아니요</option></select></label>
-  return <form className="survey-form reference-editor" onSubmit={submit}><h2>{species.korean_name} · 나비 기본 정보</h2><p className="hint">실제 관찰 기록과 별도로 저장합니다. 구매 소장은 채집 이력이 아닙니다. 모르는 정보는 미확인으로 남겨 주세요.</p><fieldset disabled={busy}>
+  return <form className="survey-form reference-editor" onSubmit={submit}><div className="toolbar"><h2>{species.korean_name} · 나비 기본 정보</h2><button type="button" disabled={busy} onClick={onClose}>닫기 · 입력 취소</button></div><p className="hint">실제 관찰 기록과 별도로 저장합니다. 구매 소장은 채집 이력이 아닙니다. 모르는 정보는 미확인으로 남겨 주세요.</p><fieldset disabled={busy}>
     {(value.family || value.subfamily) && <p className="hint">분류: {value.family || '과 미확인'} / {value.subfamily || '아과 미확인'}<br />분류·표시 순서 출처: {value.taxonomy_source}</p>}
     <details><summary>iNaturalist 연결명·동종이명 후보 · {value.inaturalist_names?.length || 0}건</summary><p className="hint">도감 학명: {species.scientific_name || '미등록'}. 후보는 동종이명 확정이 아닙니다. 다른 지역의 별종·종 분할 여부를 확인한 뒤 수집 연결을 켜 주세요.</p>
       {(value.inaturalist_names || []).map((item, index) => <fieldset key={item.taxon_id}><strong>{item.name}</strong><p><a href={`https://www.inaturalist.org/taxa/${item.taxon_id}`} target="_blank" rel="noopener noreferrer">iNaturalist 종 정보 · {item.taxon_id}</a></p><p className="hint">{item.notes}<br />근거: {item.source}</p><label>수집 등록에 사용<select value={item.status} onChange={e => update('inaturalist_names', (value.inaturalist_names || []).map((entry, i) => i === index ? { ...entry, status: e.target.value as 'linked' | 'pending' } : entry))}><option value="pending">검토 대기 · 자동 연결 안 함</option><option value="linked">연결 사용</option></select></label></fieldset>)}
     </details>
+    <h3>대표사진</h3><PhotoPicker name="representative-photo" initialIds={value.representative_photo_id?[value.representative_photo_id]:[]} maxPhotos={1} onBusy={b=>{setPhotoBusy(b);onBusyChange?.(b)}} onIdsChange={ids=>update('representative_photo_id',ids[0]||null)} saveLabel="기본 정보 저장" />
+    <h3>단계별 동정 포인트·사진</h3>{LIFE_STAGES.map(stage=>{
+      const item=value.stage_identification?.find(p=>p.stage===stage.key)||{stage:stage.key,points:'',source:'',photo_ids:[]}
+      const change=(next:typeof item)=>setValue(previous=>({...previous,stage_identification:[...(previous.stage_identification||[]).filter(p=>p.stage!==stage.key),next]}))
+      return <details key={stage.key}><summary>{stage.label}</summary><label>동정 포인트<textarea value={item.points} maxLength={5000} onChange={e=>change({...item,points:e.target.value})}/></label><label>출처<input value={item.source} maxLength={2000} onChange={e=>change({...item,source:e.target.value})}/></label><PhotoPicker maxPhotos={12} name={`identification-${stage.key}`} initialIds={item.photo_ids} onIdsChange={ids=>change({...item,photo_ids:ids})} onBusy={b=>{setPhotoBusy(b);onBusyChange?.(b)}} saveLabel="기본 정보 저장"/></details>
+    })}
     <h3>동정 포인트</h3><label>동정 포인트<textarea value={value.identification_points} maxLength={5000} rows={3} onChange={e => update('identification_points', e.target.value)} placeholder="날개 윗면·아랫면 특징, 유사종과 구별할 점 등" /></label><label>동정 포인트 자료 출처<input value={value.identification_source} maxLength={2000} onChange={e => update('identification_source', e.target.value)} placeholder="도감명·판본·쪽수 또는 직접 관찰 근거" /></label>
     <h3>기주식물</h3><label>기주식물<textarea value={value.host_plants} maxLength={5000} rows={2} onChange={e => update('host_plants', e.target.value)} /></label><label>기주식물 자료 출처<input value={value.host_plants_source} maxLength={2000} onChange={e => update('host_plants_source', e.target.value)} /></label>
     <div className="field-grid">{(['habitat', 'habits', 'other_notes'] as const).map(key => <label key={key}>{({ habitat: '서식지', habits: '습성', other_notes: '기존 기타 메모' })[key]}<textarea value={value[key]} rows={2} maxLength={5000} onChange={e => update(key, e.target.value)} /></label>)}</div>{text('ecology_source', '서식지·습성·기타 자료 출처')}
@@ -60,6 +68,6 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     <details><summary>지역·기간별 채집 가능 여부 확인</summary><p className="hint">사용자가 확인한 근거를 기록합니다. 보호종 제외만으로 채집 가능을 판단하지 않습니다. 목표 지역과 정확히 일치하고 적용 기간 안에 있을 때만 비율에 반영합니다.</p>
       <label>채집 가능 판단<select value={value.permission} onChange={e => update('permission', e.target.value as SpeciesReference['permission'])}><option value="unknown">미확인</option><option value="permitted">가능 · 사용자 확인</option><option value="prohibited">불가 · 사용자 확인</option></select></label>
       {text('permission_region', '판단 대상 지역')}{day('permission_start', '적용 시작일')}{day('permission_end', '적용 종료일')}{text('permission_source', '확인 근거·조건')}
-    </details>{error && <p className="error" role="alert">{error}</p>}<div className="actions"><button className="primary" disabled={busy}>기본 정보 저장</button><button type="button" onClick={onClose}>닫기 · 입력 취소</button></div>
+    </details>{error && <p className="error" role="alert">{error}</p>}<div className="actions"><button className="primary" disabled={busy || photoBusy}>기본 정보 저장</button></div>
   </fieldset></form>
 }

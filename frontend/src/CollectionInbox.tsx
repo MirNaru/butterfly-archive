@@ -91,16 +91,16 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
   }
   return <section className="collection-inbox">
     {source === 'inaturalist' ? <InaturalistControls onUpdated={reload} onBusyChange={setFetching} /> : <details className="naturing-connection"><summary>크롬 확장 프로그램 연결</summary><p>연결 키를 발급해 확장 프로그램의 연결 설정에 붙여넣으세요. 다시 발급하면 기존 키는 만료됩니다.</p><button disabled={busy} onClick={() => void connect()}>연결 키 발급·재발급</button>{token && <label>연결 키<input readOnly value={token} onFocus={e => e.currentTarget.select()} autoComplete="off" /></label>}</details>}
-    {remoteTarget && createPortal(<details className="collection-remote" open><summary>검수 리모컨</summary><p className="hint">현재 페이지 · 선택 {selected.size}건</p><div className="collection-remote-actions">
+    {remoteTarget && createPortal(<details className="collection-remote" open><summary>검수 등록 관리</summary><p className="hint">현재 페이지 · 선택 {selected.size}건</p><div className="collection-remote-actions">
       <button disabled={busy} onClick={reload}>목록 새로고침</button>
       <button disabled={busy || !items.length} onClick={() => setSelected(allSelected ? new Set() : new Set(items.map(item => item.id)))}>{allSelected ? '전체 선택 해제' : '현재 페이지 전체 선택'}</button>
       <button disabled={busy || !registrationIds.length} onClick={() => void register()}>선택 자료 등록 · {registrationIds.length}건</button>
       <button className="danger" disabled={busy || !selected.size} onClick={() => setConfirmDelete(true)}>선택 자료 삭제 · {selected.size}건</button>
       {confirmDelete && <div className="collection-delete-confirm" role="group" aria-label="수집 자료 삭제 확인"><p>선택한 수집 자료 {selected.size}건을 목록에서 삭제할까요? 이미 등록한 관찰 기록은 유지됩니다.</p><div className="actions" style={{justifyContent:'flex-end'}}><button disabled={busy} onClick={() => void remove()}>수집 자료 삭제 확인</button><button disabled={busy} onClick={() => setConfirmDelete(false)}>취소</button></div></div>}
     </div></details>, remoteTarget)}
-    <div className="toolbar"><h3>수집 자료 · {total}건</h3><button disabled={busy} onClick={reload}>목록 새로고침</button><button disabled={busy || !registrationIds.length} onClick={() => void register()}>선택 자료 관찰 기록에 추가 · {registrationIds.length}건</button><button className="danger" disabled={busy || !selected.size} onClick={() => setConfirmDelete(true)}>선택 자료 삭제 · {selected.size}건</button></div>
+    <div className="toolbar"><h3>수집 자료 · {total}건</h3>{!remoteTarget && <><button disabled={busy} onClick={reload}>목록 새로고침</button><button disabled={busy || !registrationIds.length} onClick={() => void register()}>선택 자료 관찰 기록에 추가 · {registrationIds.length}건</button><button className="danger" disabled={busy || !selected.size} onClick={() => setConfirmDelete(true)}>선택 자료 삭제 · {selected.size}건</button></>}</div>
 
-    <p className="hint">자료를 더블클릭하면 종과 성장 단계를 수정합니다. 체크한 자료는 검수 완료로 보고 등록합니다. 전체 선택은 현재 페이지에 적용합니다. 원본 날짜는 유지하며 직접 수정하지 않은 단계는 도감 추정입니다. 네이처링에서 수동으로 읽은 위치 없는 자료도 간접 관찰로 등록할 수 있으며 지도 핀·관찰 지역 근거는 만들지 않습니다.</p>
+
     {notice && <p role="status" style={{whiteSpace:'pre-wrap'}}>{notice}</p>}
     {error && <p role="alert" className="error">{error}</p>}{busy && <p role="status">처리 중입니다.</p>}
     {!busy && !error && !items.length && <p>수집된 자료가 없습니다.</p>}

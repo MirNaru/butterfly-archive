@@ -195,3 +195,32 @@ def test_v5_upgrade_backup_rollback_and_existing_rows(tmp_path, monkeypatch):
     for backup in backups:
         with sqlite3.connect(backup) as db:
             assert db.execute('PRAGMA user_version').fetchone()[0] == 5
+
+
+def test_webp_display_preserves_original_and_has_no_exif(client,tmp_path,monkeypatch):
+    monkeypatch.setenv('BUTTERFLY_PHOTO_DIR',str(tmp_path/'pictures'))
+    raw=picture()
+    photo=client.post('/api/photos/original?filename=test.jpg',content=raw).json()
+    shown=client.get(f"/api/photos/{photo['id']}/display")
+    assert shown.status_code==200 and shown.headers['content-type']=='image/webp'
+    with Image.open(BytesIO(shown.content)) as image:
+        assert image.format=='WEBP' and not image.getexif()
+    assert client.get(f"/api/photos/{photo['id']}/original").content==raw
+    assert client.get(f"/api/photos/{photo['id']}/display").content==shown.content
+
+
+def test_survey_photo_limit_is_atomic_and_metadata_only_display_returns_404(client):
+    ids=[]
+    for i in range(4):
+        ids.append(client.post('/api/photos/metadata',json={'ticket':inspect(client,picture(taken=f'2026:06:15 10:20:0{i}'))['ticket']}).json()['id'])
+    assert client.get(f'/api/photos/{ids[0]}/display').status_code==404
+    body={'survey_date':'2026-06-15','place_name':'시험 장소','photo_ids':ids}
+    assert client.post('/api/surveys',json=body).status_code==422
+    assert client.get('/api/surveys').json()==[]
+    body['photo_ids']=[]
+    body['observations']=[{'photo_ids':ids}]
+    assert client.post('/api/surveys',json=body).status_code==422
+    body.pop('observations')
+    body['photo_ids']=ids[:3]
+    saved=client.post('/api/surveys',json=body)
+    assert saved.status_code==201 and len(saved.json()['photo_ids'])==3

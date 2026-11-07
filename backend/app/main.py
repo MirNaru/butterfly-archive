@@ -1,5 +1,6 @@
 """로컬 기록 API의 시작, 오류 응답과 경로를 정의합니다."""
 import sqlite3
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -83,6 +84,7 @@ async def validation_error(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(sqlite3.Error)
 async def database_error(request: Request, exc: sqlite3.Error):
+    logging.getLogger(__name__).error("Database request failed: %s %s code=%s name=%s", request.method, request.url.path, getattr(exc, "sqlite_errorcode", None), getattr(exc, "sqlite_errorname", type(exc).__name__), exc_info=exc)
     return JSONResponse(status_code=503, content={"detail": "데이터베이스 작업에 실패했습니다. 저장 상태를 확인하고 다시 시도해 주세요."})
 
 

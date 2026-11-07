@@ -78,7 +78,30 @@ class TaxonName(InputModel):
     notes: str = Field(default='', max_length=2000)
 
 
+class StageIdentification(InputModel):
+    stage: Literal['egg','larva','pupa','adult']
+    points: str = Field(default='',max_length=5000)
+    source: str = Field(default='',max_length=2000)
+    photo_ids: list[Annotated[int, Field(strict=True,gt=0)]] = Field(default_factory=list,max_length=12)
+
+    @model_validator(mode='after')
+    def require_identification_source(self):
+        if self.points and not self.source:
+            raise ValueError('단계별 동정 포인트의 출처를 입력해 주세요.')
+        self.photo_ids=list(dict.fromkeys(self.photo_ids))
+        return self
+
+
 class Reference(InputModel):
+    representative_photo_id: Annotated[int, Field(strict=True,gt=0)] | None = None
+    stage_identification: list[StageIdentification] = Field(default_factory=list,max_length=4)
+
+    @model_validator(mode='after')
+    def distinct_identification_stages(self):
+        if len({p.stage for p in self.stage_identification}) != len(self.stage_identification):
+            raise ValueError('같은 성장 단계의 동정 항목은 하나만 입력해 주세요.')
+        return self
+
     inaturalist_names: list[TaxonName] = Field(default_factory=list, max_length=100)
     details: list[SpeciesDetail] = Field(default_factory=list, max_length=100)
     region_codes: list[str] = Field(default_factory=list, max_length=500)
@@ -220,10 +243,16 @@ def save_reference(species_id: int, value: ReferenceUpdate):
             raise HTTPException(409, '다른 창에서 참고자료를 수정했습니다. 입력을 보관한 뒤 다시 열어 주세요.')
         payload = value.model_dump(mode='json', exclude={'expected_updated_at'})
         # 기존 화면이 새 항목을 생략해도 상태 자료와 원문은 보존합니다.
-        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source', 'details', 'inaturalist_names'):
+        for key in ('protections', 'status_notes', 'protection_review', 'domestic_extinct', 'extinction_source', 'details', 'inaturalist_names', 'representative_photo_id', 'stage_identification'):
             if key not in value.model_fields_set:
                 payload[key] = old['reference'][key]
         payload = normalized_reference(payload)
+        photo_ids = {payload['representative_photo_id']} if payload['representative_photo_id'] else set()
+        for stage in payload['stage_identification']:
+            photo_ids.update(stage['photo_ids'])
+        for photo_id in photo_ids:
+            if not db.execute('SELECT 1 FROM photos WHERE id=?',(photo_id,)).fetchone():
+                raise HTTPException(422,'선택한 도감 사진이 없습니다. 사진을 다시 확인해 주세요.')
         try:
             payload = administrative_regions.prepare_save(db,species_id,payload,value.region_codes if 'region_codes' in value.model_fields_set else None)
         except ValueError as error:
@@ -310,3 +339,21 @@ def exploration(on: date, region: str = ''):
                 'capture_history': 'captured' if row['id'] in captured else ref['capture_history'], 'permission': permission,
                 'region_match': administrative_regions.matches_region(ref,region)})
         return result
+
+
+@router.get('/species/{species_id}/photos')
+def species_photos(species_id: int, offset: int = 0):
+    from app.photos import public_photo
+    from app.trash import ACTIVE_OBSERVATION
+    if offset < 0:
+        raise HTTPException(422,'페이지 위치를 확인해 주세요.')
+    with connect_database() as db:
+        ref=reference_row(db,species_id)['reference']
+        ids=set()
+        for row in db.execute(f"SELECT p.photo_id FROM photo_links p JOIN observations o ON (p.observation_id=o.id OR p.survey_id=o.survey_id) WHERE o.species_id=? AND {ACTIVE_OBSERVATION}",(species_id,)):
+            ids.add(row[0])
+        if ref['representative_photo_id']: ids.add(ref['representative_photo_id'])
+        for item in ref['stage_identification']: ids.update(item['photo_ids'])
+        ordered=sorted(ids,reverse=True)
+        photos=[public_photo(row) for key in ordered[offset:offset+12] if (row:=db.execute('SELECT * FROM photos WHERE id=?',(key,)).fetchone())]
+        return {'total':len(ordered),'items':photos}

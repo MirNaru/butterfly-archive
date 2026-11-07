@@ -159,7 +159,7 @@ dt { color: #706b60; } dd { margin: 0; }
 .search-modes, .table-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
 .search-modes button[aria-pressed='true'] { background: #fff0b8; font-weight: 700; }
 .search-filters { margin: 12px 0; }
-.filter-group { margin: 10px 0; padding: 6px; background: #fffbef; }
+.filter-group { margin: 10px 0; padding: 6px; background: #fffbef; border-radius: 8px; }
 .column-options { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 12px 0; }
 .column-options label { margin: 4px 0; }
 .table-controls label { margin: 0; }
@@ -541,9 +541,9 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .collection-remote-actions button { width: 100%; white-space: normal; }
 .collection-delete-confirm { font-size: 12px; }
 .collection-delete-confirm .actions { flex-wrap: wrap; gap: 8px; }
-.collection-inbox .collection-table-wrap { overflow: visible; }
+.collection-inbox .collection-table-wrap { overflow-x: auto; border:1px solid var(--border); border-radius:9px; background:white; }
 .collection-inbox .collection-table { min-width: 0; }
-.collection-table thead th { position: sticky; top: 0; z-index: 2; background: var(--accent-faint, #fff9e9); }
+.collection-table thead th { position: static; background: var(--accent-faint, #fff9e9); }
 
 /* 휴대폰 연결과 검수 화면은 기존 노란 박스와 간격을 공유합니다. */
 .mobile-connection { background: var(--accent-soft); border-radius: 14px; padding: 14px 16px; margin-bottom: 16px; }
@@ -568,3 +568,57 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 }
 .map-cluster { width:44px; height:44px; box-sizing:border-box; border:2px solid white; border-radius:50%; box-shadow:0 1px 4px #0005; display:grid; place-items:center; cursor:pointer; }
 .map-cluster span { min-width:32px; height:32px; padding:0 2px; box-sizing:border-box; display:grid; place-items:center; border-radius:50%; background:#fff; color:#303030; font-size:12px; font-weight:700; }
+
+.collection-inbox input[type="checkbox"], .collection-remote input[type="checkbox"] { width:18px; height:18px; flex-shrink:0; vertical-align:middle; }
+.catalog-name > button.link { text-decoration:none; font-size:calc(1em + 1pt); }
+
+/* 종 검색 결과와 선택 태그는 지도·기록 공통 필터에서 사용합니다. */
+.capture-filter-options .check { display:flex; align-items:center; gap:8px; margin:0; padding:7px 0; font-size:13px; }
+.filter-species-results { max-height:320px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+.filter-species-results button { display:flex; flex-direction:column; align-items:flex-start; width:100%; border:0; border-radius:0; padding:7px 8px; text-align:left; background:white; font-size:13px; }
+.filter-species-results button:hover, .filter-species-results button:focus-visible { background:var(--accent-soft); }
+.filter-species-results small { color:var(--muted); font-size:11px; }
+.filter-species-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.filter-species-tags > span { display:inline-flex; align-items:center; gap:4px; border-radius:12px; padding:2px 5px 2px 8px; background:var(--accent-soft); font-size:12px; }
+.filter-species-tags button { border:0; background:transparent; padding:1px 4px; font-size:16px; line-height:20px; }
+
+.filter-species-tags > span { padding:3px; padding-left:8px; gap:6px; min-height:28px; box-sizing:border-box; }
+.filter-species-tags button { display:grid; place-items:center; width:22px; height:22px; padding:0; margin:0; flex-shrink:0; font-weight:800; font-size:18px; line-height:1; }
+
+.required-mark { color:#c62828; font-weight:700; }
+.collection-table tbody tr:hover > td, .collection-table tbody tr:focus-within > td { background:var(--accent-soft); }
+.catalog-table th:nth-child(6) { width:150px; }
+.catalog-table td:nth-child(6) .species-details { flex-direction:column; align-items:flex-start; }
+
+.detail-with-photos { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:16px; align-items:start; }
+.detail-information { min-width:0; }
+.detail-survey-panel, .detail-information .observation, .detail-photo-panel { background:var(--accent-faint,#fffbef); border:0; border-radius:12px; padding:16px; margin:0 0 14px; overflow-wrap:anywhere; }
+.detail-photo-panel { position:sticky; top:80px; min-width:0; }
+.detail-photo-panel img { width:100%; height: min(60vh,600px); object-fit:contain; display:block; }
+.detail-photo-controls, .record-detail-actions { display:flex; align-items:center; gap:8px; }
+.record-detail-actions button, .observation-delete button { font-size:12px; padding:6px 10px; }
+.record-detail-actions .danger { margin-right:12px; }
+.observation-delete { display:flex; justify-content:flex-end; margin-top:14px; }
+.detail-scientific { display:block; font-size:12px; font-style:italic; color:var(--muted); margin-top:3px; }
+.detail-photo-zoom { width:95vw; max-width:1600px; height:94vh; border:1px solid var(--border); border-radius:12px; }
+.detail-photo-zoom img { display:block; width:100%; height:calc(100% - 45px); object-fit:contain; }
+@media(max-width:760px) { .detail-with-photos { grid-template-columns:1fr; } .detail-photo-panel { position:static; } .record-detail-actions { flex-wrap:wrap; } }
+
+.record-table .link, .survey-record-table .link, .holdings-table .link,
+.record-table a, .survey-record-table a, .holdings-table a { text-decoration:none; }
+.record-table tr.selected > td, .survey-record-table tr.selected > td, .holdings-table tr.selected > td { background:var(--accent-soft); }
+.survey-date-button:hover:not(:disabled), .survey-date-button:active { background:transparent; box-shadow:none; }
+
+.tag-choice { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+.tag-choice button { font-size:11px; padding:3px 5px; }
+.species-info-dialog { width:min(1000px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); padding:0; border:1px solid var(--border); border-radius:14px; color:inherit; }
+.species-info-dialog::backdrop { background:#24221c55; }
+.species-info-dialog > header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px; border-bottom:1px solid var(--border); }
+.species-info-dialog h2 { margin:0; }
+.species-info-body { padding:20px; }
+.species-info-body > section { padding:16px; margin-bottom:16px; background:var(--accent-faint); border-radius:12px; }
+.species-info-body .detail-photo-panel { position:static; }
+.species-info-body > section { min-width:0; overflow-wrap:anywhere; }
+.species-info-body > section > h3 { margin-top:0; }
+.species-info-body .memo { white-space:pre-wrap; overflow-wrap:anywhere; }
+.catalog-representative { float:left; width:56px; height:56px; object-fit:contain; margin:0 8px 6px 0; border-radius:6px; }

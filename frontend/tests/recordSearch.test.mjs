@@ -123,3 +123,13 @@ test('통합 표는 분류 순서와 같은 종의 여러 관찰을 유지하고
  for (const direction of ['asc', 'desc']) assert.equal(sortEntries(entries, byId, ranks, 'days', direction).at(-1).reference.id, 2)
  assert.equal(sortEntries(entries, byId, ranks, 'days', 'asc')[0].reference.id, 3)
 })
+
+test('종명과 월 조합 및 원본 기록 번호 검색',()=>{
+ const winter={...row,record:{...row.record,id:9732,species_name:'먹그림나비',effective_date:'2025-12-26'}}
+ assert(matches(winter,emptyFilters(),'먹그림나비 12월'))
+ assert(matches(winter,emptyFilters(),'먹그림나비 2025-12'))
+ assert(!matches(winter,emptyFilters(),'먹그림나비 1월'))
+ assert(matches(winter,emptyFilters(),'#9732'))
+ assert(!matches(winter,emptyFilters(),'#973'))
+ assert(!matches(winter,{...emptyFilters(),stage:['larva']},'#9732'))
+})

@@ -43,7 +43,7 @@ export const editCollectedStage = (item: import('./models').CollectedItem, stage
 export const discardCollected = (ids: number[]) => request<{ids: number[]}>('/collection/discard', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const restoreCollected = (ids: number[]) => request<{ids: number[]}>('/collection/restore', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const listTags = () => request<import('./models').Tag[]>('/tags')
-export const addTag = (name: string) => request<import('./models').Tag>('/tags', post({ name }))
+export const addTag = (name: string, category: 'environment'|'individual' = 'environment') => request<import('./models').Tag>('/tags', post({ name, category }))
 export const inspectPhoto = (file: File, signal: AbortSignal) => request<import('./models').PhotoPreview>(`/photos/inspect?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
 export const registerPhotoMetadata = (ticket: string, signal: AbortSignal) => request<import('./models').Photo>('/photos/metadata', { ...post({ ticket }), signal })
 export const registerPhotoOriginal = (file: File, signal: AbortSignal) => request<import('./models').Photo>(`/photos/original?${new URLSearchParams({ filename: file.name })}`, { method: 'POST', body: file, headers: { 'Content-Type': 'application/octet-stream' }, signal })
@@ -123,3 +123,6 @@ export const viewerStatus = () => request<{configured:boolean;url:string;publish
 export const viewerPublish = () => request<{records:number;catalog:number;holdings:number}>('/viewer/snapshot',mobilePost({}))
 export const viewerConnection = () => request<{code:string;url:string}>('/viewer/connection',mobilePost({}))
 export const viewerDisable = () => request('/viewer/disable',mobilePost({}))
+
+export const moveTag = (id:number,category:'environment'|'individual') => request<import('./models').Tag>(`/tags/${id}/category`,{...post({category}),method:'PUT'})
+export const speciesPhotos = (id:number,page:number) => request<{total:number;items:import('./models').Photo[]}>(`/species/${id}/photos?offset=${page*12}`)

@@ -1,5 +1,6 @@
 """종과 탐사를 하나의 트랜잭션으로 저장하고 관계를 재조회합니다."""
 import sqlite3
+from fastapi import HTTPException
 from contextlib import nullcontext
 import json
 from datetime import datetime, timezone
@@ -44,6 +45,7 @@ def update_survey(survey_id: int, value: SurveyUpdate) -> dict | None:
             return None
         if original["updated_at"] != value.expected_updated_at:
             raise EditConflict("다른 창에서 수정된 기록입니다. 입력은 유지됩니다. 변경 내용을 별도로 보관한 뒤 취소하고 목록을 새로고침해 주세요.")
+        validate_survey_photo_count(value, original)
         existing = {item["id"] for item in original["observations"]}
         originals = {item['id']: item for item in original['observations']}
         supplied = [item.id for item in value.observations if item.id is not None]
@@ -120,8 +122,9 @@ def observation_view(row, survey, tags, photos):
     record = dict(row)
     imported_payload = record.pop('imported_payload')
     imported_inference = record.pop('imported_inference')
+    inference = json.loads(imported_inference) if imported_inference else {}
     record['collection_accepted'] = bool(imported_inference)
-    record['stage_inferred'] = bool(imported_inference and record['stage'] != 'unknown' and not json.loads(imported_inference).get('manual_stage_override') and json.loads(imported_inference).get('stage') == record['stage'])
+    record['stage_inferred'] = bool(imported_inference and record['stage'] != 'unknown' and not inference.get('manual_stage_override') and inference.get('stage') == record['stage'])
     record.pop("survey_id")
     record['tags'] = tags
     record['photo_ids'] = photos
@@ -212,8 +215,24 @@ def list_surveys(connection: sqlite3.Connection | None = None) -> list[dict]:
         return [{**s,**display_location(s['place_name'],s['latitude'],s['longitude'])} for s in surveys.values()]
 
 
+def validate_survey_photo_count(value, original=None):
+    requested = set(value.photo_ids if not original or 'photo_ids' in value.model_fields_set else original['photo_ids'])
+    previous = {r['id']:r for r in original['observations']} if original else {}
+    for record in value.observations:
+        old = previous.get(getattr(record,'id',None))
+        requested.update(record.photo_ids if not old or 'photo_ids' in record.model_fields_set else old['photo_ids'])
+    if len(requested) <= 3:
+        return
+    existing = set(original['photo_ids']) if original else set()
+    for record in original['observations'] if original else []:
+        existing.update(record['photo_ids'])
+    if not requested.issubset(existing):
+        raise HTTPException(422,'탐사 전체 사진은 최대 3장까지 연결할 수 있습니다. 기존 사진은 보존됩니다.')
+
+
 def create_survey(value: SurveyInput, connection: sqlite3.Connection | None = None) -> dict:
     normalize_registered_survey(value)
+    validate_survey_photo_count(value)
     values = value.model_dump(mode="json", exclude={"observations", "tags", "photo_ids"})
     now = datetime.now(timezone.utc).isoformat()
     values.update(created_at=now, updated_at=now)

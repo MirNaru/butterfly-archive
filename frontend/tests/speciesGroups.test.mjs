@@ -27,3 +27,8 @@ test('현재 명칭으로 표시해도 이전 명칭 검색 지역을 먼저 표
  b.record.place_search='강원도 정선군 강원특별자치도 정선군'
  assert.equal(groupSpecies([a,b],'강원도')[0].regions[0],'강원특별자치도 정선군')
 })
+
+test('최다 실제 목격 지역을 먼저 표시하고 미발견은 건수에서 제외',()=>{
+ const groups=groupSpecies([row(1,'direct','가 지역'),row(2,'indirect','나 지역'),row(3,'indirect','나 지역'),row(4,'direct','가 지역','2025-01-01','not_found')],'')
+ assert.equal(groups[0].regions[0],'나 지역')
+})

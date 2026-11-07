@@ -35,10 +35,10 @@ export default function WeatherPanel({ targetType, targetId, onChanged, sourceWe
   return <details className="weather-panel"><summary>기상 · {saved ? saved.stale ? '이전 조건의 저장 자료' : '저장된 자료' : sourceWeather ? `${sourceWeather.source} 저장 자료${sourceWeather.stale ? ' · 이전 조건' : ''}` : '미연결'}</summary>
     {sourceWeather && <div><p><strong>{sourceWeather.source}에서 가져온 기상</strong>{sourceWeather.stale && ' · 관찰 조건 변경 전 자료'}</p><p>{sourceWeather.text}</p><p className="hint">가져온 원문을 보존한 값입니다. <a href={sourceWeather.url} target="_blank" rel="noopener noreferrer">관찰 원문</a></p></div>}
     <p className="hint">관측소의 기상자료이며 현장 실측값은 아닙니다. 한 번 저장한 값은 자동 갱신하지 않습니다.</p>
-    {data && <p>연결 기준: {displayTime(data.context.target_time)}{data.context.time && ` · 관찰 ${data.context.time}`}</p>}
+    {data && <p>연결 기준: {displayTime(data.context.target_time)}{data.context.time && ` · 관찰 ${data.context.time.slice(0,5)}`}</p>}
     {saved && <>
       {saved.stale && <p className="error">기록 조건이 달라졌습니다. 아래는 이전 조건으로 저장한 자료입니다.</p>}
-      {saved.stale && <p className="hint">저장 당시: {saved.linked_context.date} · {saved.linked_context.time || '시각 미상'} · {saved.linked_context.place || '장소명 없음'}{saved.linked_context.latitude !== null && ` · ${saved.linked_context.latitude}, ${saved.linked_context.longitude}`} · 아래 거리는 저장 당시 위치 기준입니다.</p>}
+      {saved.stale && <p className="hint">저장 당시: {saved.linked_context.date} · {saved.linked_context.time ? saved.linked_context.time.slice(0,5) : '시각 미상'} · {saved.linked_context.place || '장소명 없음'}{saved.linked_context.latitude !== null && ` · ${saved.linked_context.latitude}, ${saved.linked_context.longitude}`} · 아래 거리는 저장 당시 위치 기준입니다.</p>}
       <p><strong>{saved.station.name} 관측소 ({saved.station.id})</strong>{saved.distance_km !== null ? ` · 직선거리 ${saved.distance_km} km` : ' · 기록 좌표가 없어 거리 미상'}</p>
       <p>{displayTime(saved.target_time)}</p>
       <dl>{saved.values.map(v => <div className="weather-value" key={v.code}><dt>{v.label}</dt><dd>{v.value === null ? '자료 없음' : `${v.value} ${v.unit}`}</dd></div>)}</dl>

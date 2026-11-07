@@ -12,7 +12,9 @@ export function groupSpecies(rows:RecordRow[], query:string,ranks:Map<number,num
     const regions=[...new Set(ordered.map(r=>r.record.administrative_region||'').filter(Boolean))]
     const needle=query.trim().toLowerCase()
     const matching=new Set(ordered.filter(r=>needle&&(r.record.place_search||r.record.administrative_region||'').toLowerCase().includes(needle)).map(r=>r.record.administrative_region))
-    regions.sort((a,b)=>Number(matching.has(b))-Number(matching.has(a)))
+    const counts = new Map<string,number>()
+    for (const r of group.rows) if (r.record.result === 'observed' && r.record.administrative_region) counts.set(r.record.administrative_region,(counts.get(r.record.administrative_region)||0)+1)
+    regions.sort((a,b)=>(counts.get(b)||0)-(counts.get(a)||0)||Number(matching.has(b))-Number(matching.has(a)))
     const observed=group.rows.filter(r=>r.record.result==='observed')
     return {...group,regions,observed:observed.length,direct:observed.filter(r=>r.record.source_type==='direct').length,
       indirect:observed.filter(r=>r.record.source_type==='indirect').length,notFound:group.rows.length-observed.length,

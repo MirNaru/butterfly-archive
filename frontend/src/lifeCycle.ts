@@ -5,7 +5,7 @@ export const LIFE_STAGES: { key: LifeStage; label: string; color: string }[] = [
   { key: 'pupa', label: '번데기', color: '#b08c5e' }, { key: 'adult', label: '어른벌레', color: '#917ba3' },
 ]
 export interface LifeFilter { year: string; region: string; source: '' | 'direct' | 'indirect' }
-export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[]; stageEstimated?: boolean }
+export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; region?: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[]; stageEstimated?: boolean }
 export interface BoxStats { n: number; q1: number; median: number; q3: number; low: number; high: number; outliers: number[] }
 export const BOX_MINIMUM = 20
 const DAY = 86400000
@@ -45,7 +45,7 @@ export function collectLifeSamples(surveys: Survey[]): LifeSample[] {
     const key = JSON.stringify([record.species_id, record.stage, record.effective_date, record.effective_place, record.effective_latitude, record.effective_longitude, record.source_type, origin])
     const previous = groups.get(key)
     if (previous) previous.observationIds.push(record.id)
-    else groups.set(key, { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id], stageEstimated: record.stage_inferred || false })
+    else groups.set(key, { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, region: record.administrative_region || '행정지역 미확인', source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id], stageEstimated: record.stage_inferred || false })
   }
   return [...groups.values()]
 }
@@ -118,4 +118,26 @@ export function rangeParts(start: number, end: number): [number, number][] {
   const parts: [number, number][] = []
   for (let base = Math.floor(lo / 366) * 366; base < hi; base += 366) parts.push([Math.max(lo, base) - base, Math.min(hi, base + 366) - base])
   return parts
+}
+
+// 연간 축에서 이동한 날짜와 같은 기준으로 원본 사례의 이상값 여부를 판정합니다.
+export function isOutlier(sample: LifeSample, groups: ReturnType<typeof observationGroups>) {
+  return groups.some(g => g.samples.includes(sample) && !!g.box?.outliers.includes(sample.day < g.start ? sample.day + 366 : sample.day))
+}
+
+// 지역별 어른벌레 관찰의 월·일 극값을 집계하고 같은 날짜의 원본 사례를 모두 보존합니다.
+export function adultExtremes(samples: LifeSample[]) {
+  const regions = new Map<string,LifeSample[]>()
+  for(const sample of samples) if(sample.stage === 'adult') {
+    const key=sample.region || '행정지역 미확인'
+    const group=regions.get(key);if(group)group.push(sample);else regions.set(key,[sample])
+  }
+  return [...regions].map(([region,values])=>{
+    const first=Math.min(...values.map(s=>s.day)),last=Math.max(...values.map(s=>s.day))
+    return {region,first,last,firstSamples:values.filter(s=>s.day===first),lastSamples:values.filter(s=>s.day===last),count:values.length}
+  }).sort((a,b)=>b.count-a.count||a.region.localeCompare(b.region,'ko'))
+}
+export function inLifePeriod(sample: LifeSample, period: LifePeriod) {
+  const bounds=periodBounds(period),day=sample.day < bounds.start ? sample.day+366 : sample.day
+  return day>=bounds.start && day<=bounds.end
 }

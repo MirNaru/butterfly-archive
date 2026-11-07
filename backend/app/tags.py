@@ -1,6 +1,6 @@
 """외부 환경 태그 목록과 탐사·종별 연결을 로컬 DB에서 관리합니다."""
 from typing import Literal
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import Field
 from app.database import connect_database
 from app.schemas import InputModel
@@ -12,6 +12,7 @@ router = APIRouter(prefix='/api/tags')
 
 class TagInput(InputModel):
     name: str = Field(min_length=1, max_length=60)
+    category: Literal['environment','individual'] = 'environment'
 
 
 def names(db, kind: Literal['survey', 'observation'], target_id: int) -> list[str]:
@@ -30,7 +31,7 @@ def save_links(db, kind: Literal['survey', 'observation'], target_id: int, value
 @router.get('')
 def list_tags():
     with connect_database() as db:
-        return [dict(row) for row in db.execute('''SELECT t.id,t.name,
+        return [dict(row) for row in db.execute('''SELECT t.id,t.name,t.category,
             (SELECT COUNT(*) FROM survey_tags s WHERE s.tag_id=t.id) +
             (SELECT COUNT(*) FROM observation_tags o WHERE o.tag_id=t.id) AS usage
             FROM tags t ORDER BY usage DESC,t.id''')]
@@ -39,6 +40,22 @@ def list_tags():
 @router.post('', status_code=201)
 def create_tag(value: TagInput):
     with connect_database() as db:
-        db.execute('INSERT INTO tags(name) VALUES(?) ON CONFLICT(name) DO NOTHING', (value.name,))
-        row = db.execute('SELECT id,name FROM tags WHERE name=?', (value.name,)).fetchone()
+        db.execute('INSERT INTO tags(name,category) VALUES(?,?) ON CONFLICT(name) DO NOTHING', (value.name,value.category))
+        row = db.execute('SELECT id,name,category FROM tags WHERE name=?', (value.name,)).fetchone()
+        if row['category'] != value.category:
+            raise HTTPException(409,'같은 이름이 다른 태그 분류에 있습니다. 기존 태그의 분류 이동을 사용해 주세요.')
+        return dict(row)
+
+
+class TagCategory(InputModel):
+    category: Literal['environment','individual']
+
+
+@router.put('/{tag_id}/category')
+def update_category(tag_id: int, value: TagCategory):
+    with connect_database() as db:
+        db.execute('UPDATE tags SET category=? WHERE id=?',(value.category,tag_id))
+        row=db.execute('SELECT id,name,category FROM tags WHERE id=?',(tag_id,)).fetchone()
+        if not row:
+            raise HTTPException(404,'태그를 찾을 수 없습니다.')
         return dict(row)

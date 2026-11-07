@@ -31,7 +31,14 @@ export function matches(row: RecordRow, f: Filters, query: string): boolean {
   const r = row.record
   const tags = [...new Set([...(row.survey.tags || []), ...(r.tags || [])])]
   if (f.start && f.end && f.start > f.end) return false
-  return contains(`${r.species_name || '동정 미확정'} ${row.scientificName} ${r.administrative_region||''} ${r.place_search||r.effective_place} ${row.survey.place_search||row.survey.place_name} ${r.effective_date} ${r.notes} ${r.source_note || ''} ${row.survey.notes} ${tags.join(' ')}`, query)
+  const recordNumber = /^#(\d+)$/.exec(query.trim())
+  const textQuery = recordNumber ? '' : query
+  const searchable = `${r.species_name || '동정 미확정'} ${row.scientificName} ${r.administrative_region||''} ${r.place_search||r.effective_place} ${row.survey.place_search||row.survey.place_name} ${r.effective_date} ${r.notes} ${r.source_note || ''} ${row.survey.notes} ${tags.join(' ')}`
+  const queryMatches = textQuery.trim().split(/\s+/).every(term => {
+    const month = /^(1[0-2]|[1-9])월$/.exec(term)
+    return month ? Number(r.effective_date.slice(5, 7)) === Number(month[1]) : contains(searchable, term)
+  })
+  return (!recordNumber || r.id === Number(recordNumber[1])) && queryMatches
     && (!f.start || r.effective_date >= f.start) && (!f.end || r.effective_date <= f.end)
     && contains(r.place_search||r.effective_place, f.place) && member(f.species, String(r.species_id ?? 'unknown'))
     && (!f.stage.length || r.result === 'observed' && member(f.stage, r.stage))

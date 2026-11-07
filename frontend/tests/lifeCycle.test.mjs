@@ -1,7 +1,7 @@
 // 한살이 통계의 표본 단위와 연말·윤일·구간 경계를 검증합니다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, densityShape, BOX_MINIMUM } from '../src/lifeCycle.ts'
+import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, densityShape, adultExtremes, inLifePeriod, isOutlier, BOX_MINIMUM } from '../src/lifeCycle.ts'
 const window = (start, end, extra={}) => ({id:'test',stage:'adult',start,end,source:'시험 도감',edition:'2026',region:'',enabled:true,...extra})
 const reference = {lifecycle:[],periods:[],source:'시험 도감'}
 const filter = {year:'',region:'',source:''}
@@ -134,4 +134,26 @@ test('전체 높이 밀도에서 채움은 사분위 구간만 차지하며 피�
  assert.equal(Math.min(...fill.map(([x])=>x)),group.box.q1-1)
  assert.equal(Math.max(...fill.map(([x])=>x)),group.box.q3-1)
  assert.ok(fill.some(([,y])=>y===20))
+})
+
+test('연말 이동한 이상값을 원본 사례에 다시 연결',()=>{
+ const cases=[...Array.from({length:30},()=>sample('2025-07-01')),sample('2025-12-27'),sample('2024-01-13')]
+ const groups=observationGroups(cases)
+ assert.equal(cases.filter(p=>isOutlier(p,groups)).length,2)
+ assert(isOutlier(cases.at(-1),groups))
+ assert(!isOutlier(cases[0],groups))
+})
+
+test('지역별 어른벌레 최초·최후는 연도 대신 월일을 비교하고 동률 원본 보존',()=>{
+ const records=[sample('2024-05-01',{region:'가'}),sample('2026-04-02',{region:'가'}),sample('2025-04-02',{region:'가'}),sample('2026-08-01',{region:'나'}),sample('2026-01-01',{region:'가',stage:'larva'})]
+ const result=adultExtremes(records)
+ assert.equal(result[0].region,'가');assert.equal(result[0].firstSamples.length,2);assert.equal(result[0].lastSamples[0].date,'2024-05-01')
+ assert.equal(result[1].first,result[1].last)
+ assert.deepEqual(adultExtremes([]),[])
+})
+test('사례 구간은 양끝을 포함하고 연말 구간 밖을 구분',()=>{
+ const period={...window(1,1),start_day:dayOfYear('2000-12-01'),end_day:dayOfYear('2000-02-01')}
+ assert(inLifePeriod(sample('2026-01-01'),period))
+ assert(inLifePeriod(sample('2026-02-01'),period))
+ assert(!inLifePeriod(sample('2026-06-01'),period))
 })

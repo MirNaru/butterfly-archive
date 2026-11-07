@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+from typing import Literal
 import re
 import secrets
 import sqlite3
@@ -244,16 +245,36 @@ def lookup(value: PhotoLookup):
 
 
 @router.get('/{photo_id}/{kind}')
-def image_file(photo_id: int, kind: str):
-    if kind not in ('thumbnail', 'original'):
+def image_file(photo_id: int, kind: str, size: Literal['full','small'] = 'full'):
+    if kind not in ('thumbnail', 'original', 'display'):
         raise HTTPException(404, '사진 파일이 없습니다.')
     with connect_database() as db:
         row = db.execute('SELECT * FROM photos WHERE id=?', (photo_id,)).fetchone()
-    if not row or not row[f'{kind}_path']:
+    column = 'original_path' if kind == 'display' else f'{kind}_path'
+    if not row or not row[column]:
         raise HTTPException(404, '보관된 사진 파일이 없습니다. 정보만 등록한 사진은 원본을 다시 선택해 주세요.')
-    target = (photo_root() / row[f'{kind}_path']).resolve()
+    target = (photo_root() / row[column]).resolve()
     if not target.is_relative_to(photo_root()) or not target.is_file():
         raise HTTPException(404, '사진 파일을 찾을 수 없습니다. 보관 폴더를 확인해 주세요.')
+    if kind == 'display':
+        display = photo_root() / 'display' / f"{row['sha256']}{'-small' if size == 'small' else ''}.webp"
+        if not display.exists():
+            temporary = display.with_name(display.name + '.' + secrets.token_hex(8) + '.tmp')
+            try:
+                display.parent.mkdir(parents=True, exist_ok=True)
+                with Image.open(target) as source, ImageOps.exif_transpose(source) as upright:
+                    upright.thumbnail((320,320) if size == 'small' else (1920,1920))
+                    clean = Image.new('RGB', upright.size, 'white')
+                    try:
+                        clean.paste(upright, mask=upright.getchannel('A')) if 'A' in upright.getbands() else clean.paste(upright.convert('RGB'))
+                        clean.save(temporary, format='WEBP', quality=90)
+                    finally:
+                        clean.close()
+                os.replace(temporary, display)
+            except (OSError, ValueError) as exc:
+                temporary.unlink(missing_ok=True)
+                raise HTTPException(503, '표시용 WebP 사진을 만들지 못했습니다.') from exc
+        return FileResponse(display,media_type='image/webp',headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'})
     metadata = json.loads(row['metadata_json'])
     return FileResponse(target, media_type='image/jpeg' if kind == 'thumbnail' or metadata['format'] == 'JPEG' else 'image/png',
                         filename=metadata['filename'] if kind == 'original' else None,
@@ -266,6 +287,10 @@ def linked_ids(db, kind, target_id):
 
 
 def save_photo_links(db, kind, target_id, ids):
+    if kind == 'survey' and len(set(ids)) > 3:
+        existing = set(linked_ids(db,kind,target_id))
+        if not set(ids).issubset(existing):
+            raise HTTPException(422, '탐사 사진은 최대 3장까지 연결할 수 있습니다. 기존 사진은 보존됩니다.')
     column = 'survey_id' if kind == 'survey' else 'observation_id'
     for key in ids:
         if not db.execute('SELECT 1 FROM photos WHERE id=?', (key,)).fetchone():

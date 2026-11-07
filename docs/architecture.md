@@ -8,7 +8,7 @@
 | --- | --- |
 | `frontend/src` | PC React 화면·상태·API 형식. 브라우저에서 DB에 직접 접근하지 않습니다. |
 | `frontend/tests` | Node 기반 계산·필터·도표 회귀 검사. |
-| `backend/app/main.py` | PC FastAPI 경로·요청 연결. `schemas.py` 입력 검증, `database.py` 연결, `migrations.py` 스키마 14. |
+| `backend/app/main.py` | PC FastAPI 경로·요청 연결. `schemas.py` 입력 검증, `database.py` 연결, `migrations.py` 스키마 15. |
 | `backend/tests` | 독립 시험 DB 기반 API·자료 보존·보안 검사. 개인 DB로 시험하지 않습니다. |
 | `backend/app/mobile_server.py`, `mobile_web` | 집 안 전송 전용 서버와 휴대폰 정적 화면·사진 메타데이터 추출. |
 | `viewer_server.py`, `viewer_web` | 원본 DB를 읽지 않는 외부 사본 조회 서버·정적 화면. |
@@ -83,3 +83,5 @@ android는 MediaStore·ACCESS_MEDIA_LOCATION 동의 후 setRequireOriginal과 Ex
 `SpeciesPicker.tsx`는 관찰·수집 수정 화면에서 공통으로 국명·학명 검색과 기존 종 번호 선택을 제공합니다. 목록의 도감 순서를 유지하고 현재 종으로 스크롤합니다. 타이핑 중인 검색어를 종 번호로 저장하지 않도록 입력 검증하며 키보드와 마우스 선택을 지원합니다. 직접 관찰의 개별 날짜 입력 제거는 화면 변경이며 기존 observation_date 필드와 API 호환은 유지합니다.
 
 선택 목록의 공통 크기·색은 index.css의 --choice-* 변수와 App.css에서 관리합니다. 일반 select는 지원 브라우저의 base-select 표시를 사용하므로 화면별 저장 코드를 교체하지 않습니다. SpeciesPicker는 manual popover로 수정 창 밖의 최상위에 표시하며 입력 위치·화면 여유 공간으로 크기와 위아래 표시 위치를 정합니다.
+
+도감 읽기는 SpeciesInfoModal.tsx, 편집은 ReferenceModal.tsx·ReferenceEditor.tsx에서 분리합니다. 대표·단계별 동정 사진 역할은 기존 species_references JSON에 보관하고, /species/{id}/photos는 활성 관찰·탐사 공통 사진과 도감 지정 사진의 합집합을 12개씩 제공합니다.

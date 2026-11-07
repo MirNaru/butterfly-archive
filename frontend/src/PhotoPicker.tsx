@@ -60,8 +60,11 @@ function StoredPhotos({ ids, onAdd, revision }: { ids: number[]; onAdd: (photo: 
   </details>
 }
 
-export default function PhotoPicker({ name, initialIds = [], onDate, onGPS, dateLabel, onBusy, saveLabel = '탐사 저장' }: { name: string; initialIds?: number[]; onDate?: (p: PhotoMetadata) => void; onGPS?: (p: PhotoMetadata) => void; dateLabel?: string; onBusy: (busy: boolean) => void; saveLabel?: string }) {
+export default function PhotoPicker({ name, initialIds = [], onDate, onGPS, dateLabel, onBusy, saveLabel = '탐사 저장', maxPhotos, onIdsChange }: { name: string; onIdsChange?:(ids:number[])=>void; maxPhotos?:number; initialIds?: number[]; onDate?: (p: PhotoMetadata) => void; onGPS?: (p: PhotoMetadata) => void; dateLabel?: string; onBusy: (busy: boolean) => void; saveLabel?: string }) {
   const [ids, setIds] = useState(initialIds)
+  const idsChanged = useRef(onIdsChange)
+  useEffect(()=>{idsChanged.current=onIdsChange},[onIdsChange])
+  useEffect(()=>{idsChanged.current?.(ids)},[ids])
   const [queue, setQueue] = useState<PendingPhoto[]>([])
   const [page, setPage] = useState(0)
   const [open, setOpen] = useState(false)
@@ -90,6 +93,7 @@ export default function PhotoPicker({ name, initialIds = [], onDate, onGPS, date
         setProgress(`${register ? '등록' : '검사'} ${index + 1} / ${queue.length}`)
         try {
           if (register) {
+            if(maxPhotos && linked.size >= maxPhotos && !item.saved) throw new Error(`사진은 최대 ${maxPhotos}장까지 연결할 수 있습니다.`)
             if (!item.preview) continue
             const photo = item.keep ? await registerPhotoOriginal(item.file, abort.signal) : await registerPhotoMetadata(item.preview.ticket, abort.signal)
             linked.add(photo.id); setIds([...linked]); patch(index, { saved: photo, error: '' }); completed++
@@ -128,7 +132,7 @@ export default function PhotoPicker({ name, initialIds = [], onDate, onGPS, date
       </article> })}</div>
       {queue.length > PAGE_SIZE && <div className="actions"><button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>이전 검사 항목</button><span>{page + 1} / {Math.ceil(queue.length / PAGE_SIZE)}</span><button type="button" disabled={(page + 1) * PAGE_SIZE >= queue.length} onClick={() => setPage(page + 1)}>다음 검사 항목</button></div>}
       <PhotoGallery ids={ids} onRemove={id => setIds(current => current.filter(key => key !== id))} onDate={onDate} onGPS={onGPS} dateLabel={dateLabel} />
-      <StoredPhotos ids={ids} revision={queue.filter(row => row.saved).length} onAdd={photo => setIds(current => [...new Set([...current, photo.id])])} />
+      <StoredPhotos ids={ids} revision={queue.filter(row => row.saved).length} onAdd={photo => {if(maxPhotos && ids.length>=maxPhotos && !ids.includes(photo.id)){setError(`사진은 최대 ${maxPhotos}장까지 연결할 수 있습니다.`);return}setIds(current => [...new Set([...current, photo.id])])}} />
     </dialog>
   </div>
 }

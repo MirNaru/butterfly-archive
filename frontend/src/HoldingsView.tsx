@@ -6,6 +6,7 @@ import { addHolding, listHoldings, updateHolding } from './api'
 import { ACQUISITION, POSSESSION } from './models'
 import type { Holding, HoldingInput, Species, Survey } from './models'
 import PhotoPicker from './PhotoPicker'
+import SpeciesPicker from './SpeciesPicker'
 import { groupHoldings, holdingGroupMatches, holdingSummary, HOLDING_SEX } from './holdingSummary'
 import type { HoldingGroup } from './holdingSummary'
 
@@ -66,7 +67,7 @@ function HoldingForm({ initial, species, surveys, onClose, onSaved }: { initial:
     <h2>{initial ? '소장 기록 수정' : '소장 기록 등록'}</h2><p className="hint">같은 종도 구매·직접 채집 자료를 각각 등록할 수 있습니다. 모르는 수량·성별·취득 경로는 미확인으로 남겨 주세요.</p>
     {error && <p className="error" role="alert">{error}</p>}
     <fieldset disabled={busy}><div className="field-grid">
-      <label>소장 종<select aria-label="소장 종" required value={value.species_id || ''} onChange={e => setValue(previous => ({ ...previous, species_id: Number(e.target.value), observation_id: null }))}><option value="">종 선택</option>{species.map(row => <option value={row.id} key={row.id}>{row.korean_name}</option>)}</select></label>
+      <SpeciesPicker species={species} value={value.species_id ? String(value.species_id) : ''} required onChange={id => setValue(previous => ({...previous,species_id:Number(id),observation_id:null}))} />
       <fieldset className="holding-sex"><legend>성별 · 중복 선택 가능</legend><label><input type="checkbox" checked={value.sex === 'male' || value.sex === 'mixed'} onChange={e => toggleSex('male', e.target.checked)} />수컷</label><label><input type="checkbox" checked={value.sex === 'female' || value.sex === 'mixed'} onChange={e => toggleSex('female', e.target.checked)} />암컷</label><small>{value.sex === 'unknown' ? '선택하지 않으면 성별 미상' : value.sex === 'mixed' ? '총수량 2개체 이상 필수' : ''}</small></fieldset>
       <label>소지 상태<select aria-label="소지 상태" value={value.possession} onChange={e => setValue(previous => ({ ...previous, possession: e.target.value as HoldingInput['possession'], quantity: e.target.value === 'owned' ? previous.quantity : null, male_quantity: e.target.value === 'owned' ? previous.male_quantity : null, female_quantity: e.target.value === 'owned' ? previous.female_quantity : null }))}>{Object.entries(POSSESSION).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>
       <label>{value.sex === 'mixed' ? '총 소장 개체 수 · 필수' : '소장 개체 수 · 선택'}<input aria-label="소장 개체 수" type="number" min={value.sex === 'mixed' ? 2 : 1} required={value.sex === 'mixed'} max={1000000} step={1} disabled={value.possession !== 'owned'} value={value.quantity ?? ''} onChange={e => update('quantity', e.target.value === '' ? null : Number(e.target.value))} placeholder={value.possession === 'owned' ? value.sex === 'mixed' ? '2개체 이상 입력' : '수량 미상' : '소지함으로 확인한 경우 입력'} /></label>
@@ -108,6 +109,7 @@ export default function HoldingsView({ species, surveys, query, sidebar, revisio
   const [acquisition, setAcquisition] = useState('')
   const [possession, setPossession] = useState('')
   const [sex, setSex] = useState('')
+  const [selectedHolding,setSelectedHolding] = useState<string|null>(null)
   const [editing, setEditing] = useState<Holding | null>(null)
   const [details, setDetails] = useState<HoldingGroup | null>(null)
   const requestKey = `${revision}:${retry}`
@@ -117,7 +119,7 @@ export default function HoldingsView({ species, surveys, query, sidebar, revisio
     listHoldings().then(value => { if (active) { setRows(value); setError('') } }).catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : '소장 목록을 읽지 못했습니다.') }).finally(() => { if (active) setLoaded(requestKey) })
     return () => { active = false }
   }, [requestKey])
-  const groups = groupHoldings(rows)
+  const groups = groupHoldings(rows.filter(row => !!possession || row.possession !== 'not_owned'))
   const filtered = groups.filter(group => holdingGroupMatches(group, query, acquisition, possession, sex))
   const summary = holdingSummary(rows)
   function close() { setDetails(null); setEditing(null); onRegisterOpen(false); onEditing(false) }
@@ -136,7 +138,7 @@ export default function HoldingsView({ species, surveys, query, sidebar, revisio
       const statuses = [...new Set(group.rows.map(entry => POSSESSION[entry.possession]))]
       const dates = [...new Set(group.rows.map(entry => entry.acquired_date || '미상'))]
       const observations = [...new Set(group.rows.flatMap(entry => entry.observation_id === null ? [] : [entry.observation_id]))]
-      return <tr key={group.key}><td><button type="button" className="link" onClick={() => { if (group.rows.length === 1) setEditing(row); else setDetails(group); onEditing(true) }}>{row.korean_name}</button><small>{row.scientific_name || '학명 미등록'}</small></td><td>{HOLDING_SEX[group.sex]}{group.sex !== 'unknown' && group.rows.some(entry => entry.sex === 'unknown') && <small>성별 미상 내역 포함</small>}</td><td>{statuses.join(' / ')}</td><td><HoldingQuantity group={group} /></td><td>{ACQUISITION[row.acquisition]}</td><td>{dates.length === 1 ? dates[0] : '여러 날짜'}</td><td>{observations.length ? observations.map(id => `관찰 #${id}`).join(', ') : '미연결'}</td><td>{group.photoIds.length}개</td><td className="memo-cell">{group.rows.length > 1 ? <button type="button" className="link" onClick={() => { setDetails(group); onEditing(true) }}>취득 내역 {group.rows.length}건 보기</button> : <>{row.source_note}{row.source_note && row.notes && <br />}{row.notes || (!row.source_note && '미기재')}</>}</td></tr>
+      return <tr key={group.key} className={selectedHolding===group.key?'selected':''} tabIndex={0} onClick={()=>setSelectedHolding(group.key)} onDoubleClick={event=>{if(event.target instanceof Element && event.target.closest('input,a,select,textarea'))return;if(group.rows.length===1)setEditing(row);else setDetails(group);onEditing(true)}} onKeyDown={event=>{if(event.target===event.currentTarget&&event.key==='Enter'){event.preventDefault();if(group.rows.length===1)setEditing(row);else setDetails(group);onEditing(true)}}}><td><button type="button" className="link" onClick={() => setSelectedHolding(group.key)}>{row.korean_name}</button><small>{row.scientific_name || '학명 미등록'}</small></td><td>{HOLDING_SEX[group.sex]}{group.sex !== 'unknown' && group.rows.some(entry => entry.sex === 'unknown') && <small>성별 미상 내역 포함</small>}</td><td>{statuses.join(' / ')}</td><td><HoldingQuantity group={group} /></td><td>{ACQUISITION[row.acquisition]}</td><td>{dates.length === 1 ? dates[0] : '여러 날짜'}</td><td>{observations.length ? observations.map(id => `관찰 #${id}`).join(', ') : '미연결'}</td><td>{group.photoIds.length}개</td><td className="memo-cell">{group.rows.length > 1 ? <button type="button" className="link" onClick={() => setSelectedHolding(group.key)}>취득 내역 {group.rows.length}건 보기</button> : <>{row.source_note}{row.source_note && row.notes && <br />}{row.notes || (!row.source_note && '미기재')}</>}</td></tr>
     })}{!filtered.length && <tr><td colSpan={9}>{error ? '왼쪽 안내에서 목록을 다시 읽어 주세요.' : loading ? '목록을 읽는 중입니다.' : rows.length ? '조건에 맞는 소장 기록이 없습니다.' : '왼쪽에서 소장 정보를 등록해 주세요.'}</td></tr>}</tbody></table></div>
     {details && <HoldingDetails group={details} onClose={close} onEdit={row => { setDetails(null); setEditing(row) }} />}
     {(registerOpen || editing) && <HoldingForm initial={editing} species={species} surveys={surveys} onClose={close} onSaved={value => { setRows(current => [value, ...current.filter(row => row.id !== value.id)]); close(); setNotice('소장 정보를 저장했습니다.'); setRetry(n => n + 1); onChanged() }} />}

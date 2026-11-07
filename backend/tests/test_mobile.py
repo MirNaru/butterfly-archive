@@ -167,6 +167,7 @@ def test_mobile_migration_from_thirteen_preserves_rows_and_rolls_back(client,mon
         before=[tuple(r) for r in db.execute('SELECT * FROM species')]
         for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
             db.execute('DROP TABLE '+table)
+        db.execute('ALTER TABLE tags DROP COLUMN category')
         db.execute('PRAGMA user_version=13')
     with monkeypatch.context() as patch:
         patch.setattr(migrations,'MOBILE_STATEMENTS',migrations.MOBILE_STATEMENTS+('INVALID SQL',))
@@ -177,7 +178,7 @@ def test_mobile_migration_from_thirteen_preserves_rows_and_rolls_back(client,mon
         assert not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'mobile_%'").fetchall()
     migrations.initialize_database();migrations.initialize_database()
     with connect_database() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0]==14
+        assert db.execute('PRAGMA user_version').fetchone()[0]==migrations.SCHEMA_VERSION
         assert [tuple(r) for r in db.execute('SELECT * FROM species')]==before
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
-    assert list(database_path().parent.glob('*.before-v14-*.bak'))
+    assert list(database_path().parent.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak'))

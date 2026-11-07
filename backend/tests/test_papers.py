@@ -122,6 +122,7 @@ def test_version_eleven_migration_backup_and_rollback(client, monkeypatch):
             db.execute('DROP TABLE '+table)
         db.execute('DROP TABLE paper_files')
         db.execute('DROP TABLE paper_observations'); db.execute('DROP TABLE papers')
+        db.execute('ALTER TABLE tags DROP COLUMN category')
         db.execute('PRAGMA user_version=11')
     with monkeypatch.context() as patch:
         patch.setattr(migrations, 'PAPER_STATEMENTS', migrations.PAPER_STATEMENTS + ('INVALID SQL',))

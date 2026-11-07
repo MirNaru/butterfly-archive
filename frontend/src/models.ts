@@ -17,7 +17,7 @@ export const IDENTIFICATION = { unidentified: '미확정', candidate: '후보 �
 export const PURPOSE = { general: '일반 관찰', target: '특정 종 탐색', host_plant: '기주식물 확인', exploration: '신규 지역 탐사', online_research: '온라인 자료 조사' } as const
 export const LOCATION = { unknown: '미상', approximate: '대략적 위치', manual: '좌표 직접 입력', gps: 'GPS', map: '지도 선택', address: '주소 검색' } as const
 export interface Species { id: number; korean_name: string; scientific_name: string | null; host_plants: string }
-export interface Tag { id: number; name: string; usage?: number }
+export interface Tag { id: number; name: string; usage?: number; category?: 'environment'|'individual' }
 export interface LocationInput {
   place_name: string; latitude: number | null; longitude: number | null; location_method: keyof typeof LOCATION
 }
@@ -109,6 +109,8 @@ export interface SpeciesReference {
   region_evidence?: { code: string; origin: 'excel' | 'manual' | 'observation'; detail: string }[]
   domestic_extinct: boolean | null; extinction_source: string
   protections: Protection[]; status_notes: string; protection_review: string
+  representative_photo_id?: number|null
+  stage_identification?: {stage:LifeStage;points:string;source:string;photo_ids:number[]}[]
   identification_points: string; identification_source: string
   lifecycle: LifePeriod[]; habitat: string; habits: string; other_notes: string; ecology_source: string
   family: string; subfamily: string; display_order: number | null; taxonomy_source: string

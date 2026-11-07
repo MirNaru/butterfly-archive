@@ -139,6 +139,7 @@ def test_migration_from_ten_preserves_existing_rows(client):
         db.execute('DROP TABLE paper_files')
         db.execute('DROP TABLE paper_observations')
         db.execute('DROP TABLE papers')
+        db.execute('ALTER TABLE tags DROP COLUMN category')
         db.execute('PRAGMA user_version=10')
         before=[tuple(r) for r in db.execute('SELECT * FROM species')]
     initialize_database()
