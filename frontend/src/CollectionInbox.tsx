@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { collectionItems, createCollectionConnection, registerCollected, discardCollected, editCollectedStage, listSpecies } from './api'
 import { STAGE, type Survey, type Species, type CollectedItem } from './models'
 import InaturalistControls from './InaturalistControls'
+import SpeciesPicker from './SpeciesPicker'
 
 export default function CollectionInbox({ onRegistered, source = 'naturing', remoteTarget }: { remoteTarget?: HTMLDivElement | null; onRegistered: (surveys?: Survey[]) => Promise<void>; source?: 'naturing' | 'inaturalist' }) {
   const [items, setItems] = useState<CollectedItem[]>([])
@@ -19,13 +20,19 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
   const [editing,setEditing]=useState<CollectedItem|null>(null)
   const [stage,setStage]=useState<keyof typeof STAGE>('unknown')
   const [stageSaving,setStageSaving]=useState(false)
+  const [stageLoading,setStageLoading]=useState(false)
   const [stageError,setStageError]=useState('')
-  const busy = working || fetching || stageSaving
-  function openStage(item:CollectedItem) {
+  const busy = working || fetching || stageSaving || stageLoading
+  async function openStage(item:CollectedItem) {
     if(busy)return
-    setSpeciesId(item.species_id ? String(item.species_id) : '');
-    void listSpecies().then(setSpecies).catch(e=>setStageError(e.message))
-    setStage(item.inferred_stage);setStageError('');setEditing(item)
+    setStageLoading(true);setError('')
+    try {
+      const options=await listSpecies()
+      setSpecies(options)
+      setSpeciesId(item.species_id ? String(item.species_id) : '')
+      setStage(item.inferred_stage);setStageError('');setEditing(item)
+    } catch(e) {setError(e instanceof Error?e.message:'종 목록을 읽지 못했습니다. 다시 시도해 주세요.')}
+    finally {setStageLoading(false)}
   }
   async function saveStage() {
     if(!editing||stageSaving)return
@@ -101,8 +108,8 @@ export default function CollectionInbox({ onRegistered, source = 'naturing', rem
     <div className="toolbar"><button disabled={busy || page === 0} onClick={() => { setSelected(new Set()); setPage(p => p - 1) }}>이전</button><span>{page + 1} / {Math.max(1, Math.ceil(total / 25))}</span><button disabled={busy || (page + 1) * 25 >= total} onClick={() => { setSelected(new Set()); setPage(p => p + 1) }}>다음</button></div>
     {editing&&<dialog className="collection-stage-dialog" aria-labelledby="collection-stage-title" ref={node=>{if(node&&!node.open)node.showModal()}} onCancel={e=>{e.preventDefault();if(!stageSaving)setEditing(null)}}>
       <form onSubmit={e=>{e.preventDefault();void saveStage()}}><h2 id="collection-stage-title">종·성장 단계 수정</h2><p>{editing.korean_name} · {editing.observed_raw||'관찰 시각 미상'}</p>
-        <label>종<select autoFocus value={speciesId} disabled={stageSaving} onChange={e=>setSpeciesId(e.target.value)}><option value="" disabled>도감 종 선택</option>{species.map(item=><option key={item.id} value={item.id}>{item.korean_name}{item.scientific_name ? ` · ${item.scientific_name}` : ''}</option>)}</select></label>
-        <label>성장 단계<select value={stage} disabled={stageSaving} onChange={e=>setStage(e.target.value as keyof typeof STAGE)}>{Object.entries(STAGE).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+        <SpeciesPicker autoFocus species={species} value={speciesId} disabled={stageSaving} onChange={setSpeciesId} required/>
+        <label>성장 단계<select className="stage-select" value={stage} disabled={stageSaving} onChange={e=>setStage(e.target.value as keyof typeof STAGE)}>{Object.entries(STAGE).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
         <p className="hint">이 대기 자료의 종·성장 단계를 수정합니다. 수집 원문과 이미 등록한 기록은 유지합니다. 저장 후 목록에서 선택해 관찰 기록에 추가해 주세요.</p>{stageError&&<p role="alert" className="error">{stageError}</p>}
         <div className="actions"><button type="button" disabled={stageSaving} onClick={()=>setEditing(null)}>취소</button><button type="submit" disabled={stageSaving}>{stageSaving?'저장 중…':'수정 저장'}</button></div>
       </form></dialog>}

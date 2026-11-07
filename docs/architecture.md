@@ -26,13 +26,15 @@
 
 ## 작업별 코드 찾기
 
+iNaturalist 위치 수집은 `inaturalist.py`에서 공개 좌표 오차 50km 이하 또는 미상을 허용하고 흐림 여부·정확도 근거를 수집 JSON에 보존합니다. `collection_import.py`는 흐림 위치 메모와 기존 대략적 위치 분류로 검수 등록하며, `collection.py`와 `records.py`는 공개 오차 안내를 응답합니다. 관찰 응답의 `source_location_note`는 저장 스키마를 늘리지 않는 읽기 전용 값이며 `App.tsx`의 지도 위치별 기록 문구에도 연결합니다. `regions.py`는 흐림 수집 스냅샷을 확정 관찰 지역 근거에서 제외합니다.
+
 | 작업 | 먼저 볼 파일 |
 | --- | --- |
 | 탭·공통 상태·등록 변경분 반영 | `frontend/src/App.tsx`, `api.ts`, `models.ts`, `backend/app/main.py` |
 | 기록·탐사 편집·검색 | `RecordTable.tsx`, `SurveyForm.tsx`, `SearchFilters.tsx`, `recordSearch.ts`, `backend/app/records.py`, `schemas.py` |
 | 도감·세부 정보·입력 | `ButterflyInfo.tsx`, `ReferenceEditor.tsx`, `SpeciesDetails.tsx`, `LifeCycleEditor.tsx`, `backend/app/exploration.py` |
 | 한살이 통계·표시 | `lifeCycle.ts`, `LifeCycleChart.tsx`, `frontend/tests/lifeCycle.test.mjs` |
-| 지도·출현지역 | `MapView.tsx`, `regionLayer.ts`, `RegionPicker.tsx`, `backend/app/regions.py`, `assets/README.md` |
+| 지도·출현지역 | `MapView.tsx`, `mapClusters.ts`, `regionLayer.ts`, `RegionPicker.tsx`, `backend/app/regions.py`, `assets/README.md` |
 | 수집·종/성장 단계 수정 | `CollectionInbox.tsx`, `InaturalistControls.tsx`, `backend/app/collection.py`, `collection_import.py`, `inaturalist.py` |
 | 논문·PDF | `PaperBrowser.tsx`, `backend/app/papers.py`, `paper_pdf.py` |
 | 사진·모바일 | `PhotoPicker.tsx`, `MobileInbox.tsx`, `backend/app/photos.py`, `mobile.py`, `mobile_server.py`, `mobile_web/metadata.js` |
@@ -46,6 +48,10 @@
 
 지도 핀은 기본적으로 숨깁니다. 기존 핀 표시 버튼으로 켜며 별도의 전체 핀 버튼은 없습니다. 현재 탭에 필요한 계산을 우선하고 기록 행은 화면 높이에 맞춰 일부만 렌더링합니다. 도감은 종 행을 나누어 표시하고 화면 주변의 도표를 생성합니다. 지도 경계는 축척·화면 영역별 표시 자료와 도형 재사용을 적용하며 정밀 지역 판정 자료는 유지합니다.
 
+`MapView.tsx`는 좌표별 핀 객체·모양·지도 연결 여부를 따로 보관합니다. 필터로 빠진 핀은 지도에서만 분리하고 복원 시 같은 객체를 연결하며, 이미 표시 중인 핀에는 `setMap`을 반복하지 않습니다. 숨긴 핀은 최대 8,000개까지 보관하고 최근 재사용 후 다시 숨긴 순서를 기준으로 오래된 객체와 클릭 연결부터 해제합니다. 표시 중인 핀은 이 상한에서 제외됩니다. 클릭은 최신 필터의 자료를 사용하고 출처 변경 시 색·제목·직접 관찰 우선순위를 갱신합니다. 데이터와 API·DB 구조는 바꾸지 않습니다.
+
+`mapClusters.ts`는 Supercluster 9.1.0으로 간접 관찰의 좌표를 통합한 뒤 화면과 각 방향 20% 여유 범위의 결과만 지도 객체로 만듭니다. 같은 좌표는 먼저 위치별로 묶고 관찰 건수·출처별 건수를 별도로 합산합니다. 직접 관찰은 통합하지 않고 같은 직접 관찰 위치끼리만 묶어 주황 핀·표시 순위 1000을 유지합니다. 통합 핀은 순위 10, 일반 간접 핀은 0입니다. 이동 완료·크기 변경 시 기존 화면 상태를 갱신하며 실제 경도 폭과 지도 너비로 통합 축척을 맞춥니다. 통합 반경은 기준 60px, 최대 통합 수준은 18이며 그 위에서는 위치별 핀을 표시합니다. 통합 클릭은 분리될 다음 수준으로 확대하고, 동일 좌표의 기록은 기존 목록에서 선택합니다. 필터 입력이 바뀌면 인덱스를 다시 만들고 이전 통합 객체와 클릭 연결을 해제합니다. 일반 위치 핀은 재사용합니다. 계산은 브라우저 내부에서 실행하며 새 서버나 외부 서비스 호출은 없습니다.
+
 
 수집 대기함에서 등록하면 서버는 같은 저장 작업에서 읽은 해당 탐사만 응답합니다. 지도·기록·도감은 하나의 탐사 목록을 공유하고 탐사 번호로 변경분을 합칩니다. 초기 자료가 아직 없거나 이전 서버가 변경분을 제공하지 않으면 전체 목록을 조회합니다. 관찰·소장·도감 변경과 명시적 새로고침은 관련 참고자료를 다시 읽도록 합니다. 도감 재진입 시 같은 자료 버전과 조건에 한해 조회 결과를 재사용하며, 종 목록은 첫 화면부터 나누어 표시합니다.
 
@@ -58,7 +64,7 @@
 
 PC의 viewer_export가 한 SQLite 읽기 트랜잭션에서 등록 관찰·종 참고자료·소장을 모아 조회 전용 JSON 사본을 원자적으로 교체합니다. 조회 서버는 이 사본만 인증 후 제공하며 필터와 검색은 브라우저에서 수행합니다. 관찰 쓰기·사진 업로드·임의 파일 제공 API는 없습니다. 로그인·로그아웃은 조회 전용 인증 저장소만 변경합니다. 사본에 좌표·메모가 포함되므로 로그인한 기기에 전달한 자료 자체의 복사를 차단하는 기능은 아닙니다.
 
-Windows 별도 계정에는 원본 프로젝트·DB 접근 거부, 실행 파일·사본 읽기 전용, 조회 인증·로그·TLS 폴더 쓰기 권한만 설정합니다. 현재 사용자만 DPAPI로 해독 가능한 자격으로 숨김 실행합니다. 별도 계정이 같은 PC의 앱을 HTTP로 호출하는 경로도 PC 인증으로 차단합니다. 조회 앱 로그는 크기 제한 회전 방식이며 쿼리·본문·코드·로그인 토큰을 기록하지 않습니다. 외부 Caddy는 별도 회전 접속 로그를 남기고 인증 쿠키·Authorization 헤더를 기본 마스킹합니다. 연결 코드는 URL이 아닌 본문으로 전송합니다.
+Windows 별도 계정에는 원본 프로젝트·DB 접근 거부, 실행 파일·사본 읽기 전용, 조회 인증·로그·TLS 폴더 쓰기 권한만 설정합니다. 현재 사용자만 DPAPI로 해독 가능한 자격으로 숨김 실행합니다. `setup_viewer.ps1`은 조회 계정만 Winlogon의 SpecialAccounts/UserList DWORD 0으로 로그인 화면의 사용자 목록에서 숨기고 이전 값을 Git 제외 data에 보존합니다. 계정은 비활성화하지 않으며 다른 사용자·자동 로그인 설정은 변경하지 않습니다. 별도 계정이 같은 PC의 앱을 HTTP로 호출하는 경로도 PC 인증으로 차단합니다. 조회 앱 로그는 크기 제한 회전 방식이며 쿼리·본문·코드·로그인 토큰을 기록하지 않습니다. 외부 Caddy는 별도 회전 접속 로그를 남기고 인증 쿠키·Authorization 헤더를 기본 마스킹합니다. 연결 코드는 URL이 아닌 본문으로 전송합니다.
 
 사진 정보 추출·검수 등록은 기존 규칙을 유지합니다. 파일에서 빠진 촬영 시각·GPS를 추정하지 않고, 추출 원문과 PC 검수값을 분리합니다. Bluetooth·HEIC·백그라운드 전송은 미구현입니다. 실제 휴대폰의 두 선택 경로에서 GPS를 읽지 못한 문제는 investigation 대상이며 PC 원본의 GPS와 파서 정상 동작은 확인했습니다.
 
@@ -71,3 +77,9 @@ Windows 별도 계정에는 원본 프로젝트·DB 접근 거부, 실행 파일
 android는 MediaStore·ACCESS_MEDIA_LOCATION 동의 후 setRequireOriginal과 ExifInterface로 촬영 정보를 읽고 고정된 집 안 HTTPS의 기존 /m/api에 전송하는 Kotlin 앱입니다. MainActivity는 화면, TransferModel은 메모리 선택 상태·순차 처리, PhotoMetadataReader·PhotoMetadata는 추출·전송 형식, MobileApiClient는 Wi-Fi·HTTPS·쿠키, SessionStore는 Keystore 암호화를 담당합니다. 사진 목록은 ViewModel로 회전 시 보존하되 영구 저장하지 않으며 세션만 암호화해 백업 제외 영역에 둡니다. PC DB·수신 API 구조는 유지합니다. 로컬 공개 CA는 빌드 산출물에만 복사하며 실행법과 검증 범위는 android/README.md를 따릅니다.
 
 내 사진 검수의 기본 흐름은 `MobileInbox.tsx`에서 빈 종별 기록의 탐사를 등록하고 `App.tsx`에서 기존 `SurveyForm` 수정 창으로 이동하는 방식입니다. `mobile.py`는 메타데이터 사진을 탐사 공통 연결에 저장하며 사진 생성·탐사 생성·대기 상태 변경을 같은 트랜잭션으로 처리합니다. DB v14와 기존 단일 직접 관찰 등록 요청은 유지합니다.
+
+`SurveyForm.tsx`는 입력 항목별 선택 종 번호를 상위 상태로 유지해 항목 이름·개별 제목·저장값을 일치시킵니다. `CollectionInbox.tsx`는 종 목록 조회가 끝난 뒤 수정 창을 엽니다. `mapPinStyle.ts`의 표시 순위와 직접 관찰 우선 정렬은 `MapView.tsx`의 새 핀·기존 핀 갱신·같은 위치 목록 및 첫 선택에 적용됩니다.
+
+`SpeciesPicker.tsx`는 관찰·수집 수정 화면에서 공통으로 국명·학명 검색과 기존 종 번호 선택을 제공합니다. 목록의 도감 순서를 유지하고 현재 종으로 스크롤합니다. 타이핑 중인 검색어를 종 번호로 저장하지 않도록 입력 검증하며 키보드와 마우스 선택을 지원합니다. 직접 관찰의 개별 날짜 입력 제거는 화면 변경이며 기존 observation_date 필드와 API 호환은 유지합니다.
+
+선택 목록의 공통 크기·색은 index.css의 --choice-* 변수와 App.css에서 관리합니다. 일반 select는 지원 브라우저의 base-select 표시를 사용하므로 화면별 저장 코드를 교체하지 않습니다. SpeciesPicker는 manual popover로 수정 창 밖의 최상위에 표시하며 입력 위치·화면 여유 공간으로 크기와 위아래 표시 위치를 정합니다.

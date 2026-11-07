@@ -56,7 +56,7 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
       </div>
     </fieldset>
     {busy && <button type="button" onClick={() => { stopped.current = true; setNotice(previous => previous + '\n중지 요청: 현재 요청 저장 후 멈춥니다.') }}>수집 중지</button>}
-    <p className="hint">날짜를 비우면 과거 전체가 대상입니다. 한 번에 최대 2000건을 확인하며 같은 조건으로 다시 누르면 이어갑니다. 같은 지역의 과거 수집 이력이 있으면 그 수집을 시작한 뒤 게시된 자료를 모두 확인합니다. 과거 수집 이력이 없으면 최신 200건으로 시작하며, 이후에는 기준 뒤의 신규 게시물을 이어갑니다. 조건별 진행 위치는 프로그램을 다시 실행해도 유지됩니다. 비공개·흐림 처리·좌표 없는 자료는 제외하며 사진은 다운로드하지 않습니다.</p>
+    <p className="hint">날짜를 비우면 과거 전체가 대상입니다. 한 번에 최대 2000건을 확인하며 같은 조건으로 다시 누르면 이어갑니다. 같은 지역의 과거 수집 이력이 있으면 그 수집을 시작한 뒤 게시된 자료를 모두 확인합니다. 과거 수집 이력이 없으면 최신 200건으로 시작하며, 이후에는 기준 뒤의 신규 게시물을 이어갑니다. 조건별 진행 위치는 프로그램을 다시 실행해도 유지됩니다. 공개 좌표 오차가 50km 이하이거나 미상이면 흐림 위치도 수집하며 대략적 위치로 표시합니다. 좌표 비공개·좌표 없음·50km 초과는 제외하며, 오차가 없는 자료는 정확도 미상으로 수집합니다. 위치 기준이 바뀐 과거 조건은 다시 누르면 중복 없이 재검사합니다. 사진은 다운로드하지 않습니다.</p>
     {notice && <p role="status" style={{ whiteSpace: 'pre-wrap' }}>{notice}</p>}{error && <p role="alert" className="error">{error}</p>}
   </details>
 }

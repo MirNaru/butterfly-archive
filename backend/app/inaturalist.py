@@ -25,6 +25,8 @@ KOREA = 6891  # 공식 places 조회로 확인한 South Korea입니다.
 PAGE_SIZE = 50
 INITIAL_LATEST_SIZE = 200
 DAILY_LIMIT = 5000
+MAX_LOCATION_UNCERTAINTY = 50_000
+LOCATION_POLICY_VERSION = 3
 request_lock = threading.Lock()
 sync_lock = threading.Lock()
 last_request = 0.0
@@ -125,7 +127,16 @@ def normalized(row):
     taxon = row.get('taxon') or {}
     if taxon.get('id') != BUTTERFLIES and BUTTERFLIES not in taxon.get('ancestor_ids', []):
         return None
-    if row.get('obscured') or row.get('geoprivacy') not in (None, '', 'open') or row.get('taxon_geoprivacy') not in (None, '', 'open'):
+    if any(row.get(field) not in (None, '', 'open', 'obscured') for field in ('geoprivacy', 'taxon_geoprivacy')):
+        return None
+    obscured = bool(row.get('obscured') or row.get('geoprivacy') == 'obscured' or row.get('taxon_geoprivacy') == 'obscured')
+    accuracy = row.get('public_positional_accuracy')
+    accuracy_basis = 'public_positional_accuracy'
+    if accuracy is None and not obscured:
+        accuracy, accuracy_basis = row.get('positional_accuracy'), 'positional_accuracy'
+    if accuracy is None:
+        accuracy_basis = 'unknown'
+    elif isinstance(accuracy, bool) or not isinstance(accuracy, (int, float)) or not math.isfinite(accuracy) or not 0 <= accuracy <= MAX_LOCATION_UNCERTAINTY:
         return None
     coordinates = (row.get('geojson') or {}).get('coordinates')
     if not isinstance(coordinates, list) or len(coordinates) != 2:
@@ -151,7 +162,7 @@ def normalized(row):
                 korean_name=taxon.get('preferred_common_name') or scientific or '종 미확인', scientific_name=scientific,
                 observed_raw=row.get('observed_on_string') or observed or '', observed_date=observed, observed_time=clock,
                 place_raw=row.get('place_guess') or '', latitude=lat, longitude=lng,
-                weather_raw='', location_accuracy=row.get('positional_accuracy'),
+                weather_raw='', location_accuracy=accuracy, location_obscured=obscured, accuracy_basis=accuracy_basis,
                 original=row)
 
 
@@ -183,6 +194,9 @@ def sync(value: SyncInput, request: Request):
         states = read_states()
         key = hashlib.sha256(value.model_dump_json().encode()).hexdigest()
         state = states.get(key, {})
+        # 과거 조건은 사용자가 다시 실행할 때 새 위치 기준으로 재검사합니다.
+        if value.mode == 'history' and state and state.get('location_policy_version') != LOCATION_POLICY_VERSION:
+            state = {}
         started_at = state.get('started_at') or datetime.now(timezone.utc).isoformat()
         since = state.get('since')
         if value.mode == 'latest' and not state:
@@ -196,7 +210,7 @@ def sync(value: SyncInput, request: Request):
             if len(taxa) != 1 or taxa[0].get('id') != value.taxon_id or taxa[0].get('rank') != 'species' or BUTTERFLIES not in taxa[0].get('ancestor_ids', []):
                 raise HTTPException(422, '나비 종만 과거 수집 대상으로 선택할 수 있습니다.')
         params = dict(taxon_id=value.taxon_id or BUTTERFLIES, place_id=value.place_id, per_page=PAGE_SIZE,
-                      order_by='id', order='desc', locale='ko', geoprivacy='open', taxon_geoprivacy='open')
+                      order_by='id', order='desc', locale='ko')
         if value.start:
             params['d1'] = value.start.isoformat()
         if value.end:
@@ -231,7 +245,7 @@ def sync(value: SyncInput, request: Request):
         done = len(rows) < PAGE_SIZE or (value.mode == 'latest' and not state.get('completed_high') and not since and state.get('scanned', 0) + len(rows) >= INITIAL_LATEST_SIZE)
         next_state = dict(state, done=done, cursor=ids[-1] if ids and not done else None,
                           pending_high=high, scanned=state.get('scanned', 0) + len(rows), updated_at=stamp,
-                          started_at=started_at, since=since, query=value.model_dump(mode='json'))
+                          started_at=started_at, since=since, query=value.model_dump(mode='json'), location_policy_version=LOCATION_POLICY_VERSION)
         if value.mode == 'latest' and done:
             next_state.update(completed_high=max(state.get('completed_high', 0), high), pending_high=0)
         states[key] = next_state

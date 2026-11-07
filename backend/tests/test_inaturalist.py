@@ -12,6 +12,101 @@ HEADERS = {'X-Butterfly-Client': 'app'}
 TAXON = {'id': 123, 'name': 'Papilio xuthus', 'rank': 'species', 'ancestor_ids': [47224]}
 
 
+@pytest.mark.parametrize('accuracy,accepted', [(0,True),(28_476,True),(50_000,True),(50_000.1,False),(-1,False),(None,True),(True,False),('500',False),(float('nan'),False),(float('inf'),False)])
+def test_obscured_public_accuracy_limit(accuracy,accepted):
+    row=observation(1)
+    row.update(obscured=True,taxon_geoprivacy='obscured',public_positional_accuracy=accuracy,positional_accuracy=5)
+    payload=inaturalist.normalized(row)
+    assert (payload is not None)==accepted
+    if payload:
+        assert payload['location_accuracy']==accuracy and payload['location_obscured']
+        assert payload['accuracy_basis']==('unknown' if accuracy is None else 'public_positional_accuracy')
+        assert row['positional_accuracy']==5
+
+
+@pytest.mark.parametrize('changes', [dict(positional_accuracy=50_001),dict(geoprivacy='private',public_positional_accuracy=20),dict(taxon_geoprivacy='private',public_positional_accuracy=20)])
+def test_over_limit_and_private_still_excluded(changes):
+    row=observation(1)
+    row.update(changes)
+    assert inaturalist.normalized(row) is None
+
+
+@pytest.mark.parametrize('obscured',[False,True])
+@pytest.mark.parametrize('omit_fields',[False,True])
+def test_missing_accuracy_keeps_coordinates_and_unknown_value(client,monkeypatch,obscured,omit_fields):
+    client.post('/api/species',json={'korean_name':'호랑나비','scientific_name':TAXON['name']})
+    original=observation(11)
+    original.update(obscured=obscured,taxon_geoprivacy='obscured' if obscured else None,
+                    public_positional_accuracy=None,positional_accuracy=None)
+    if omit_fields:
+        original.pop('public_positional_accuracy')
+        original.pop('positional_accuracy')
+    snapshot=json.dumps(original,sort_keys=True)
+    provider(monkeypatch,[[original]])
+    assert sync(client).json()['created']==1
+    assert snapshot==json.dumps(original,sort_keys=True)
+    item=client.get('/api/collection?source=inaturalist').json()['items'][0]
+    assert item['location_accuracy'] is None and item['accuracy_basis']=='unknown'
+    assert item['latitude']==37 and item['longitude']==127
+    assert '미상' in item['location_note'] and item['eligible']
+    assert ('흐림 위치' in item['location_note'])==obscured
+    assert client.post('/api/collection/register',json={'ids':[item['id']]},headers=HEADERS).status_code==200
+    record=client.get('/api/surveys').json()[0]['observations'][0]
+    assert record['effective_latitude']==37 and record['effective_longitude']==127
+    assert '미상' in record['source_location_note'] and '위치 정확도: 미상' in record['notes']
+    assert record['location_method']==('approximate' if obscured else 'unknown')
+
+
+def test_obscured_missing_public_accuracy_never_uses_original_accuracy():
+    original=observation(1)
+    original.update(obscured=True,positional_accuracy=5)
+    payload=inaturalist.normalized(original)
+    assert payload['location_accuracy'] is None and payload['accuracy_basis']=='unknown'
+    assert payload['original']['positional_accuracy']==5
+
+
+@pytest.mark.parametrize('legacy_policy',[None,2])
+def test_location_policy_rechecks_selected_history_without_duplicates(client,monkeypatch,legacy_policy):
+    calls=provider(monkeypatch,[[observation(9)],[observation(10),observation(9)],[observation(8)]])
+    assert sync(client).json()['created']==1
+    states=json.loads(inaturalist.state_path().read_text(encoding='utf-8'))
+    next(iter(states.values())).pop('location_policy_version')
+    if legacy_policy is not None:
+        next(iter(states.values()))['location_policy_version']=legacy_policy
+    inaturalist.state_path().write_text(json.dumps(states),encoding='utf-8')
+    result=sync(client).json()
+    assert result['created']==1 and result['unchanged']==1 and not result['done']
+    assert 'id_below' not in calls[-1][1]
+    assert 'geoprivacy' not in calls[-1][1] and 'taxon_geoprivacy' not in calls[-1][1]
+    assert sync(client).json()['created']==1
+    count=len(calls)
+    assert sync(client).json()['created']==0 and len(calls)==count
+    assert client.get('/api/collection?source=inaturalist').json()['total']==3
+
+
+def test_obscured_snapshot_registration_and_region_separation(client,monkeypatch):
+    sid=client.post('/api/species',json={'korean_name':'호랑나비','scientific_name':TAXON['name']}).json()['id']
+    row=observation(11)
+    row.update(obscured=True,taxon_geoprivacy='obscured',public_positional_accuracy=28_476,positional_accuracy=97)
+    provider(monkeypatch,[[row]])
+    assert sync(client).json()['created']==1
+    item=client.get('/api/collection?source=inaturalist').json()['items'][0]
+    assert item['location_accuracy']==28_476 and '흐림 위치' in item['location_note']
+    assert item['original']['positional_accuracy']==97
+    assert client.get('/api/surveys').json()==[]
+    result=client.post('/api/collection/register',json={'ids':[item['id']]},headers=HEADERS)
+    assert result.status_code==200
+    survey=client.get('/api/surveys').json()[0]
+    saved=survey['observations'][0]
+    assert saved['location_method']=='approximate'
+    assert '28.48km' in saved['source_location_note'] and '흐림 위치' in saved['location_note']
+    assert '흐림 위치' in saved['notes'] and saved['effective_latitude']==37
+    assert saved['administrative_region']=='' and saved['administrative_region_code'] is None
+    from app.regions import observation_regions
+    with connect_database() as db:
+        assert sid not in observation_regions(db)
+
+
 def observation(key, **changes):
     return dict(id=key, taxon=TAXON, observed_on='2020-05-10', observed_on_string='2020/05/10 14:00',
                 time_observed_at='2020-05-10T05:00:00Z', observed_time_zone='Asia/Seoul',
@@ -103,7 +198,7 @@ def test_first_latest_catches_all_posts_since_history_started(client, monkeypatc
     assert client.get('/api/collection?source=inaturalist').json()['total'] == 4
 
 
-@pytest.mark.parametrize('changes', [dict(obscured=True), dict(geoprivacy='private'), dict(taxon_geoprivacy='obscured'), dict(geojson=None), dict(geojson={'coordinates': [None, 37]}), dict(geojson={'coordinates': [127, 91]}), dict(taxon={'id': 4, 'ancestor_ids': []})])
+@pytest.mark.parametrize('changes', [dict(geoprivacy='private'), dict(geojson=None), dict(geojson={'coordinates': [None, 37]}), dict(geojson={'coordinates': [127, 91]}), dict(taxon={'id': 4, 'ancestor_ids': []})])
 def test_excludes_private_invalid_and_non_butterflies(client, monkeypatch, changes):
     item = observation(1)
     item.update(changes)

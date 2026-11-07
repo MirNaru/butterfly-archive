@@ -195,7 +195,7 @@ export default function App() {
   const selected = filtered.find(s => s.id === selectedId)
   const mapShown = mode === 'records' && tab === 'map'
   const pins: MapPin[] = useMemo(() => !mapShown ? [] : [
-    ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, source: pinSource(r), latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}` }] : []),
+    ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, source: pinSource(r), latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}${r.source_location_note ? ' · ' + r.source_location_note : ''}` }] : []),
     ...(activeSpeciesId===null?emptySurveys:[]).flatMap(s => s.latitude !== null && s.longitude !== null ? [{ id: `survey-${s.id}`, surveyId: s.id, latitude: s.latitude, longitude: s.longitude, label: `${s.survey_date} · ${s.display_place || s.place_name || '탐사 위치'} · 종별 기록 없음` }] : []),
   ], [mapShown,rows, emptySurveys,activeSpeciesId])
   const selectSurvey = useCallback((s: Survey, recordId?: number) => {

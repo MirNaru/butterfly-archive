@@ -1,7 +1,7 @@
 // 개별 기록 필터와 표 정렬을 외부 요청 없이 검사합니다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { emptyFilters, matches, emptySurveyMatches, sortRows, rowsFor } from '../src/recordSearch.ts'
+import { emptyFilters, matches, emptySurveyMatches, isDirectSurvey, sortRows, rowsFor } from '../src/recordSearch.ts'
 const survey = { id: 1, survey_date: '2026-10-26', place_name: '조사 장소', notes: '조사 메모', latitude: 37, longitude: 127, observations: [] }
 const row = { survey, scientificName: 'Test species', record: { id: 1, species_id: 1, species_name: '시험 나비', effective_date: '2026-10-25', observation_time: null, effective_place: '개별 장소', effective_latitude: null, effective_longitude: null, notes: '종별 메모', stage: 'adult', sex: 'female', result: 'observed', capture_status: 'captured', count: null } }
 test('학명·메모 검색과 개별 날짜·장소 기준', () => {
@@ -46,7 +46,26 @@ test('직접·간접 관찰 출처 필터와 빈 조사 구분', () => {
  assert(matches(direct, { ...emptyFilters(), source: ['direct'] }, ''))
  assert(!matches(indirect, { ...emptyFilters(), source: ['direct'] }, ''))
  assert(matches(indirect, { ...emptyFilters(), source: ['direct', 'indirect'] }, ''))
- assert(!emptySurveyMatches(survey, { ...emptyFilters(), source: ['direct'] }, ''))
+ assert(emptySurveyMatches(survey, { ...emptyFilters(), source: ['direct'] }, ''))
+ assert(!emptySurveyMatches(survey, { ...emptyFilters(), source: ['indirect'] }, ''))
+})
+
+test('종별 기록 없는 직접 탐사를 목록과 날짜·장소·메모·태그 검색으로 찾음', () => {
+ const empty = {...survey,purpose:'general',tags:['산지']}
+ assert(isDirectSurvey(empty))
+ assert(isDirectSurvey({...empty,observations:[{source_type:'direct'}]}))
+ assert(!isDirectSurvey({...empty,purpose:'online_research'}))
+ assert(!isDirectSurvey({...empty,observations:[{source_type:'indirect'}]}))
+ assert(emptySurveyMatches(empty,{...emptyFilters(),start:'2026-10-26',end:'2026-10-26',place:'조사',source:['direct'],tags:['산지']},'조사 메모'))
+ assert(emptySurveyMatches(empty,emptyFilters(),'2026-10-26'))
+ assert(emptySurveyMatches(empty,emptyFilters(),'산지'))
+ assert(!emptySurveyMatches(empty,{...emptyFilters(),start:'2026-10-27'},''))
+ assert(!emptySurveyMatches(empty,{...emptyFilters(),place:'다른 장소'},''))
+ assert(!emptySurveyMatches({...empty,purpose:'online_research'},emptyFilters(),''))
+ for (const conditions of [{species:['unknown']},{stage:['adult']},{result:['not_found']},{time:'no'}]) {
+   assert(!emptySurveyMatches(empty,{...emptyFilters(),...conditions},''))
+ }
+ assert.equal(rowsFor([empty],[],{}).length,0)
 })
 
 const reference = (id, values = {}) => ({ id, korean_name: `시험 종 ${id}`, scientific_name: `Test species ${id}`, active: true, days_left: 4, year_round: false, region_match: true, old_vagrant: false, capture_history: 'not_captured', permission: 'unknown', reference: { north_only: null, protected: null }, ...values })

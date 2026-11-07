@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CAPTURE, LOCATION, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Survey, ExplorationRow } from './models'
-import { sortEntries, weatherState } from './recordSearch'
+import { isDirectSurvey, sortEntries, weatherState } from './recordSearch'
 import type { RecordRow, TableEntry } from './recordSearch'
 const extras = { tags: '환경 태그', result: '관찰·미발견', source: '관찰 출처', sourceNote: '출처 근거', stage: '성장 단계', sex: '성별', count: '관찰 개체 수', capture: '채집 여부', captured: '채집 개체 수', coords: '좌표', method: '위치 입력 방식', notes: '메모', updated: '최근 수정', period: '어른벌레 출현 참고 기간', days: '예상 출현 기간 남은 일수', history: '내 채집 이력', regions: '분포 참고', evidence: '참고자료 출처' }
 type Extra = keyof typeof extras
@@ -15,7 +15,7 @@ export default function RecordTable({ rows, surveys, references, ranks, onSelect
   function sortBy(key: string) { resetScroll(); setSort(key); setDirection(sort === key && direction === 'asc' ? 'desc' : 'asc') }
   const entries = useMemo<TableEntry[]>(() => rows.map(row => ({kind:'record',row})), [rows])
   const sorted = useMemo(() => sortEntries(entries, references, ranks, sort, direction), [entries,references,ranks,sort,direction])
-  const directSurveys = useMemo(() => surveys.filter(s => s.observations.length > 0 && s.observations.every(o => o.source_type === 'direct')), [surveys])
+  const directSurveys = useMemo(() => surveys.filter(isDirectSurvey), [surveys])
   const scroller = useRef<HTMLDivElement>(null)
   const [windowSize, setWindowSize] = useState(24)
   useEffect(() => {

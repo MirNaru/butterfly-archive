@@ -1,5 +1,5 @@
 /* 흰색과 노란색을 기준으로 공통 간격·문자·입력 상태를 정의합니다. */
-:root { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; color: #292720; background: #f5f5f3; font-size: 15px; line-height: 1.55; font-synthesis: none; --accent: #fbbc04; --accent-soft: #fff4cf; --accent-faint: #fffbef; --border: #e4dfd3; --muted: #706b60; --space: 12px; }
+:root { font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; color: #292720; background: #f5f5f3; font-size: 15px; line-height: 1.55; font-synthesis: none; --accent: #fbbc04; --accent-soft: #fff4cf; --accent-faint: #fffbef; --border: #e4dfd3; --muted: #706b60; --space: 12px; --choice-font-size: 13px; --choice-row-height: 32px; --choice-panel-height: 322px; --choice-border: #c8b989; --choice-shadow: 0 4px 14px #0002; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 360px; }
 button, input, select, textarea { font: inherit; }

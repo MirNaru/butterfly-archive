@@ -1,10 +1,10 @@
 // SDK를 페이지당 한 번만 로드하며 Secret을 브라우저로 가져오지 않습니다.
 export interface LatLng { lat(): number; lng(): number }
-export interface NaverMap { getZoom():number; getBounds():{getSW():LatLng;getNE():LatLng}; setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void; setMapTypeId(type: string): void; fitBounds(points: LatLng[], options?: {top:number;right:number;bottom:number;left:number;maxZoom:number}): void }
+export interface NaverMap { getSize():{width:number;height:number}; updateBy(point:LatLng,zoom:number):void; getZoom():number; getBounds():{getSW():LatLng;getNE():LatLng}; setCenter(point: LatLng): void; setSize(size: { width: number; height: number }): void; setMapTypeId(type: string): void; fitBounds(points: LatLng[], options?: {top:number;right:number;bottom:number;left:number;maxZoom:number}): void }
 export interface PolygonStyle {strokeColor:string;strokeWeight:number;strokeOpacity:number;fillColor:string;fillOpacity:number;clickable:boolean}
 export interface NaverPolygon {setMap(map:NaverMap|null):void;setOptions(options:PolygonStyle):void}
 export interface MarkerIcon { content: string; anchor: { x: number; y: number } }
-export interface NaverMarker { setMap(map: NaverMap | null): void; setIcon(icon: MarkerIcon): void; setTitle(title: string): void }
+export interface NaverMarker { setMap(map: NaverMap | null): void; setIcon(icon: MarkerIcon): void; setTitle(title: string): void; setZIndex(zIndex: number): void }
 export interface MapClick { coord: LatLng }
 export interface NaverMaps {
   Polygon: new (options: PolygonStyle & { map:NaverMap|null; paths:LatLng[][] }) => NaverPolygon
@@ -12,7 +12,7 @@ export interface NaverMaps {
   LatLng: new (lat: number, lon: number) => LatLng
   Point: new (x: number, y: number) => { x: number; y: number }
   Map: new (element: HTMLElement, options: { center: LatLng; zoom: number }) => NaverMap
-  Marker: new (options: { map: NaverMap | null; position: LatLng; title: string; icon?: MarkerIcon }) => NaverMarker
+  Marker: new (options: { map: NaverMap | null; position: LatLng; title: string; icon?: MarkerIcon; zIndex?: number }) => NaverMarker
   Event: {
     addListener(target: NaverMap | NaverMarker | {setMap:(map:NaverMap|null)=>void}, name: string, callback: (event: MapClick) => void): object
     removeListener(listener: object): void

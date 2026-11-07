@@ -42,8 +42,11 @@ export function matches(row: RecordRow, f: Filters, query: string): boolean {
     && (!f.coordinates || (f.coordinates === 'yes') === (r.effective_latitude !== null && r.effective_longitude !== null))
     && (!f.weather || weatherState(row) === f.weather)
 }
+export function isDirectSurvey(s: Survey): boolean {
+  return s.observations.length ? s.observations.every(o => o.source_type === 'direct') : s.purpose !== 'online_research'
+}
 export function emptySurveyMatches(s: Survey, f: Filters, query: string): boolean {
-  if (s.observations.length || f.species.length || f.stage.length || f.sex.length || f.result.length || f.capture.length || f.source.length || f.time || f.weather) return false
+  if (s.observations.length || !isDirectSurvey(s) || f.species.length || f.stage.length || f.sex.length || f.result.length || f.capture.length || !member(f.source, 'direct') || f.time || f.weather) return false
   return !(f.start && f.end && f.start > f.end) && contains(`${s.place_search||s.place_name} ${s.survey_date} ${s.notes} ${(s.tags || []).join(' ')}`, query)
     && (!f.tags.length || f.tags.some(tag => (s.tags || []).includes(tag)))
     && contains(s.place_search||s.place_name, f.place) && (!f.start || s.survey_date >= f.start) && (!f.end || s.survey_date <= f.end)

@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.database import connect_database
-from app.collection_import import registration_info, import_item, preserve_stage_override, observed_datetime
+from app.collection_import import registration_info, import_item, preserve_stage_override, observed_datetime, source_location_note
 from app.regions import display_location
 
 router = APIRouter(prefix='/api/collection', tags=['collection'])
@@ -112,11 +112,15 @@ def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le
         for row in rows:
             payload = json.loads(row['payload_json'])
             info = registration_info(db, payload)
+            location = display_location(payload.get('place_raw',''),payload.get('latitude'),payload.get('longitude'))
+            location['location_note'] = ' · '.join(filter(None, [location.get('location_note'), source_location_note(payload)]))
+            if payload.get('source') == 'inaturalist' and payload.get('location_obscured'):
+                location = dict(display_place=payload.get('place_raw',''), place_search=payload.get('place_raw',''), location_note=source_location_note(payload))
             if info['species_id']:
                 species = db.execute('SELECT korean_name,scientific_name FROM species WHERE id=?', (info['species_id'],)).fetchone()
                 payload = {**payload, 'korean_name':species['korean_name'], 'scientific_name':species['scientific_name'] or ''}
             imported = db.execute('SELECT observation_id,payload_json,inference_json FROM collection_imports WHERE item_id=?', (row['id'],)).fetchone()
-            items.append({**payload, **display_location(payload.get('place_raw',''),payload.get('latitude'),payload.get('longitude')), 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
+            items.append({**payload, **location, 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
                           'eligible':info['eligible'], 'reason':info['reason'], 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],
                           'species_id':info['species_id'], 'stage_manual':bool(info['inference'].get('manual_stage_override')), 'version':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
                           'observation_id':imported['observation_id'] if imported else None,

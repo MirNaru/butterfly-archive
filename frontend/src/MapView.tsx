@@ -5,10 +5,16 @@ import { mapPermit } from './api'
 import { loadMaps, onMapAuthFailure } from './naverMaps'
 import type { NaverMap, NaverMarker, NaverMaps } from './naverMaps'
 import type { Coordinate, MapPin, SpeciesReference } from './models'
-import { PIN_STYLE, pinAppearance } from './mapPinStyle'
+import { PIN_STYLE, pinAppearance, directPinsFirst, clusterAppearance } from './mapPinStyle'
+import { buildPinIndex, clusterZoom, markerBounds, locationKey } from './mapClusters'
+import type { DisplayPin } from './mapClusters'
+import type { PinSource } from './models'
 
 import { boundaryLevel, loadBoundaries, paddedBounds, RegionLayer, visibleParts } from './regionLayer'
 import type { BoundaryData, Bounds } from './regionLayer'
+
+// 현재 약 6천 위치의 필터 왕복을 보관하되, 숨긴 핀은 이 수를 넘기지 않습니다.
+const MAX_HIDDEN_MARKERS = 8000
 export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, distribution, infoContainer }: {
   infoContainer?: HTMLElement | null
   distribution?:{name:string;reference:SpeciesReference}|null
@@ -23,6 +29,10 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   useEffect(() => { latest.current = { pins, onSelect, onPick, focus } }, [pins, onSelect, onPick, focus])
   const markers = useRef(new Map<string, NaverMarker>())
   const appearances = useRef(new Map<string, string>())
+  const attached = useRef(new Set<string>())
+  const hiddenMarkers = useRef(new Map<string, true>())
+  const pinIndex = useRef<{pins: MapPin[]; index: ReturnType<typeof buildPinIndex>; generation: number} | null>(null)
+  const targets = useRef(new Map<string, DisplayPin>())
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
   const [group, setGroup] = useState<string | null>(null)
@@ -33,7 +43,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   const layer=useRef<RegionLayer|null>(null)
   const distributionRef=useRef(distribution)
   useEffect(()=>{distributionRef.current=distribution},[distribution])
-  const [viewport,setViewport]=useState<{zoom:number;bounds:Bounds}|null>(null)
+  const [viewport,setViewport]=useState<{zoom:number;bounds:Bounds;width:number}|null>(null)
   const [boundaryError,setBoundaryError]=useState('')
   const [regionInfo,setRegionInfo]=useState<{name:string;species:string;details:string[]}|null>(null)
   const [regionRetry,setRegionRetry]=useState(0)
@@ -51,8 +61,8 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
     })
     const update=()=>{
       const bounds=currentMap.getBounds(),sw=bounds.getSW(),ne=bounds.getNE()
-      const next={zoom:currentMap.getZoom(),bounds:[sw.lng(),sw.lat(),ne.lng(),ne.lat()] as Bounds}
-      setViewport(old=>old&&old.zoom===next.zoom&&old.bounds.every((v,i)=>Math.abs(v-next.bounds[i])<0.000001)?old:next)
+      const next={zoom:currentMap.getZoom(),bounds:[sw.lng(),sw.lat(),ne.lng(),ne.lat()] as Bounds,width:currentMap.getSize().width}
+      setViewport(old=>old&&old.zoom===next.zoom&&old.width===next.width&&old.bounds.every((v,i)=>Math.abs(v-next.bounds[i])<0.000001)?old:next)
     }
     const idle=api.Event.addListener(currentMap,'idle',update)
     const size=api.Event.addListener(currentMap,'size_changed',update)
@@ -93,37 +103,81 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   }, [ready, satellite])
   useEffect(() => {
     if (!shown || !ready || !map.current || !sdk.current) return
-    if (hidden) { for (const marker of markers.current.values()) marker.setMap(null); return }
     const api = sdk.current
-    const groups = new Map<string, MapPin[]>()
-    for (const pin of pins) {
-      const key = `${pin.latitude},${pin.longitude}`
-      groups.set(key, [...(groups.get(key) || []), pin])
+    const detach = (key: string) => {
+      if (!attached.current.delete(key)) return
+      markers.current.get(key)!.setMap(null)
+      hiddenMarkers.current.set(key, true)
     }
-    for (const [key, marker] of markers.current) if (!groups.has(key)) {
-      marker.setMap(null); api.Event.clearInstanceListeners(marker); markers.current.delete(key); appearances.current.delete(key)
+    const trimHidden = () => {
+      for (const key of hiddenMarkers.current.keys()) {
+        if (hiddenMarkers.current.size <= MAX_HIDDEN_MARKERS) break
+        api.Event.clearInstanceListeners(markers.current.get(key)!)
+        markers.current.delete(key)
+        appearances.current.delete(key)
+        hiddenMarkers.current.delete(key)
+      }
     }
-    for (const [key, values] of groups) {
-      const appearance = pinAppearance(values.map(pin => pin.source || 'direct'))
+    if (hidden) {
+      for (const key of attached.current) detach(key)
+      targets.current.clear()
+      trimHidden()
+      return
+    }
+    if (!viewport) return
+    if (pinIndex.current?.pins !== pins) {
+      const generation = (pinIndex.current?.generation || 0) + 1
+      pinIndex.current = {pins, index: buildPinIndex(pins), generation}
+      // 통합 번호는 인덱스 안에서만 유효하므로 이전 통합 객체·클릭 연결은 폐기합니다.
+      for (const key of markers.current.keys()) if (key.startsWith('c:')) {
+        detach(key)
+        api.Event.clearInstanceListeners(markers.current.get(key)!)
+        markers.current.delete(key); appearances.current.delete(key); hiddenMarkers.current.delete(key)
+      }
+    }
+    const zoom = clusterZoom(viewport.bounds, viewport.width)
+    const groups = new Map(pinIndex.current.index.query(markerBounds(viewport.bounds), zoom, pinIndex.current.generation).map(item => [item.key, item]))
+    targets.current = groups
+    for (const key of attached.current) if (!groups.has(key)) detach(key)
+    for (const [key, item] of groups) {
+      const isCluster = item.expansionZoom !== undefined
+      const appearance = isCluster ? clusterAppearance(item.count, item.locations, item.sources) : pinAppearance((Object.keys(PIN_STYLE) as PinSource[]).filter(source => item.sources[source] > 0))
+      const anchor = isCluster ? new api.Point(22, 22) : new api.Point(15, 33)
+      hiddenMarkers.current.delete(key)
       if (markers.current.has(key)) {
         if (appearances.current.get(key) !== appearance.signature) {
-          markers.current.get(key)!.setIcon({content: appearance.content, anchor: new api.Point(15, 33)})
+          markers.current.get(key)!.setIcon({content: appearance.content, anchor})
           markers.current.get(key)!.setTitle(appearance.title)
+          markers.current.get(key)!.setZIndex(appearance.zIndex)
           appearances.current.set(key, appearance.signature)
+        }
+        if (!attached.current.has(key)) {
+          markers.current.get(key)!.setMap(map.current)
+          attached.current.add(key)
         }
         continue
       }
-      const marker = new api.Marker({ map: hidden ? null : map.current, position: new api.LatLng(values[0].latitude, values[0].longitude), title: appearance.title, icon: {content: appearance.content, anchor: new api.Point(15, 33)} })
+      const marker = new api.Marker({ map: map.current, position: new api.LatLng(item.latitude, item.longitude), title: appearance.title, zIndex: appearance.zIndex, icon: {content: appearance.content, anchor} })
       api.Event.addListener(marker, 'click', () => {
-        setGroup(key)
-        const first = latest.current.pins.find(p => `${p.latitude},${p.longitude}` === key)
+        const target = targets.current.get(key)
+        if (!target || !map.current) return
+        if (target.expansionZoom !== undefined) {
+          setGroup(null)
+          const bounds = map.current.getBounds(), sw = bounds.getSW(), ne = bounds.getNE()
+          const currentZoom = clusterZoom([sw.lng(), sw.lat(), ne.lng(), ne.lat()], map.current.getSize().width)
+          map.current.updateBy(new api.LatLng(target.latitude, target.longitude), Math.min(21, map.current.getZoom() + Math.max(1, target.expansionZoom - currentZoom)))
+          return
+        }
+        setGroup(target.locationKey!)
+        const first = directPinsFirst(latest.current.pins.filter(p => locationKey(p) === target.locationKey))[0]
         if (first) latest.current.onSelect?.(first)
       })
       markers.current.set(key, marker)
       appearances.current.set(key, appearance.signature)
+      attached.current.add(key)
     }
-    for (const marker of markers.current.values()) marker.setMap(hidden ? null : map.current)
-  }, [pins, hidden, ready, shown])
+    trimHidden()
+  }, [pins, hidden, ready, shown, viewport])
   const latitude = focus?.latitude
   const longitude = focus?.longitude
   useEffect(() => {
@@ -139,12 +193,19 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
     return () => observer.disconnect()
   }, [ready])
   useEffect(() => () => {
-    for (const marker of markers.current.values()) { marker.setMap(null); sdk.current?.Event.clearInstanceListeners(marker) }
+    for (const [key, marker] of markers.current) {
+      if (attached.current.has(key)) marker.setMap(null)
+      sdk.current?.Event.clearInstanceListeners(marker)
+    }
     markers.current.clear()
     appearances.current.clear()
+    attached.current.clear()
+    hiddenMarkers.current.clear()
+    targets.current.clear()
+    pinIndex.current = null
     if (map.current) sdk.current?.Event.clearInstanceListeners(map.current)
   }, [])
-  const grouped = hidden ? [] : pins.filter(p => `${p.latitude},${p.longitude}` === group)
+  const grouped = hidden ? [] : directPinsFirst(pins.filter(p => `${p.latitude},${p.longitude}` === group))
   return <section className="map-view">
     <div className="toolbar"><h2 className="map-title">지도</h2><div className="map-actions">
       {distribution!==undefined&&<button type="button" aria-pressed={regionsOn} onClick={()=>{setRegionsOn(v=>!v);setRegionInfo(null)}}>{regionsOn?'출현지역 숨기기':'출현지역 보기'}</button>}

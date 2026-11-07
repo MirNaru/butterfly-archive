@@ -34,6 +34,17 @@
 .primary { background: #fbbc04; color: #332900; border-color: #fbbc04; font-weight: 600; }
 .primary:hover:not(:disabled) { background: #e7ab00; }
 .quiet, .link { background: transparent; border: 0; padding: 5px; }
+.species-picker { position: relative; min-width: 0; display: grid; gap: 6px; margin: 12px 0; align-content: start; }
+.species-picker > label { margin: 0; }
+.species-clear { justify-self: start; font-size: 12px; padding: 2px 5px; }
+.species-picker > input { font-size: var(--choice-font-size); }
+.species-options { position: fixed; inset: auto; z-index: 60; list-style: none; margin: 0; padding: 0; max-height: var(--choice-panel-height); overflow-y: auto; overscroll-behavior: contain; background: white; color: #292720; border: 1px solid var(--choice-border); border-radius: 6px; box-shadow: var(--choice-shadow); font-size: var(--choice-font-size); }
+.species-options > li { padding: 6px 8px; height: var(--choice-row-height); min-height: var(--choice-row-height); line-height: 20px; display: flex; align-items: baseline; gap: 8px; box-sizing: border-box; cursor: pointer; white-space: nowrap; }
+.species-options > li.active, .species-options > li:hover { background: var(--accent-soft); }
+.species-options > li[aria-selected="true"] { font-weight: 700; }
+.species-options > li > span { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.species-options small { display: inline; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-weight: 400; font-size: 11px; }
+.species-options > .species-scroll-space { height: max(0px, calc(var(--species-visible-height, var(--choice-panel-height)) - var(--choice-row-height) - 2px)); min-height: 0; padding: 0; pointer-events: none; }
 .link { text-decoration: underline; }
 .survey-list { display: grid; gap: 8px; }
 .survey-list button { text-align: left; padding: 14px; }
@@ -200,6 +211,8 @@ td small { display: block; color: #706b60; font-size: 12px; }
 @media (max-width: 760px) { .survey-dialog { width: calc(100vw - 20px); max-height: calc(100dvh - 20px); } .survey-columns { grid-template-columns: 1fr; } .survey-common { border-right: 0; padding: 0; } .survey-dialog .observation-grid, .survey-dialog .individual-location .location-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } .survey-modal-header { align-items: start; flex-direction: column; gap: 4px; } .survey-modal-footer { flex-wrap: wrap; } }
 /* 표준 PC 높이에서 선택한 기록의 모든 필드를 동시에 보여줍니다. */
 .survey-dialog label { margin: 2px 0; gap: 2px; line-height: 1.3; }
+.survey-dialog .species-picker { gap: 2px; margin: 2px 0; }
+.survey-dialog .species-picker > label { margin: 0; }
 .survey-dialog .observation-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .survey-dialog .survey-modal-header { padding-bottom: 10px; margin-bottom: 10px; }
 .survey-dialog .survey-modal-header .hint { margin: 0; }
@@ -268,8 +281,9 @@ td small { display: block; color: #706b60; font-size: 12px; }
 .filter-panel input:not([type='checkbox']), .filter-panel select { padding: 7px 5px; font-size: 12px; min-width: 0; }
 .filter-panel .filter-group { padding: 4px; margin: 8px 0; }
 .filter-panel summary { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
-.filter-options { max-height: 240px; overflow: auto; }
-.filter-options .check { align-items: start; gap: 5px; line-height: 1.5; font-size: 12px; }
+.filter-options { max-height: var(--choice-panel-height); overflow: auto; overscroll-behavior: contain; background: white; border: 1px solid var(--choice-border); border-radius: 6px; }
+.filter-options .check { align-items: center; gap: 5px; line-height: 20px; font-size: var(--choice-font-size); min-height: var(--choice-row-height); margin: 0; padding: 6px 8px; }
+.filter-options .check:hover, .filter-options .check:has(input:checked) { background: var(--accent-soft); }
 .workspace-status { flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; padding: 5px 20px; color: var(--muted); font-size: calc(11px - 1pt); }
 @media (max-width: 850px) { .workspace-status { padding: 4px 16px; } }
 @media (max-width: 620px) { .sidebar-scroll { min-height: 80px; } .sidebar-card { flex: none; } .sidebar .search-modes { max-width: 360px; } .filter-icons { max-width: 260px; } .sidebar-tools { grid-template-columns: minmax(0, 1fr) 28px 28px; } }
@@ -538,3 +552,19 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .mobile-code { font-size: 22px; letter-spacing: 3px; font-weight: 700; margin: 12px 0; }
 .mobile-review-dialog { border: 1px solid var(--border); border-radius: 18px; padding: 24px; width: min(650px,95vw); max-height: 90vh; overflow: auto; }
 .mobile-review-dialog::backdrop { background: #29272055; }
+
+/* 단일 선택 목록은 공통 크기와 색을 사용하고 미지원 브라우저는 기본 목록을 유지합니다. */
+:root select:not([multiple]) { font-size: var(--choice-font-size); }
+@supports (appearance: base-select) {
+  select:not([multiple]), select:not([multiple])::picker(select) { appearance: base-select; }
+  select:not([multiple])::picker(select) { padding: 0; max-height: var(--choice-panel-height); max-width: calc(100vw - 16px); overflow-y: auto; overscroll-behavior: contain; background: white; color: #292720; border: 1px solid var(--choice-border); border-radius: 6px; box-shadow: var(--choice-shadow); font-size: var(--choice-font-size); }
+  select:not([multiple]) option { min-height: var(--choice-row-height); padding: 6px 8px; line-height: 20px; font-size: var(--choice-font-size); background: white; color: #292720; }
+  select:not([multiple]) option:checked, select:not([multiple]) option:hover, select:not([multiple]) option:focus-visible { background: var(--accent-soft); outline: none; }
+  select:not([multiple]) option:checked { font-weight: 700; }
+  select:not([multiple]) option:disabled { color: var(--muted); }
+  select:not([multiple]) option::checkmark { display: none; }
+  select:not([multiple])::picker-icon { color: var(--muted); }
+  select.stage-select::picker(select) { position-area: block-end span-inline-end; position-try-order: normal; position-try-fallbacks: none; }
+}
+.map-cluster { width:44px; height:44px; box-sizing:border-box; border:2px solid white; border-radius:50%; box-shadow:0 1px 4px #0005; display:grid; place-items:center; cursor:pointer; }
+.map-cluster span { min-width:32px; height:32px; padding:0 2px; box-sizing:border-box; display:grid; place-items:center; border-radius:50%; background:#fff; color:#303030; font-size:12px; font-weight:700; }

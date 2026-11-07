@@ -186,6 +186,8 @@ def observation_regions(db):
     for r in db.execute("""SELECT o.*,s.place_name AS sp,s.latitude AS slat,s.longitude AS slng,
         COALESCE(o.observation_date,s.survey_date) AS day FROM observations o JOIN surveys s ON s.id=o.survey_id
         WHERE o.species_id IS NOT NULL AND o.identification='user_confirmed' AND o.result='observed'
+        AND NOT EXISTS(SELECT 1 FROM collection_imports ci WHERE ci.observation_id=o.id
+            AND json_extract(ci.payload_json,'$.location_obscured')=1)
         AND NOT EXISTS(SELECT 1 FROM record_trash t WHERE t.restored_at IS NULL AND
         ((t.kind='survey' AND t.survey_id=o.survey_id) OR (t.kind='observation' AND t.observation_id=o.id)))"""):
         own = bool(r['place_name']) or r['latitude'] is not None

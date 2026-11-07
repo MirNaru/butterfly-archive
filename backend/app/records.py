@@ -9,7 +9,7 @@ from app.tags import names as tag_names, save_links
 from app.photos import linked_ids, save_photo_links
 from app.holdings import validate_observation_links
 from app.trash import ACTIVE_SURVEY, ACTIVE_OBSERVATION, survey_active
-from app.collection_import import observed_datetime, STAGES
+from app.collection_import import observed_datetime, STAGES, source_location_note
 from app.vagrant_years import sync_vagrant_years
 from app.regions import locate as locate_region, current_label, display_location
 
@@ -142,6 +142,13 @@ def observation_view(row, survey, tags, photos):
     record['source_weather'] = None
     if imported_payload:
         payload = json.loads(imported_payload)
+        record['source_location_note'] = source_location_note(payload)
+        record['location_note'] = ' · '.join(filter(None, [record['location_note'], record['source_location_note']]))
+        if payload.get('source') == 'inaturalist' and payload.get('location_obscured') and (record['effective_latitude'], record['effective_longitude']) == (payload.get('latitude'), payload.get('longitude')):
+            # 이동된 공개 점에서 확정 행정구역이나 장소명 보정을 만들지 않습니다.
+            record.update(administrative_region='', administrative_region_code=None,
+                          display_place=record['effective_place'], place_search=record['effective_place'],
+                          location_note=record['source_location_note'])
         weather_text = payload.get('weather_raw', '').strip()
         if weather_text and weather_text != '정보가 없습니다.':
             original_date, original_time = observed_datetime(payload['observed_raw'])

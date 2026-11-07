@@ -1,4 +1,4 @@
-# 원본 프로젝트를 읽을 수 없는 Windows 계정과 조회 서버 실행 환경을 구성합니다.
+﻿# 원본 프로젝트를 읽을 수 없는 Windows 계정과 조회 서버 실행 환경을 구성합니다.
 $ErrorActionPreference='Stop'
 $projectRoot=$PSScriptRoot
 $viewerRoot=Join-Path $env:ProgramData 'ButterflyArchiveViewer'
@@ -11,6 +11,14 @@ $existingAccount=Get-LocalUser -Name $accountName -ErrorAction SilentlyContinue
 if ($existingAccount) {
     $marker=Join-Path $projectRoot 'data/viewer-deployment.json'
     if (-not (Test-Path -LiteralPath $marker) -or (Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json).sid -ne $existingAccount.SID.Value) { throw '다른 기존 계정을 덮어쓰지 않습니다.' }
+}
+# 조회 계정의 로그인 화면 표시 값만 보존하며 다른 사용자 표시는 건드리지 않습니다.
+$loginList='HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
+$loginBackup=Join-Path $projectRoot 'data/viewer-login-visibility-before.json'
+if (-not (Test-Path -LiteralPath $loginBackup)) {
+    $oldLoginValue=Get-ItemProperty -LiteralPath $loginList -Name $accountName -ErrorAction SilentlyContinue
+    @{path=$loginList;name=$accountName;existed=($null -ne $oldLoginValue);value=$(if ($oldLoginValue) {$oldLoginValue.$accountName} else {$null})} |
+        ConvertTo-Json | Set-Content -LiteralPath $loginBackup -Encoding utf8
 }
 $python=Join-Path $projectRoot 'backend/.venv/Scripts/python.exe'
 $pythonBase=(& $python -c 'import sys; print(sys.base_prefix)').Trim()
@@ -25,6 +33,9 @@ else { $account=New-LocalUser -Name $accountName -Password $securePassword -Pass
 $sid=$account.SID.Value
 $standardUsers=Get-LocalGroup -SID 'S-1-5-32-545'
 if (-not (Get-LocalGroupMember -Group $standardUsers | Where-Object { $_.SID -eq $account.SID })) { Add-LocalGroupMember -Group $standardUsers -Member $accountName }
+# 계정은 서버 실행을 위해 활성 상태로 두고 로그인 화면의 사용자 목록에서만 숨깁니다.
+if (-not (Test-Path -LiteralPath $loginList)) { New-Item -Path $loginList -Force | Out-Null }
+New-ItemProperty -LiteralPath $loginList -Name $accountName -PropertyType DWord -Value 0 -Force | Out-Null
 New-Item -ItemType Directory -Force -Path $viewerRoot | Out-Null
 $acl=Get-Acl -LiteralPath $viewerRoot
 $acl.SetAccessRuleProtection($true,$false)
@@ -48,12 +59,12 @@ Copy-Item -Path (Join-Path $projectRoot 'viewer_web/*') -Destination (Join-Path 
 Copy-Item -LiteralPath (Join-Path $projectRoot 'data/tools/caddy-2.11.7/caddy.exe') -Destination (Join-Path $viewerRoot 'runtime/caddy.exe')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'Caddyfile') -Destination (Join-Path $viewerRoot 'Caddyfile')
 $env:BUTTERFLY_VIEWER_ROOT=$viewerRoot
-& $python -c 'import os;from pathlib import Path;import viewer_server;viewer_server.initialize_auth(Path(os.environ["BUTTERFLY_VIEWER_ROOT"]))'
+& $python -c "import os;from pathlib import Path;import viewer_server;viewer_server.initialize_auth(Path(os.environ.get('BUTTERFLY_VIEWER_ROOT')))"
 if ($LASTEXITCODE -ne 0) { throw '조회 인증 저장소 준비 실패' }
 $config=@{root=$viewerRoot;account=$accountName;sid=$sid;viewer_task=$taskViewer;https_task=$taskHttps}
 $config | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $projectRoot 'data/viewer-deployment.json') -Encoding utf8
 $privateKey=Join-Path $projectRoot 'data/pc-access.key'
-if (-not (Test-Path -LiteralPath $privateKey)) { & $python -c 'import sys;sys.path.insert(0,"backend");from app.local_access import key_path;import secrets;key_path().write_text(secrets.token_urlsafe(48),encoding="ascii")' }
+if (-not (Test-Path -LiteralPath $privateKey)) { & $python -c "import sys;sys.path.insert(0,'backend');from app.local_access import key_path;import secrets;key_path().write_text(secrets.token_urlsafe(48),encoding='ascii')" }
 # 변경 전 ACL을 보존하고 새 계정에만 거부 규칙을 더합니다.
 if (-not (Test-Path -LiteralPath (Join-Path $projectRoot '.tmp/viewer-project-acl.xml'))) { Get-Acl -LiteralPath $projectRoot | Export-Clixml -LiteralPath (Join-Path $projectRoot '.tmp/viewer-project-acl.xml') }
 Get-Acl -LiteralPath $privateDb | Export-Clixml -LiteralPath (Join-Path $projectRoot '.tmp/viewer-db-acl.xml')

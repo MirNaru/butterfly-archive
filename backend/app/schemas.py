@@ -123,6 +123,7 @@ class SourceWeather(InputModel):
 
 
 class Observation(ObservationInput):
+    source_location_note: str = ''
     display_place: str = ''
     place_search: str = ''
     location_note: str = ''

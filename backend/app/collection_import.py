@@ -99,6 +99,16 @@ def registration_info(db, payload):
     return {'eligible': not reason, 'reason':reason, 'exempt':False,
             'inference':inference, 'species_id':species['id'] if species else None, 'date':observed, 'time':clock}
 
+def source_location_note(payload):
+    """공개 좌표의 흐림 여부와 정확도 미상을 구분합니다."""
+    if payload.get('source') != 'inaturalist':
+        return ''
+    accuracy = payload.get('location_accuracy')
+    if payload.get('location_obscured'):
+        return f'흐림 위치 · 공개 좌표 오차 {accuracy / 1000:.2f}km · 대략적 위치' if isinstance(accuracy, (int, float)) else '흐림 위치 · 공개 좌표 오차 미상 · 대략적 위치'
+    return '공개 좌표 · 정확도 미상' if accuracy is None else ''
+
+
 def import_item(db, row, info):
     payload = json.loads(row['payload_json'])
     stage = info['inference']['stage']
@@ -112,7 +122,11 @@ def import_item(db, row, info):
         accuracy = payload.get('location_accuracy')
         note = note.replace('- 위치 정확도: 미상', f'- 위치 정확도: {accuracy}m' if isinstance(accuracy, (int, float)) else '- 위치 정확도: 미상')
         note += f"\n- iNaturalist 관찰 시각·시간대 원문: {original.get('time_observed_at')} · {original.get('observed_time_zone')}\n- 원문 단계 정보는 수집 스냅샷에 별도 보존합니다."
+        if source_location_note(payload):
+            note += '\n- ' + source_location_note(payload)
     location = dict(place_name=payload.get('place_raw', ''), latitude=payload.get('latitude'), longitude=payload.get('longitude'), location_method='unknown')
+    if payload.get('source') == 'inaturalist' and payload.get('location_obscured'):
+        location['location_method'] = 'approximate'
     observation = ObservationInput(**location, source_type='indirect', source_note=payload['url'], species_id=info['species_id'], observation_date=info['date'], observation_time=info['time'], stage=stage, identification='user_confirmed', notes=note)
     survey = SurveyInput(**location, survey_date=info['date'], purpose='online_research', notes=f"외부 관찰 자료 · {payload['url']}", observations=[observation])
     now = datetime.now(timezone.utc).isoformat()

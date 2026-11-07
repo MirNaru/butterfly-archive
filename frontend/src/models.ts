@@ -37,6 +37,7 @@ export interface SurveyInput extends LocationInput {
   survey_date: string; purpose: keyof typeof PURPOSE; notes: string; observations: ObservationInput[]
 }
 export interface Observation extends ObservationInput {
+  source_location_note?: string
   display_place?: string; place_search?: string; location_note?: string
   administrative_region?: string
   administrative_region_code?: string | null
