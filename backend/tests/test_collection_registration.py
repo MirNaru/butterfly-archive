@@ -149,3 +149,28 @@ def test_migration_from_ten_preserves_existing_rows(client):
         assert before==[tuple(r) for r in db.execute('SELECT * FROM species')]
         assert db.execute('SELECT count(*) FROM collection_imports').fetchone()[0]==0
         assert not db.execute('PRAGMA foreign_key_check').fetchall()
+
+def test_batch_stage_updates_only_selected_and_rolls_back_on_conflict(client):
+    first_species = client.post('/api/species', json={'korean_name': '네발나비'}).json()['id']
+    second_species = client.post('/api/species', json={'korean_name': '모시나비'}).json()['id']
+    headers = {'Authorization': f'Bearer {key(client)}'}
+    ids = []
+    for n, name in enumerate(['네발나비', '모시나비', '네발나비'], 1):
+        item = {**record(), 'source_id': str(n), 'url': f'https://www.naturing.net/o/{n}', 'korean_name': name}
+        ids.append(client.post('/api/collection/naturing', json=item, headers=headers).json()['id'])
+
+    def listing():
+        return {row['id']: row for row in client.get('/api/collection').json()['items']}
+
+    original = listing()
+    targets = [{'id': item_id, 'expected_version': original[item_id]['version']} for item_id in ids[:2]]
+    route = '/api/collection/batch/stage'
+    bad_targets = [targets[0], {**targets[1], 'expected_version': '0' * 64}]
+    assert client.put(route, headers=APP_HEADERS, json={'stage': 'pupa', 'items': bad_targets}).status_code == 409
+    assert listing() == original
+    assert client.put(route, headers=APP_HEADERS, json={'stage': 'pupa', 'items': targets}).json() == {'ids': ids[:2]}
+    current = listing()
+    assert [current[i]['species_id'] for i in ids] == [first_species, second_species, first_species]
+    assert all(current[i]['inferred_stage'] == 'pupa' and current[i]['stage_manual'] for i in ids[:2])
+    assert current[ids[2]] == original[ids[2]]
+    assert client.get('/api/surveys').json() == []

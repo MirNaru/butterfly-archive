@@ -68,6 +68,6 @@ export default function ReferenceEditor({ species, initial, onClose, onSaved, on
     <details><summary>지역·기간별 채집 가능 여부 확인</summary><p className="hint">사용자가 확인한 근거를 기록합니다. 보호종 제외만으로 채집 가능을 판단하지 않습니다. 목표 지역과 정확히 일치하고 적용 기간 안에 있을 때만 비율에 반영합니다.</p>
       <label>채집 가능 판단<select value={value.permission} onChange={e => update('permission', e.target.value as SpeciesReference['permission'])}><option value="unknown">미확인</option><option value="permitted">가능 · 사용자 확인</option><option value="prohibited">불가 · 사용자 확인</option></select></label>
       {text('permission_region', '판단 대상 지역')}{day('permission_start', '적용 시작일')}{day('permission_end', '적용 종료일')}{text('permission_source', '확인 근거·조건')}
-    </details>{error && <p className="error" role="alert">{error}</p>}<div className="actions"><button className="primary" disabled={busy || photoBusy}>기본 정보 저장</button></div>
+    </details>{error && <p className="error" role="alert">{error}</p>}<div className="actions"><button type="button" disabled={busy || photoBusy} onClick={onClose}>닫기 · 입력 취소</button><button className="primary" disabled={busy || photoBusy}>기본 정보 저장</button></div>
   </fieldset></form>
 }

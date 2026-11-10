@@ -31,7 +31,7 @@ export function pinAppearance(sources: PinSource[]) {
     zIndex: unique.includes('direct') ? 1000 : 0,
     signature: unique.join(','),
     title: `기록 위치 선택 · ${label}`,
-    content: `<div aria-label="${label}" style="position:relative;width:30px;height:38px"><div style="position:absolute;left:3px;top:2px;width:24px;height:24px;box-sizing:border-box;border:2px solid white;border-radius:50% 50% 50% 0;background:${background};transform:rotate(-45deg);box-shadow:0 1px 4px #0005"><span style="position:absolute;left:7px;top:7px;width:6px;height:6px;border-radius:50%;background:white"></span></div></div>`,
+    content: `<div class="map-single-icon" aria-label="${label}" style="--pin-fill:${background}"></div>`,
   }
 }
 
@@ -40,20 +40,45 @@ export function directPinsFirst<T extends { source?: PinSource }>(pins: T[]): T[
   return [...pins].sort((a, b) => Number((b.source || 'direct') === 'direct') - Number((a.source || 'direct') === 'direct'))
 }
 
-// 통합 숫자는 위치 수가 아닌 관찰 수이며 직접 관찰의 표시 순위보다 낮습니다.
-export function clusterAppearance(count: number, locations: number, sources: SourceCounts) {
-  const present = (Object.keys(PIN_STYLE) as PinSource[]).filter(source => sources[source] > 0)
+
+// 원호의 위 끝은 iNaturalist, 아래 끝은 네이처링에 배정합니다.
+function ringFill(sources: SourceCounts) {
+  const order = (['naturing', 'other', 'inaturalist'] as const).filter(source => sources[source] > 0)
+  if (!order.length) return '#e3e5e7'
+  if (order.length === 1) return PIN_STYLE[order[0]].color
+
+  const total = order.reduce((sum, source) => sum + sources[source], 0)
+  const sweep = 200
+  const minimum = 25
+  const naturalWidths = order.map(source => sources[source] / total * sweep)
+  const excess = naturalWidths.reduce((sum, width) => sum + Math.max(0, width - minimum), 0)
   let start = 0
-  const stops = present.map(source => {
+  const stops = order.map((source, index) => {
     const from = start
-    start += sources[source] / count * 100
-    return `${PIN_STYLE[source].color} ${from}% ${start}%`
+    start += minimum + Math.max(0, naturalWidths[index] - minimum) / excess * (sweep - minimum * order.length)
+    return `${PIN_STYLE[source].color} ${from}deg ${start}deg`
   })
-  const background = present.length === 1 ? PIN_STYLE[present[0]].color : `conic-gradient(${stops.join(',')})`
-  const title = `간접 관찰 ${count}건 · ${locations}개 위치 · ${present.map(source => `${PIN_STYLE[source].label} ${sources[source]}건`).join(' · ')} · 클릭하여 확대`
+  return `conic-gradient(from 152deg at 40.55% 57.13%, ${stops.join(',')}, ${PIN_STYLE[order.at(-1)!].color} ${sweep}deg 360deg)`
+}
+
+function countText(count: number, className: string) {
+  const text = count.toLocaleString('en-US')
+  const direct = className === 'map-cluster-direct'
+  // 자릿수마다 폭이 넓은 8을 기준으로 하고 쉼표 폭은 따로 계산합니다.
+  const digits = String(count).length
+  const widthInEm = digits * 0.65 + (text.length - digits) * 0.35
+  const size = Math.min(direct ? 10 : 14, (direct ? 11 : 24) / widthInEm)
+  return `<span class="${className}" style="font-size:${size}px">${text}</span>`
+}
+
+export function clusterAppearance(count: number, locations: number, sources: SourceCounts, surveyCount: number, directSurveyCount: number, canExpand: boolean) {
+  const present = (Object.keys(PIN_STYLE) as PinSource[]).filter(source => sources[source] > 0)
+  const action = canExpand ? '클릭하여 확대' : '클릭하여 기록 선택'
+  const title = `탐사 ${surveyCount}건 · 관찰 ${count}건 · ${locations}개 위치 · ${present.map(source => `${PIN_STYLE[source].label} ${sources[source]}건`).join(' · ')} · ${action}`
   return {
-    signature: `cluster:${count}:${locations}:${present.map(source => `${source}:${sources[source]}`).join(',')}`,
-    zIndex: 10, title,
-    content: `<div class="map-cluster" aria-label="${title}" style="background:${background}"><span>${count.toLocaleString('en-US')}</span></div>`,
+    signature: `cluster:${title}:${directSurveyCount}`,
+    zIndex: directSurveyCount ? 1000 : 10,
+    title,
+    content: `<div class="map-cluster-icon" aria-label="${title}" style="--wing-fill:${directSurveyCount ? PIN_STYLE.direct.color : '#e3e5e7'};--ring-fill:${ringFill(sources)}"><div class="map-cluster-ring"></div>${countText(surveyCount, 'map-cluster-total')}${directSurveyCount ? countText(directSurveyCount, 'map-cluster-direct') : ''}</div>`,
   }
 }

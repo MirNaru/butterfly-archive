@@ -52,10 +52,12 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
       <div className="inat-row inat-location-row" role="group" aria-label="수집 지역과 관찰 기간">
         <label className="inat-place-query">지역 찾기<input value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} placeholder="국가·지역명" /></label><button type="button" disabled={placeQuery.trim().length < 2} onClick={() => void search('places')}>지역 검색</button><label className="inat-place-select">수집 지역<select value={place.id} onChange={e => setPlace([{ id: 6891, name: '대한민국', scientific_name: '' }, ...places].find(p => p.id === Number(e.target.value))!)}><option value={6891}>대한민국</option>{places.filter(p => p.id !== 6891).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label className="inat-date">시작일 · 선택<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label><label className="inat-date">종료일 · 선택<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
-        <button type="button" disabled={mode === 'history' && !taxon || !!(start && end && start > end)} onClick={() => void collect()}>가져오기 · 이어서</button>
       </div>
     </fieldset>
-    {busy && <button type="button" onClick={() => { stopped.current = true; setNotice(previous => previous + '\n중지 요청: 현재 요청 저장 후 멈춥니다.') }}>수집 중지</button>}
+    <div className="inat-collect-actions">
+      <button type="button" disabled={busy || mode === 'history' && !taxon || !!(start && end && start > end)} onClick={() => void collect()}>가져오기 · 이어서</button>
+      <button type="button" disabled={!busy} onClick={() => { stopped.current = true; setNotice(previous => previous + '\n중지 요청: 현재 요청 저장 후 멈춥니다.') }}>수집 중지</button>
+    </div>
     <p className="hint">날짜를 비우면 과거 전체가 대상입니다. 한 번에 최대 2000건을 확인하며 같은 조건으로 다시 누르면 이어갑니다. 같은 지역의 과거 수집 이력이 있으면 그 수집을 시작한 뒤 게시된 자료를 모두 확인합니다. 과거 수집 이력이 없으면 최신 200건으로 시작하며, 이후에는 기준 뒤의 신규 게시물을 이어갑니다. 조건별 진행 위치는 프로그램을 다시 실행해도 유지됩니다. 공개 좌표 오차가 50km 이하이거나 미상이면 흐림 위치도 수집하며 대략적 위치로 표시합니다. 좌표 비공개·좌표 없음·50km 초과는 제외하며, 오차가 없는 자료는 정확도 미상으로 수집합니다. 위치 기준이 바뀐 과거 조건은 다시 누르면 중복 없이 재검사합니다. 사진은 다운로드하지 않습니다.</p>
     {notice && <p role="status" style={{ whiteSpace: 'pre-wrap' }}>{notice}</p>}{error && <p role="alert" className="error">{error}</p>}
   </details>

@@ -48,18 +48,42 @@ test('위치 미입력 두 건은 전송하지 않고 다음 위치 있는 관�
   assert.equal(result.moves,5);assert.equal(result.writes,3);assert.equal(result.stored,3);assert.equal(result.job.skipped,2);
 });
 
-function popupHarness(records,extracted) {
+function popupHarness(records,extracted,autoJob) {
   const elements=new Map(),sent=[];
-  const element=id=>{if(!elements.has(id))elements.set(id,{disabled:false,value:'',textContent:'',handlers:{},addEventListener(name,fn){this.handlers[name]=fn;},replaceChildren(){},append(){}});return elements.get(id);};
+  const storage={connectionKey:'test',...Object.fromEntries(records.map((r,i)=>[`observation:${i}`,r]))};
+  const element=id=>{if(!elements.has(id))elements.set(id,{disabled:false,value:'',textContent:'',handlers:{},addEventListener(name,fn){this.handlers[name]=fn;},replaceChildren(){},append(){},showModal(){this.open=true;},close(){this.open=false;}});return elements.get(id);};
   const context=vm.createContext({document:{querySelector:element,createElement:()=>({})},URL,AbortSignal,
-    chrome:{storage:{local:{get:async key=>key==='connectionKey'?{connectionKey:'test'}:Object.fromEntries(records.map((r,i)=>[`observation:${i}`,r])),set:async()=>{}},session:{get:async()=>({})},onChanged:{addListener(){}}},
+    chrome:{storage:{local:{get:async key=>key==='connectionKey'?{connectionKey:storage.connectionKey}:{...storage},set:async()=>{},remove:async keys=>{for(const key of keys)delete storage[key];}},session:{get:async()=>({autoJob})},onChanged:{addListener(){}}},
       tabs:{query:async()=>[{id:1,url:'https://www.naturing.net/o/123'}]},scripting:{executeScript:async()=>[{result:extracted}]},runtime:{}},
     fetch:async(_url,options)=>{sent.push(JSON.parse(options.body));return {ok:true,json:async()=>({outcome:'created'})};},
   });
   const popup=readFileSync(__dirname+'/popup.js','utf8').replace("import { extractObservation, hasPrivateLocation, hasExcludedLocation } from './extract.js';",'');
   vm.runInContext(extraction+'\n'+popup,context);
-  return {element,sent};
+  return {element,sent,storage};
 }
+
+test('비우기 취소는 자료를 보존하고 삭제 확인은 관찰 자료만 제거',async()=>{
+  const h=popupHarness([{source_id:'1'},{source_id:'2'}],null);
+  await h.element('#clear-archive').handlers.click();
+  assert.equal(h.element('#clear-archive-dialog').open,true);
+  assert.match(h.element('#clear-archive-count').textContent,/2건/);
+  h.element('#clear-archive-cancel').handlers.click();
+  assert.deepEqual(Object.keys(h.storage),['connectionKey','observation:0','observation:1']);
+  await h.element('#clear-archive').handlers.click();
+  await h.element('#clear-archive-confirm').handlers.click();
+  assert.deepEqual(h.storage,{connectionKey:'test'});
+  assert.deepEqual(h.sent,[]);
+  assert.match(h.element('#clear-archive-status').textContent,/2건을 삭제/);
+});
+
+test('자동전송 중에는 보관 자료 비우기를 열 수 없음',async()=>{
+  const h=popupHarness([{source_id:'1'}],null,{running:true});
+  await Promise.resolve();
+  assert.equal(h.element('#clear-archive').disabled,true);
+  await h.element('#clear-archive').handlers.click();
+  assert.equal(h.element('#clear-archive-dialog').open,undefined);
+  assert.ok(h.storage['observation:0']);
+});
 
 test('보관 자료 일괄 전송도 실제 전송 직전에 위치 없는 자료를 제외',async()=>{
   const valid={source_id:'1',place_raw:'경기 가평군',latitude:37,longitude:127};

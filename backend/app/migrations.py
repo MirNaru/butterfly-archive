@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -144,6 +144,21 @@ MOBILE_STATEMENTS = (
 )
 
 
+RESEARCH_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS paper_organization(
+       paper_id INTEGER PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
+       favorite INTEGER NOT NULL CHECK(favorite IN (0,1)), tags_json TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS web_sources(
+       id INTEGER PRIMARY KEY, url TEXT NOT NULL, title TEXT NOT NULL, species_id INTEGER REFERENCES species(id),
+       saved_at TEXT NOT NULL)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS web_sources_identity ON web_sources(url, COALESCE(species_id, 0))",
+    """CREATE TABLE IF NOT EXISTS web_observations(
+       observation_id INTEGER PRIMARY KEY REFERENCES observations(id) ON DELETE CASCADE,
+       source_id INTEGER NOT NULL REFERENCES web_sources(id), case_key TEXT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS gemini_daily_usage(day TEXT PRIMARY KEY, calls INTEGER NOT NULL)""",
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -191,7 +206,7 @@ def initialize_database() -> None:
             return
         if current != version:
             raise RuntimeError("DB 버전이 변경되었습니다. 다시 시작해 주세요.")
-        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + (PAPER_FILE_STATEMENTS if version < 13 else ()) + (MOBILE_STATEMENTS if version < 14 else ()) + (("ALTER TABLE tags ADD COLUMN category TEXT NOT NULL DEFAULT 'environment' CHECK(category IN ('environment','individual'))", "UPDATE tags SET category='individual' WHERE name IN ('사육','돌연변이','사육 개체','사육개체')") if version < 15 else ())):
+        for statement in ((STATEMENTS if version == 0 else ()) + (INTEGRATION_STATEMENTS if version < 2 else ()) + (REFERENCE_STATEMENTS if version < 3 else ()) + (SOURCE_STATEMENTS if version < 4 else ()) + (TAG_STATEMENTS if version < 5 else ()) + (PHOTO_STATEMENTS if version < 6 else ()) + (HOLDING_STATEMENTS if version < 7 else ()) + (HOLDING_SEX_STATEMENTS if version < 8 else ()) + (TRASH_STATEMENTS if version < 9 else ()) + (COLLECTION_STATEMENTS if version < 10 else ()) + (COLLECTION_IMPORT_STATEMENTS if version < 11 else ()) + (PAPER_STATEMENTS if version < 12 else ()) + (PAPER_FILE_STATEMENTS if version < 13 else ()) + (MOBILE_STATEMENTS if version < 14 else ()) + (("ALTER TABLE tags ADD COLUMN category TEXT NOT NULL DEFAULT 'environment' CHECK(category IN ('environment','individual'))", "UPDATE tags SET category='individual' WHERE name IN ('사육','돌연변이','사육 개체','사육개체')") if version < 15 else ()) + (RESEARCH_STATEMENTS if version < 16 else ())):
             connection.execute(statement)
         if version == 0:
             connection.execute("INSERT INTO tags(name,category) VALUES('사육','individual') ON CONFLICT(name) DO NOTHING")

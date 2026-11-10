@@ -25,7 +25,7 @@ function harness() {
     setTitle(value){this.title=value}
     setZIndex(value){this.zIndex=value}
   }
-  const sdk={Marker,LatLng:class{},Point:class{},Event:{addListener(target,event,callback){target[event]=callback},clearInstanceListeners(target){calls.cleared++;delete target.click}}}
+  const sdk={Marker,LatLng:class{constructor(lat,lng){this.lat=lat;this.lng=lng}},Point:class{},Event:{addListener(target,event,callback){target[event]=callback},clearInstanceListeners(target){calls.cleared++;delete target.click}}}
   const react={
     useRef(value){const index=refIndex++;return refs[index]??(refs[index]={current:value})},
     useState(value){const index=stateIndex++;return [index===0?true:index===3?hidden:index===7?viewport:value,()=>{}]},
@@ -50,27 +50,27 @@ function harness() {
   return {render,markers,selected,map,calls,view:value=>{viewport=value},dispose:()=>effects.at(-1).callback()()}
 }
 
-test('직접 관찰은 같은 위치의 간접 핀보다 위에 표시하고 기존 간접 핀을 재사용', () => {
+test('같은 위치의 직접·간접 관찰을 통합하고 직접 관찰을 우선 선택', () => {
   const {render,markers,selected,map,calls}=harness()
-  const indirect={id:'indirect',latitude:37,longitude:127,source:'naturing'}
-  const direct={...indirect,id:'direct',source:'direct'}
+  const indirect={id:'indirect',surveyId:1,latitude:37,longitude:127,source:'naturing'}
+  const direct={...indirect,id:'direct',surveyId:2,source:'direct'}
   render([indirect])
   assert.equal(markers.length,1)
   const marker=markers[0],low=marker.zIndex
   render([indirect,direct])
-  assert.equal(markers.length,2)
-  assert(markers[1].zIndex>low)
-  markers[1].click()
+  assert.equal(markers.length,1)
+  assert(marker.zIndex>low)
+  marker.click()
   assert.deepEqual(selected,['direct'])
   render([indirect])
   assert.equal(marker.zIndex,low)
   render([indirect],true);assert.equal(marker.map,null)
   render([indirect]);assert.equal(marker.map,map)
-  assert.equal(markers.length,2)
-  assert.equal(calls.setMap,3)
+  assert.equal(markers.length,1)
+  assert.equal(calls.setMap,2)
 })
 
-const pin=(id,latitude=30+id*0.0001)=>({id:String(id),latitude,longitude:127,source:'naturing'})
+const pin=(id,latitude=30+id*0.0001)=>({id:String(id),surveyId:id,latitude,longitude:127,source:'naturing'})
 
 test('같은 결과는 지도 명령 없이 유지하고 필터 복원은 기존 객체를 재사용',()=>{
   const h=harness(), all=[pin(1),pin(2),pin(3)]
@@ -101,18 +101,18 @@ test('숨김 중 필터 변경은 핀을 생성하지 않고 표시 시 최신 �
   h.render([])
   assert(h.markers.every(m=>m.map===null))
   h.render([{...pin(2),id:'new',source:'direct'}])
-  h.markers[2].click()
+  h.markers[1].click()
   assert.deepEqual(h.selected,['2','new'])
-  assert.equal(h.markers.length,3)
+  assert.equal(h.markers.length,2)
 })
 
 test('통합 핀은 확대하고 필터 변경 뒤 이전 통합 클릭과 객체를 제거',()=>{
-  const h=harness(),all=[pin(1),pin(2),{...pin(3),source:'direct'}]
+  const h=harness(),all=[pin(1),pin(2),{...pin(3),latitude:31,source:'direct'}]
   h.view({zoom:7,bounds:[124,32,132,40],width:800})
   // 합성 위치를 화면 안으로 옮깁니다.
   all.forEach(p=>p.latitude+=5)
   h.render(all)
-  const cluster=h.markers.find(m=>m.options.title.includes('간접 관찰 2건'))
+  const cluster=h.markers.find(m=>m.options.title.includes('관찰 2건'))
   const direct=h.markers.find(m=>m.zIndex===1000)
   assert(cluster&&direct)
   assert(direct.zIndex>cluster.zIndex)
@@ -148,13 +148,14 @@ test('화면 밖 핀은 만들지 않고 이동·복귀 때 재사용하며 숨�
 test('숨긴 핀 상한은 8000개이며 표시 중인 핀은 제거하지 않음',()=>{
   const h=harness(), all=Array.from({length:8002},(_,i)=>({...pin(i),source:'direct'}))
   h.render(all)
-  h.render([all[0]])
+  const [keep, evict, reuse]=h.markers.slice(0,3).map(marker=>all.find(pin=>Math.abs(pin.latitude-marker.options.position.lat)<0.00001))
+  h.render([keep])
   assert.equal(h.calls.cleared,1)
   assert.equal(h.markers[0].map,h.map)
   assert.equal(h.markers[1].click,undefined)
-  h.render([all[0],all[2]])
+  h.render([keep,reuse])
   assert.equal(h.markers.length,8002)
-  h.render([all[0],all[1],all[2]])
+  h.render([keep,evict,reuse])
   assert.equal(h.markers.length,8003)
   h.dispose()
   assert(h.markers.every(m=>m.map===null&&m.click===undefined))
@@ -163,7 +164,8 @@ test('숨긴 핀 상한은 8000개이며 표시 중인 핀은 제거하지 않�
 test('최근 재사용한 핀은 숨김 보관 순서 뒤로 이동',()=>{
   const h=harness(), all=Array.from({length:8000},(_,i)=>({...pin(i),source:'direct'}))
   h.render(all);h.render([])
-  h.render([all[0]]);h.render([])
+  const keep=all.find(pin=>Math.abs(pin.latitude-h.markers[0].options.position.lat)<0.00001)
+  h.render([keep]);h.render([])
   h.render([pin(8000)]);h.render([])
   assert.equal(typeof h.markers[0].click,'function')
   assert.equal(h.markers[1].click,undefined)

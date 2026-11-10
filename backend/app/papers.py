@@ -216,7 +216,7 @@ def refresh(value: PaperSearch, request: Request):
 
 
 @router.get('')
-def list_papers(offset: int = Query(0, ge=0), query: str = Query('', max_length=200), topic: Literal['latest', 'new_record', 'rearing'] = 'latest', language: Literal['preferred', 'all', 'ko', 'en'] = 'preferred', species_id: int | None = Query(None, gt=0), start: date | None = None, end: date | None = None, provider: Literal['all', 'crossref', 'kci', 'pdf'] = 'all'):
+def list_papers(offset: int = Query(0, ge=0), query: str = Query('', max_length=200), topic: Literal['latest', 'new_record', 'rearing'] = 'latest', language: Literal['preferred', 'all', 'ko', 'en'] = 'preferred', species_id: int | None = Query(None, gt=0), start: date | None = None, end: date | None = None, provider: Literal['all', 'crossref', 'kci', 'pdf'] = 'all', favorite: bool = False, tag: str = Query('', max_length=60)):
     with connect_database() as db:
         species = db.execute('SELECT * FROM species WHERE id=?', (species_id,)).fetchone() if species_id else None
         if species_id and not species:
@@ -224,7 +224,10 @@ def list_papers(offset: int = Query(0, ge=0), query: str = Query('', max_length=
         if start and end and start > end:
             raise HTTPException(422, '시작일은 종료일 이전이어야 합니다.')
         items = []
-        for row in db.execute('SELECT * FROM papers'):
+        for row in db.execute('SELECT p.*,o.favorite,o.tags_json FROM papers p LEFT JOIN paper_organization o ON p.id=o.paper_id'):
+            tags = json.loads(row['tags_json']) if row['tags_json'] else []
+            if favorite and not row['favorite'] or tag.strip() and not any(tag.strip().casefold() in t.casefold() for t in tags):
+                continue
             payload = json.loads(row['payload_json'])
             lang = payload.get('language', 'unknown').lower()
             lang = 'ko' if lang in ('kor', 'korean', '한국어') else 'en' if lang in ('eng', 'english', '영어') else lang
@@ -250,7 +253,7 @@ def list_papers(offset: int = Query(0, ge=0), query: str = Query('', max_length=
                 continue
             links = [dict(r) for r in db.execute(f'SELECT o.id,o.survey_id,l.evidence FROM paper_observations l JOIN observations o ON o.id=l.observation_id WHERE l.paper_id=? AND {ACTIVE_OBSERVATION}', (row['id'],))]
             files = [dict(r) for r in db.execute('SELECT id,original_name FROM paper_files WHERE paper_id=? ORDER BY id', (row['id'],))]
-            items.append({k: v for k, v in payload.items() if k not in ('original', 'sources')} | {'id': row['id'], 'language': lang, 'providers': providers, 'received_at': row['received_at'], 'observations': links, 'files': files})
+            items.append({k: v for k, v in payload.items() if k not in ('original', 'sources')} | {'id': row['id'], 'language': lang, 'providers': providers, 'received_at': row['received_at'], 'observations': links, 'files': files, 'favorite': bool(row['favorite']), 'tags': tags})
     items.sort(key=lambda p: (p['published'], p['id']), reverse=True)
     return {'total': len(items), 'items': items[offset:offset + 25]}
 

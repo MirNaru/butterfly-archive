@@ -57,7 +57,7 @@ def infer_stage(reference, observed, place):
             'matched_periods':matched, 'reference_snapshot':reference}
 
 def registration_info(db, payload):
-    # 원문은 보존하며 줄바꿈 전 첫 국명만 완전 일치에 사용합니다.
+    # 원문을 보존하고 줄바꿈 전 첫 국명으로 도감 종을 찾습니다.
     name = payload['korean_name'].splitlines()[0].strip()
     if payload.get('source') == 'inaturalist':
         scientific = payload.get('scientific_name', '')
@@ -74,6 +74,8 @@ def registration_info(db, payload):
         name = species['korean_name'] if species else name
     else:
         species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', (name,)).fetchone()
+        if species is None and payload.get('source') == 'naturing' and name == '갈고리흰나비':
+            species = db.execute('SELECT id,korean_name FROM species WHERE korean_name=?', ('갈구리나비',)).fetchone()
     if payload.get('_species_override'):
         species = db.execute('SELECT id,korean_name FROM species WHERE id=?', (payload['_species_override'],)).fetchone()
     reason = ''

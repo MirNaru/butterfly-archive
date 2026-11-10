@@ -23,6 +23,7 @@ from app.collection import router as collection_router
 from app.trash import router as trash_router
 from app.inaturalist import router as inaturalist_router
 from app.papers import router as papers_router
+from app.research import router as research_router
 from app.paper_pdf import router as paper_pdf_router
 from app.regions import router as regions_router
 from app.mobile import local_router as mobile_router
@@ -55,6 +56,7 @@ app.include_router(trash_router)
 app.include_router(inaturalist_router)
 app.include_router(papers_router)
 app.include_router(paper_pdf_router)
+app.include_router(research_router)
 app.include_router(regions_router)
 app.include_router(mobile_router)
 

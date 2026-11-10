@@ -132,32 +132,74 @@ class CollectionSelection(BaseModel):
     ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(min_length=1, max_length=100)
 
 
+CollectionStage = Literal['unknown', 'egg', 'larva', 'pupa', 'adult']
+
+
 class StageEdit(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    stage: Literal['unknown','egg','larva','pupa','adult']
+    stage: CollectionStage
     species_id: Annotated[int, Field(strict=True, gt=0)] | None = None
     expected_version: str = Field(pattern=r'^[a-f0-9]{64}$')
 
 
+def stage_payload(db, item_id, expected_version, stage):
+    row = db.execute('SELECT * FROM collected_observations WHERE id=?', (item_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, '수집 자료가 없습니다.')
+    if row['review_status'] == 'discarded' or db.execute('SELECT 1 FROM collection_imports WHERE item_id=?', (item_id,)).fetchone():
+        raise HTTPException(409, '삭제되었거나 이미 등록한 자료입니다. 목록을 새로고침해 주세요.')
+    if hashlib.sha256(row['payload_json'].encode()).hexdigest() != expected_version:
+        raise HTTPException(409, '다른 창에서 수정되거나 재수집한 자료입니다. 창을 닫고 목록을 새로고침해 주세요.')
+    payload = json.loads(row['payload_json'])
+    payload['_stage_override'] = stage
+    return payload
+
+
+def write_stage_payload(db, item_id, payload):
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    db.execute('UPDATE collected_observations SET payload_json=? WHERE id=?', (encoded, item_id))
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+class StageTarget(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    id: Annotated[int, Field(strict=True, gt=0)]
+    expected_version: str = Field(pattern=r'^[a-f0-9]{64}$')
+
+
+class BatchStageEdit(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    stage: CollectionStage
+    items: list[StageTarget] = Field(min_length=1, max_length=25)
+
+
+@router.put('/batch/stage')
+def edit_stage_batch(value: BatchStageEdit, request: Request):
+    local_screen(request)
+    ids = [item.id for item in value.items]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(422, '중복된 수집 자료가 있습니다.')
+    with connect_database() as db:
+        db.execute('BEGIN IMMEDIATE')
+        for item in value.items:
+            payload = stage_payload(db, item.id, item.expected_version, value.stage)
+            write_stage_payload(db, item.id, payload)
+    return {'ids': ids}
+
+
 @router.put('/{item_id}/stage')
-def edit_stage(item_id:int,value:StageEdit,request:Request):
+def edit_stage(item_id: int, value: StageEdit, request: Request):
     local_screen(request)
     with connect_database() as db:
         db.execute('BEGIN IMMEDIATE')
-        row=db.execute('SELECT * FROM collected_observations WHERE id=?',(item_id,)).fetchone()
-        if not row: raise HTTPException(404,'수집 자료가 없습니다.')
-        if row['review_status']=='discarded' or db.execute('SELECT 1 FROM collection_imports WHERE item_id=?',(item_id,)).fetchone():
-            raise HTTPException(409,'삭제되었거나 이미 등록한 자료입니다. 목록을 새로고침해 주세요.')
-        if hashlib.sha256(row['payload_json'].encode()).hexdigest()!=value.expected_version:
-            raise HTTPException(409,'다른 창에서 수정되거나 재수집한 자료입니다. 창을 닫고 목록을 새로고침해 주세요.')
-        payload=json.loads(row['payload_json']);payload['_stage_override']=value.stage
+        payload = stage_payload(db, item_id, value.expected_version, value.stage)
         if value.species_id is not None:
-            if not db.execute('SELECT 1 FROM species WHERE id=?',(value.species_id,)).fetchone():
-                raise HTTPException(422,'도감에서 종을 선택해 주세요.')
-            payload['_species_override']=value.species_id
-        encoded=json.dumps(payload,ensure_ascii=False,sort_keys=True)
-        db.execute('UPDATE collected_observations SET payload_json=? WHERE id=?',(encoded,item_id))
-        return {'id':item_id,'stage':value.stage,'version':hashlib.sha256(encoded.encode()).hexdigest()}
+            if not db.execute('SELECT 1 FROM species WHERE id=?', (value.species_id,)).fetchone():
+                raise HTTPException(422, '도감에서 종을 선택해 주세요.')
+            payload['_species_override'] = value.species_id
+        version = write_stage_payload(db, item_id, payload)
+        return {'id': item_id, 'stage': value.stage, 'version': version}
+
 
 @router.post('/register')
 def register_selected(value: CollectionSelection, request: Request):

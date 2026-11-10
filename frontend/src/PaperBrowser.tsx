@@ -1,12 +1,33 @@
 // 논문 서지 수집과 원문 확인, 논문 사례의 간접 관찰 등록 진입을 제공합니다.
 import { useEffect, useState } from 'react'
 import type { Species } from './models'
-import { listPapers, paperStatus, refreshPapers, uploadPaperPdf, paperPdfText, type Paper, type PaperQuery } from './api'
+import { listPapers, paperStatus, refreshPapers, uploadPaperPdf, paperPdfText, organizePaper, researchStatus, extractBibliography, type Paper, type PaperQuery } from './api'
 
 export default function PaperBrowser({ species, revision, onRegister }: { species: Species[]; revision: number; onRegister: (paper: Paper) => void }) {
   const [provider, setProvider] = useState<PaperQuery['provider'] | 'pdf'>('all')
   const [topic, setTopic] = useState<PaperQuery['topic']>('latest')
   const [query, setQuery] = useState('')
+  const [favorite, setFavorite] = useState(false)
+  const [tag, setTag] = useState('')
+  const [geminiReady, setGeminiReady] = useState(false)
+
+  async function organize(paper: Paper, starred: boolean, tags: string[]) {
+    setBusy(true); setError('')
+    try { await organizePaper(paper.id, starred, tags); setReload(n => n + 1) }
+    catch (e) { setError(e instanceof Error ? e.message : '논문 분류를 저장하지 못했습니다.') }
+    finally { setBusy(false) }
+  }
+
+  async function extract(fileId: number) {
+    if (!window.confirm('공개 PDF 첫 두 쪽의 텍스트를 최대 12,000자까지 Gemini에 전송합니다. 추출한 값은 이 논문의 서지 정보에 자동 저장됩니다. 무료 서비스 입력은 제품 개선에 사용될 수 있습니다. 진행하시겠습니까?')) return
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await extractBibliography(fileId)
+      setReload(n => n + 1)
+      setNotice(result.updated.length ? `서지 정보 ${result.updated.length}개 항목을 자동 저장했습니다.` : '새로 반영할 서지 정보가 없습니다.')
+    } catch (e) { setError(e instanceof Error ? e.message : '서지 정보를 추출하지 못했습니다.') }
+    finally { setBusy(false) }
+  }
   const [speciesId, setSpeciesId] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
@@ -44,14 +65,15 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
   }
   useEffect(() => {
     let active = true
+    researchStatus().then(s => { if (active) setGeminiReady(s.gemini_ready) }).catch(() => {})
     paperStatus().then(s => { if (active) setKciReady(s.kci_ready) }).catch(() => { if (active) setKciReady(false) })
     return () => { active = false }
   }, [])
-  const requestKey = `${page}:${topic}:${language}:${revision}:${reload}:${query}:${speciesId}:${start}:${end}:${provider}`
+  const requestKey = `${page}:${topic}:${language}:${revision}:${reload}:${query}:${speciesId}:${start}:${end}:${provider}:${favorite}:${tag}`
   const loading = loadedKey !== requestKey
   useEffect(() => {
     let active = true
-    listPapers(page * 25, query, topic, language, speciesId, start, end, provider).then(result => {
+    listPapers(page * 25, query, topic, language, speciesId, start, end, provider, favorite, tag).then(result => {
       if (!active) return
       const last = Math.max(0, Math.ceil(result.total / 25) - 1)
       if (page > last) { setPage(last); return }
@@ -59,7 +81,7 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
     }).catch(e => { if (active) setError(e instanceof Error ? e.message : '논문 목록을 읽지 못했습니다.') })
       .finally(() => { if (active) setLoadedKey(requestKey) })
     return () => { active = false }
-  }, [page, topic, language, revision, reload, requestKey, query, speciesId, start, end, provider])
+  }, [page, topic, language, revision, reload, requestKey, query, speciesId, start, end, provider, favorite, tag])
   function changed() { setRemotePage(1); setNotice('') }
   async function refresh() {
     if (provider === 'pdf') return
@@ -91,13 +113,19 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
       </fieldset>
       <p className="hint">과거 자료는 시작일을 비워 검색합니다. 수집처별 최대 50건씩 확인하며 검색 페이지를 바꿔 더 가져올 수 있습니다. 국내 미기록종 관련 자료는 원문 확인이 필요한 후보입니다.</p>
       <div className="paper-pdf-upload"><label>PDF 직접 추가<input type="file" accept=".pdf,application/pdf" multiple disabled={busy} onChange={e => setPdfs(Array.from(e.target.files || []))} /></label><button type="button" disabled={busy || !pdfs.length} onClick={() => void addPdfs()}>PDF 추가</button><small>파일당 20MB · 로컬 보관 · 관찰 사례는 원문 확인 후 등록</small></div>
+      {!geminiReady && <p className="hint">Gemini 미설정 · 공개 PDF 서지 추출은 무료 프로젝트 설정 후 사용할 수 있습니다.</p>}
       {!kciReady && <p className="hint">KCI는 미설정입니다. Crossref는 신청 없이 바로 사용할 수 있습니다.</p>}
     </details>
-    <div className="toolbar"><h3>수집 논문 · {total}건</h3><button disabled={disabled} onClick={() => setReload(n => n + 1)}>목록 새로고침</button></div>
+    <div className="toolbar"><h3>수집 논문 · {total}건</h3>
+      <label><input type="checkbox" checked={favorite} onChange={e => {setFavorite(e.target.checked); setPage(0)}} /> 즐겨찾기만</label>
+      <label>논문 태그 검색<input value={tag} maxLength={60} onChange={e => {setTag(e.target.value); setPage(0)}} /></label><button disabled={disabled} onClick={() => setReload(n => n + 1)}>목록 새로고침</button></div>
     {notice && <p role="status" style={{ whiteSpace: 'pre-wrap' }}>{notice}</p>}{error && <p role="alert" className="error">{error}</p>}{disabled && <p role="status">처리 중입니다.</p>}
     <p className="hint">논문에 실린 관찰 사례는 해당 행의 간접 관찰 등록으로 입력합니다. 발표일은 관찰일이 아니며 원문 날짜·장소·근거 페이지를 직접 확인해 주세요.</p>
     <div className="table-wrap"><table className="paper-table"><thead><tr><th>논문·초록</th><th>저자·학술지</th><th>발표일·언어</th><th>출처</th><th>관찰 사례</th></tr></thead><tbody>{items.map(paper => <tr key={paper.id}>
-      <td><a href={paper.url} target="_blank" rel="noopener noreferrer">{paper.title || '제목 미상'}</a><details><summary>초록·서지정보</summary><p style={{ whiteSpace: 'pre-wrap' }}>{paper.abstract || '제공된 초록이 없습니다. 원문에서 확인해 주세요.'}</p><small>DOI: {paper.doi || '미제공'}<br />처음 수집: {paper.received_at}</small></details>{paper.files?.map(file => <div key={file.id}><a href={`/api/papers/pdf/${file.id}`} target="_blank" rel="noopener noreferrer">PDF 원문</a><details onToggle={e => { if (e.currentTarget.open) void readPdf(file.id) }}><summary>쪽별 추출 텍스트</summary><small>표·다단 편집의 읽기 순서가 다를 수 있습니다. 스캔 이미지는 텍스트가 없을 수 있습니다.</small>{pdfText[file.id]?.map((text, index) => <details key={index}><summary>PDF {index + 1}쪽</summary><p className="paper-pdf-text">{text || '추출된 텍스트가 없습니다.'}</p></details>)}</details></div>)}</td>
+      <td><button type="button" disabled={disabled} aria-pressed={paper.favorite} aria-label={paper.favorite ? '즐겨찾기 해제' : '즐겨찾기 추가'} onClick={() => void organize(paper, !paper.favorite, paper.tags ?? [])}>{paper.favorite ? '★' : '☆'}</button> <a href={paper.url} target="_blank" rel="noopener noreferrer">{paper.title || '제목 미상'}</a><form key={(paper.tags ?? []).join(',')} onSubmit={e => { e.preventDefault(); const raw = new FormData(e.currentTarget).get('tags'); void organize(paper, paper.favorite, String(raw ?? '').split(',').map(t => t.trim()).filter(Boolean)) }}>
+        <label>논문 태그<input name="tags" defaultValue={(paper.tags ?? []).join(', ')} maxLength={1240} placeholder="쉼표로 구분" /></label><button disabled={disabled}>태그 저장</button>
+      </form><details><summary>초록·서지정보</summary><p style={{ whiteSpace: 'pre-wrap' }}>{paper.abstract || '제공된 초록이 없습니다. 원문에서 확인해 주세요.'}</p><small>DOI: {paper.doi || '미제공'}<br />처음 수집: {paper.received_at}</small></details>{paper.files?.map(file => <div key={file.id}><a href={`/api/papers/pdf/${file.id}`} target="_blank" rel="noopener noreferrer">PDF 원문</a>{geminiReady && <button type="button" disabled={disabled} onClick={() => void extract(file.id)}>Gemini 서지 추출</button>}
+<details onToggle={e => { if (e.currentTarget.open) void readPdf(file.id) }}><summary>쪽별 추출 텍스트</summary><small>표·다단 편집의 읽기 순서가 다를 수 있습니다. 스캔 이미지는 텍스트가 없을 수 있습니다.</small>{pdfText[file.id]?.map((text, index) => <details key={index}><summary>PDF {index + 1}쪽</summary><p className="paper-pdf-text">{text || '추출된 텍스트가 없습니다.'}</p></details>)}</details></div>)}</td>
       <td>{paper.authors || '저자 미상'}<br /><small>{paper.journal || '학술지 미상'}</small></td><td>{paper.published || '발표일 미상'}<br />{({ ko: '한국어', en: '영어', unknown: '언어 미상' })[paper.language] || paper.language}</td><td>{paper.providers.map(p => p === 'pdf' ? 'PDF 직접 추가' : p === 'kci' ? 'KCI' : 'Crossref').join(' · ')}</td>
       <td><button disabled={disabled} onClick={() => onRegister(paper)}>간접 관찰 등록</button><small>등록 사례 {paper.observations.length}건</small>{paper.observations.length > 0 && <details><summary>근거 보기</summary>{paper.observations.map(o => <p key={o.id}>관찰 {o.id} · {o.evidence}</p>)}</details>}</td>
     </tr>)}</tbody></table></div>

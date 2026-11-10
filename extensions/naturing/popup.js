@@ -6,6 +6,7 @@ const read = document.querySelector('#read');
 const save = document.querySelector('#save');
 const preview = document.querySelector('#preview');
 let sending = false;
+let saving = false;
 const canTransmit = record => !hasExcludedLocation(record) || (record.manual_capture === true && !record.skip_reason && record.latitude === null && record.longitude === null && ['private_location','missing_location'].includes(record.location_status));
 const send = document.querySelector('#send');
 const sendAll = document.querySelector('#send-all');
@@ -67,10 +68,12 @@ read.addEventListener('click', async () => {
 save.addEventListener('click', async () => {
   if (!current) return;
   save.disabled = true;
+  saving = true;
   try {
     await chrome.storage.local.set({ [`observation:${current.source_id}`]: current });
     status.textContent = '보관했습니다. 같은 기록 번호는 최신 추출 내용으로 갱신됩니다.';
   } catch (error) { status.textContent = error.message; save.disabled = false; }
+  finally { saving = false; }
 });
 document.querySelector('#export').addEventListener('click', async () => {
   try {
@@ -86,9 +89,68 @@ document.querySelector('#export').addEventListener('click', async () => {
 const autoStart = document.querySelector('#auto-start');
 const autoStop = document.querySelector('#auto-stop');
 const autoStatus = document.querySelector('#auto-status');
+const clearArchive = document.querySelector('#clear-archive');
+const clearDialog = document.querySelector('#clear-archive-dialog');
+const clearCancel = document.querySelector('#clear-archive-cancel');
+const clearConfirm = document.querySelector('#clear-archive-confirm');
+const clearResult = document.querySelector('#clear-archive-status');
+let archiveKeys = [];
+
+function showClearResult(message) {
+  clearResult.textContent = message;
+  clearResult.hidden = false;
+}
+
+clearArchive.addEventListener('click', async () => {
+  if (sending || saving || autoStart.disabled) {
+    showClearResult('진행 중인 보관이나 전송이 끝난 뒤 다시 시도해 주세요.');
+    return;
+  }
+  clearArchive.disabled = true;
+  clearResult.hidden = true;
+  try {
+    const local = chrome.storage.local;
+    const keys = local.getKeys ? await local.getKeys() : Object.keys(await local.get(null));
+    archiveKeys = keys.filter(key => key.startsWith('observation:'));
+    if (!archiveKeys.length) { showClearResult('보관 자료가 없습니다.'); return; }
+    document.querySelector('#clear-archive-count').textContent = `확장에 보관된 관찰 ${archiveKeys.length}건을 삭제할까요?`;
+    clearDialog.showModal();
+  } catch (error) {
+    showClearResult(`보관 자료를 읽지 못했습니다. ${error.message}`);
+  } finally {
+    clearArchive.disabled = autoStart.disabled;
+  }
+});
+
+clearCancel.addEventListener('click', () => clearDialog.close());
+clearDialog.addEventListener('cancel', event => {
+  if (clearConfirm.disabled) event.preventDefault();
+});
+clearConfirm.addEventListener('click', async () => {
+  if (!clearDialog.open || clearConfirm.disabled) return;
+  if (sending || saving || autoStart.disabled) {
+    clearDialog.close();
+    showClearResult('진행 중인 보관이나 전송이 끝난 뒤 다시 시도해 주세요.');
+    return;
+  }
+  clearConfirm.disabled = true;
+  clearCancel.disabled = true;
+  try {
+    await chrome.storage.local.remove(archiveKeys);
+    showClearResult(`보관 자료 ${archiveKeys.length}건을 삭제했습니다.`);
+  } catch (error) {
+    showClearResult(`보관 자료를 삭제하지 못했습니다. ${error.message}`);
+  } finally {
+    clearConfirm.disabled = false;
+    clearCancel.disabled = false;
+    clearDialog.close();
+  }
+});
+
 function showJob(job) {
   const running = Boolean(job?.running);
   autoStart.disabled = running; autoStop.disabled = !running;
+  clearArchive.disabled = running;
   for (const button of [read, sendAll, document.querySelector('#connect')]) button.disabled = running;
   send.disabled = running || !current; save.disabled = running || !current;
   autoStatus.textContent = job?.message || '다음 관찰이 없어질 때까지 이동하며 전송합니다.';

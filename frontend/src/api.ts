@@ -40,6 +40,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 export const registerCollected = (ids: number[]) => request<{surveys?: Survey[]; results: {id: number; status: 'registered' | 'already_registered' | 'skipped'; reason?: string}[]}>('/collection/register', { ...post({ids}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
 export const editCollectedStage = (item: import('./models').CollectedItem, stage: keyof typeof import('./models').STAGE, species_id?: number) => request<{id:number;stage:keyof typeof import('./models').STAGE;version:string}>(`/collection/${item.id}/stage`, {...post({stage,species_id,expected_version:item.version}),method:'PUT',headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const editCollectedStages = (items: import('./models').CollectedItem[], stage: keyof typeof import('./models').STAGE) =>
+  request<{ids: number[]}>('/collection/batch/stage', {
+    ...post({stage, items: items.map(item => ({id: item.id, expected_version: item.version}))}),
+    method: 'PUT', headers: {'Content-Type': 'application/json', 'X-Butterfly-Client': 'app'},
+  })
+
 export const discardCollected = (ids: number[]) => request<{ids: number[]}>('/collection/discard', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const restoreCollected = (ids: number[]) => request<{ids: number[]}>('/collection/restore', {...post({ids}), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const listTags = () => request<import('./models').Tag[]>('/tags')
@@ -55,7 +61,7 @@ export const updateHolding = (id: number, value: import('./models').HoldingInput
 export const listSpecies = () => request<Species[]>('/species')
 export const listCatalog = () => request<import('./models').SpeciesCatalog[]>('/species/catalog')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))
-export const listSurveys = () => request<Survey[]>('/surveys')
+export const listSurveys = () => request<Survey[]>('/surveys', {signal: AbortSignal.timeout(60000)})
 export const listTrash = () => request<import('./models').TrashEntry[]>('/trash')
 export const trashSurvey = (survey: Survey, observationId: number | null) => request<{ id: number }>(`/surveys/${survey.id}${observationId === null ? '' : `/observations/${observationId}`}`, { ...post({ expected_updated_at: survey.updated_at }), method: 'DELETE' })
 export const restoreTrash = (entry: import('./models').TrashEntry) => request<{ survey_id: number }>(`/trash/${entry.id}/restore`, post({ expected_deleted_at: entry.deleted_at }))
@@ -80,15 +86,32 @@ export interface InatProgress { done: boolean; scanned: number; created: number;
 export const searchInat = (query: string, kind: 'taxa' | 'places') => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const syncInat = (query: InatQuery) => request<InatProgress>('/collection/inaturalist/sync', {...post(query), signal:AbortSignal.timeout(90000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 
-export interface Paper { id: number; title: string; authors: string; journal: string; published: string; language: string; abstract: string; url: string; doi: string; provider: string; providers: string[]; received_at: string; observations: {id:number; survey_id:number; evidence:string}[]; files?: {id:number; original_name:string}[] }
+export interface Paper { favorite: boolean; tags: string[]; id: number; title: string; authors: string; journal: string; published: string; language: string; abstract: string; url: string; doi: string; provider: string; providers: string[]; received_at: string; observations: {id:number; survey_id:number; evidence:string}[]; files?: {id:number; original_name:string}[] }
 export const uploadPaperPdf = (file: File) => request<{id:number; paper_id:number; duplicate:boolean; warning?:string}>(`/papers/pdf?${new URLSearchParams({filename:file.name})}`, {method:'POST',body:file,headers:{'Content-Type':'application/pdf','X-Butterfly-Client':'app'},signal:AbortSignal.timeout(60000)})
 export const paperPdfText = (id: number) => request<{pages:string[]}>(`/papers/pdf/${id}/text`)
 export interface PaperQuery { provider: 'all' | 'crossref' | 'kci'; topic: 'latest' | 'new_record' | 'rearing'; query: string; species_id: number | null; start: string | null; end: string | null; page: number }
 export const paperStatus = () => request<{kci_ready:boolean}>('/papers/status')
-export const listPapers = (offset: number, query: string, topic: string, language: string, speciesId = '', start = '', end = '', provider = 'all') => request<{total:number; items:Paper[]}>(`/papers?${new URLSearchParams({offset:String(offset),query,topic,language,provider,...(speciesId ? {species_id:speciesId} : {}),...(start ? {start} : {}),...(end ? {end} : {})})}`)
+export const listPapers = (offset: number, query: string, topic: string, language: string, speciesId = '', start = '', end = '', provider = 'all', favorite = false, tag = '') => request<{total:number; items:Paper[]}>(`/papers?${new URLSearchParams({offset:String(offset),query,topic,language,provider,favorite:String(favorite),tag,...(speciesId ? {species_id:speciesId} : {}),...(start ? {start} : {}),...(end ? {end} : {})})}`)
 export const refreshPapers = (value: PaperQuery) => request<{received:number; created:number; duplicate:number; excluded:number; warnings:string[]}>('/papers/refresh', {...post(value), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const addPaperObservation = (paperId: number, evidence: string, survey: SurveyInput) => request<Survey>(`/papers/${paperId}/observations`, {...post({evidence,survey}),headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 
+
+const researchWrite = (value: unknown, method = 'POST') => ({
+  method, body: JSON.stringify(value), headers: {'Content-Type': 'application/json', 'X-Butterfly-Client': 'app'},
+})
+export interface WebSource { id: number; title: string; url: string; saved_at: string; species_name: string | null; registered_count: number }
+export interface GroundedSearch { answer: string; entry: string; links: {url: string; title: string}[] }
+export const researchStatus = () => request<{gemini_ready: boolean; daily_limit: number}>('/research/status')
+export const organizePaper = (id: number, favorite: boolean, tags: string[]) =>
+  request<{favorite: boolean; tags: string[]}>(`/research/papers/${id}/organization`, researchWrite({favorite, tags}, 'PUT'))
+export const extractBibliography = (id: number) =>
+  request<{updated: string[]}>(`/research/pdf/${id}/extract`, researchWrite({consent: true, save: true}))
+export const searchWeb = (query: string) => request<GroundedSearch>('/research/web/search', researchWrite({query, consent: true}))
+export const listWebSources = (page: number) => request<{items: WebSource[]; total: number}>(`/research/web/sources?offset=${page * 25}`)
+export const saveWebSource = (value: {title: string; url: string; species_id: number | null}) =>
+  request<{id: number; duplicate: boolean}>('/research/web/sources', researchWrite(value))
+export const addWebObservation = (id: number, evidence: string, survey: SurveyInput) =>
+  request<Survey>(`/research/web/sources/${id}/observations`, researchWrite({evidence, survey}))
 
 // 동일한 자료 버전의 진행 중 요청과 결과를 공유하고, 실패하면 다시 요청합니다.
 export function latestRequest<A extends unknown[], T>(fetcher: (...args: A) => Promise<T>) {

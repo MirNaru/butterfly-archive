@@ -1,7 +1,7 @@
 // 한 탐사와 여러 종별 기록을 입력하고 실패 시 작성 내용을 유지합니다.
 import { useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { FormEvent, Ref } from 'react'
-import { addSurvey, updateSurvey, addPaperObservation } from './api'
+import { addSurvey, updateSurvey, addPaperObservation, addWebObservation } from './api'
 import { CAPTURE, LOCATION, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { LocationInput, Observation, ObservationInput, Species, Survey, SurveyInput, Tag, Coordinate } from './models'
 import LocationPicker from './LocationPicker'
@@ -53,7 +53,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
         {capture === 'captured' && <label>채집 개체 수<input name={`${prefix}captured_count`} defaultValue={initial?.captured_count ?? ''} type="number" min={1} max={1000000} step={1} placeholder="미상" /></label>}
       </>}
     </div>
-    {source === 'indirect' && <label>간접 관찰 출처 <span className="required-mark" aria-label="필수">*</span><input name={`${prefix}source_note`} value={sourceNote} readOnly={!!sourcePreset} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
+    {source === 'indirect' && <label><span>간접 관찰 출처 <span className="required-mark" aria-label="필수">*</span></span><input name={`${prefix}source_note`} value={sourceNote} readOnly={!!sourcePreset} onChange={e => setSourceNote(e.target.value)} maxLength={2000} required placeholder="원문 주소 또는 자료명·관찰자" /><span className="hint">채집 여부는 원 관찰자 기준이며 내 채집 이력에 포함하지 않습니다.</span></label>}
     {source === 'direct' && <input type="hidden" name={`${prefix}source_note`} value={sourceNote} />}
     {result === 'not_found' && <p className="hint">실제로 찾았으나 발견하지 못한 종만 기록해 주세요.</p>}
     <div className="individual-location"><h3>개별 위치 · 선택</h3><LocationFields prefix={prefix} initial={initial} photoRef={photoLocation} /></div>
@@ -66,7 +66,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
 }
 
 export interface SurveyFormHandle { requestClose(): void }
-export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef, sourcePaper }: { sourcePaper?: {id:number; title:string; url:string}; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
+export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef, sourcePaper }: { sourcePaper?: {id:number; title:string; url:string; kind?:'web'}; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
   const [keys, setKeys] = useState(initial ? initial.observations.map((_, index) => index) : [0])
   const [recordSpecies,setRecordSpecies]=useState<Record<number,string>>(()=>Object.fromEntries((initial?.observations||[]).map((record,index)=>[index,record.species_id===null?'':String(record.species_id)])))
   const [surveySource, setSurveySource] = useState<ObservationInput['source_type']>(initial?.observations[0]?.source_type ?? (sourcePaper ? 'indirect' : 'direct'))
@@ -126,7 +126,7 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     setBusy(true); setError('')
     try {
       const value = { ...location('survey-'), survey_date: str('survey_date'), purpose: allIndirect ? 'online_research' as const : purpose, notes: str('notes'), tags: commonTags, photo_ids: data.getAll('survey-photos').map(Number), observations }
-      const saved = initial ? await updateSurvey(initial.id, { ...value, expected_updated_at: initial.updated_at, observations: observations.map((item, index) => ({ ...item, id: initial.observations[keys[index]]?.id ?? null })) }) : sourcePaper ? await addPaperObservation(sourcePaper.id, evidence, value) : await addSurvey(value)
+      const saved = initial ? await updateSurvey(initial.id, { ...value, expected_updated_at: initial.updated_at, observations: observations.map((item, index) => ({ ...item, id: initial.observations[keys[index]]?.id ?? null })) }) : sourcePaper ? await (sourcePaper.kind === 'web' ? addWebObservation : addPaperObservation)(sourcePaper.id, evidence, value) : await addSurvey(value)
       onSaved(saved)
     } catch (error) {
       const message = error instanceof Error ? error.message : '저장에 실패했습니다.'
@@ -137,12 +137,12 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
     finally { setBusy(false) }
   }
   const content = <form onSubmit={submit} noValidate className="survey-form survey-modal-form">
-      {!embedded && <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 탐사 기록</span><h2 id="survey-dialog-title">{initial ? '탐사 기록 수정' : sourcePaper ? '논문 사례 간접 관찰 등록' : '새 탐사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />직접 관찰은 탐사 날짜를 사용합니다. 개별 위치를 비우면 탐사 위치를 사용하며 기상은 저장 후 연결합니다.</p></header>}
+      {!embedded && <header className="survey-modal-header"><div><span className="eyebrow">BUTTERFLY ARCHIVE · 탐사 기록</span><h2 id="survey-dialog-title">{initial ? '탐사 기록 수정' : sourcePaper ? (sourcePaper.kind === 'web' ? '웹 자료 간접 관찰 등록' : '논문 사례 간접 관찰 등록') : '새 탐사 등록'}</h2></div><p className="hint">날짜와 장소명 또는 좌표는 필수입니다.<br />직접 관찰은 탐사 날짜를 사용합니다. 개별 위치를 비우면 탐사 위치를 사용하며 기상은 저장 후 연결합니다.</p></header>}
       {error && <p role="alert" className="error survey-error">{error}</p>}
       <fieldset disabled={busy || tagRequests > 0} className="survey-modal-fields">
         <div className="survey-columns">
-          <section className="survey-common"><h3>탐사 공통 정보</h3>{sourcePaper && <><p className="hint">논문: {sourcePaper.title}<br />발표일을 관찰일로 사용하지 마세요. 원문에 관찰 날짜·장소가 확인되는 사례만 입력합니다.</p><label>근거 페이지·표·그림 번호 <span className="required-mark" aria-label="필수">*</span><input value={evidence} onChange={e => setEvidence(e.target.value)} required maxLength={1000} placeholder="예: 12쪽 표 2, 사례 3" /></label></>}<div className="field-grid">
-            <label>관찰 출처<select value={surveySource} disabled={!!initial || !!sourcePaper} onChange={e => setSurveySource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label><label>탐사 날짜 <span className="required-mark" aria-label="필수">*</span><input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
+          <section className="survey-common"><h3>탐사 공통 정보</h3>{sourcePaper && <><p className="hint">{sourcePaper.kind === 'web' ? '웹 원문' : '논문'}: {sourcePaper.title}<br />게시일이나 발표일을 관찰일로 사용하지 마세요. 원문에 관찰 날짜·장소가 확인되는 사례만 입력합니다.</p><label><span>{sourcePaper.kind === 'web' ? '원문 근거' : '근거 페이지·표·그림 번호'} <span className="required-mark" aria-label="필수">*</span></span><input value={evidence} onChange={e => setEvidence(e.target.value)} required maxLength={1000} placeholder="예: 12쪽 표 2, 사례 3" /></label></>}<div className="field-grid">
+            <label>관찰 출처<select value={surveySource} disabled={!!initial || !!sourcePaper} onChange={e => setSurveySource(e.target.value as ObservationInput['source_type'])}><Options values={SOURCE_TYPE} /></select></label><label><span>탐사 날짜 <span className="required-mark" aria-label="필수">*</span></span><input name="survey_date" value={surveyDate} onChange={e => setSurveyDate(e.target.value)} type="date" required /></label>
             <label>탐사 목적<select name="purpose" value={allIndirect ? 'online_research' : purpose} disabled={allIndirect} onChange={e => setPurpose(e.target.value as SurveyInput['purpose'])}><Options values={PURPOSE} /></select></label>
           </div><p className="hint"><span className="required-mark">*</span> 위치: 장소명 또는 위도·경도 한 쌍 중 하나를 입력해 주세요. 위치 없는 간접 자료는 예외입니다.</p><LocationFields prefix="survey-" initial={initial} photoRef={photoLocation} />
             <PhotoPicker maxPhotos={3} name="survey-photos" initialIds={initial?.photo_ids || []} onBusy={photoBusy} dateLabel="탐사 날짜 적용" onDate={p => setSurveyDate(p.date_candidate || '')} onGPS={p => { if (p.latitude !== null && p.longitude !== null) photoLocation.current?.apply({ latitude: p.latitude, longitude: p.longitude }) }} />

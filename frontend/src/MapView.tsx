@@ -47,6 +47,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   const [boundaryError,setBoundaryError]=useState('')
   const [regionInfo,setRegionInfo]=useState<{name:string;species:string;details:string[]}|null>(null)
   const [regionRetry,setRegionRetry]=useState(0)
+  const [mapRetry, setMapRetry] = useState(0)
   const selectedRegionCodes=distribution?.reference.region_codes?.join(',')||''
   const confirmedCodes=(distribution?.reference.region_evidence||[]).filter(e=>e.origin==='observation').map(e=>e.code).sort().join(',')
   const level=boundaryLevel(viewport?.zoom??7)
@@ -92,9 +93,9 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
       map.current = new api.Map(element.current, { center: new api.LatLng(center.latitude, center.longitude), zoom: latest.current.focus ? 13 : 7 })
       api.Event.addListener(map.current, 'click', e => latest.current.onPick?.({ latitude: e.coord.lat(), longitude: e.coord.lng() }))
       setReady(true)
-    }).catch(e => { if (active) setError(e instanceof Error ? e.message : '지도를 표시하지 못했습니다.') })
+    }).catch(e => { if (active) { started.current = null; setError(e instanceof Error ? e.message : '지도를 표시하지 못했습니다.') } })
     return () => { active = false }
-  }, [shown])
+  }, [shown, mapRetry])
   useEffect(() => onMapAuthFailure(() => setError('지도 인증에 실패했습니다. 등록 URL·키·한도를 확인해 주세요.')), [])
   useEffect(() => {
     if (ready && map.current && sdk.current) {
@@ -141,8 +142,9 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
     for (const key of attached.current) if (!groups.has(key)) detach(key)
     for (const [key, item] of groups) {
       const isCluster = item.expansionZoom !== undefined
-      const appearance = isCluster ? clusterAppearance(item.count, item.locations, item.sources) : pinAppearance((Object.keys(PIN_STYLE) as PinSource[]).filter(source => item.sources[source] > 0))
-      const anchor = isCluster ? new api.Point(22, 22) : new api.Point(15, 33)
+      const isGroup = isCluster || item.count > 1
+      const appearance = isGroup ? clusterAppearance(item.count, item.locations, item.sources, item.surveyCount, item.directSurveyCount, isCluster) : pinAppearance((Object.keys(PIN_STYLE) as PinSource[]).filter(source => item.sources[source] > 0))
+      const anchor = isGroup ? new api.Point(22, 29) : new api.Point(17, 17)
       hiddenMarkers.current.delete(key)
       if (markers.current.has(key)) {
         if (appearances.current.get(key) !== appearance.signature) {
@@ -221,7 +223,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
       {boundaryData&&<span>축척에 따라 표시 경계를 단순화하며 확대하면 세부 섬을 표시합니다. {boundaryData.source} · <a href={boundaryData.source_url} target="_blank" rel="noreferrer">경계 출처</a></span>}
       {regionInfo&&distribution&&regionInfo.species===distribution.name&&<div className="distribution-evidence"><strong>{regionInfo.name}</strong><button type="button" onClick={()=>setRegionInfo(null)}>닫기</button><ul>{regionInfo.details.map((d,i)=><li key={i}>{d}</li>)}</ul></div>}
     </>,infoContainer)}
-    {error && <p role="alert" className="error">{error}</p>}
+    {error && <div role="alert" className="error">{error} {!ready && <button type="button" onClick={() => { setError(''); setMapRetry(n => n + 1) }}>지도 다시 불러오기</button>}</div>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
     <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>
     {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)} onDoubleClick={() => onOpen?.(pin)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();onOpen?.(pin)}}} title="더블클릭하면 기록 탭에서 탐사 상세를 엽니다"><span style={{color:PIN_STYLE[pin.source || 'direct'].color}}>●</span> {PIN_STYLE[pin.source || 'direct'].label} · {pin.label}</button>)}</div>}

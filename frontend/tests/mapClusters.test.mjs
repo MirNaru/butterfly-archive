@@ -1,24 +1,25 @@
-// 실제 Supercluster로 건수 보존·직접 관찰 분리·축척과 화면 경계를 검사합니다.
+// 실제 Supercluster로 건수 보존·직접 관찰 통합·축척과 화면 경계를 검사합니다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {buildPinIndex, clusterZoom, markerBounds} from '../src/mapClusters.ts'
 import {clusterAppearance} from '../src/mapPinStyle.ts'
 const world=[-180,-90,180,90]
-const pin=(id,longitude,source='naturing',latitude=37)=>({id,longitude,latitude,source})
+const pin=(id,longitude,source='naturing',latitude=37)=>({id,surveyId:id,longitude,latitude,source})
 
 test('통합 관찰 수와 위치 수를 구분하고 출처 수와 직접 관찰을 보존',()=>{
-  const pins=[pin('a',127),pin('b',127,'inaturalist'),pin('c',127.001),pin('d',127,'direct'),pin('e',127.002,'direct')]
+  const pins=[pin('a',127),pin('b',127,'inaturalist'),pin('c',127.001),{...pin('d',127,'direct'),surveyId:10},{...pin('e',127.002,'direct'),surveyId:10}]
   const index=buildPinIndex(pins),low=index.query(world,7,1),high=index.query(world,22,1)
-  assert.equal(low.length,3)
+  assert.equal(low.length,1)
   const cluster=low.find(p=>p.expansionZoom!==undefined)
-  assert.equal(cluster.count,3);assert.equal(cluster.locations,2)
-  assert.deepEqual(cluster.sources,{direct:0,naturing:2,inaturalist:1,other:0})
-  assert.equal(high.length,4)
+  assert.equal(cluster.count,5);assert.equal(cluster.locations,3)
+  assert.equal(cluster.surveyCount,4);assert.equal(cluster.directSurveyCount,1)
+  assert.deepEqual(cluster.sources,{direct:2,naturing:2,inaturalist:1,other:0})
+  assert.equal(high.length,3)
   assert.equal(high.reduce((s,p)=>s+p.count,0),5)
   assert.equal(low.reduce((s,p)=>s+p.count,0),5)
-  assert.equal(low.filter(p=>p.sources.direct).length,2)
+  assert.equal(low.filter(p=>p.sources.direct).length,1)
   assert(index.query(world,cluster.expansionZoom,1).length>low.length)
-  assert(clusterAppearance(cluster.count,cluster.locations,cluster.sources).title.includes('3건 · 2개 위치'))
+  assert(clusterAppearance(cluster.count,cluster.locations,cluster.sources,cluster.surveyCount,cluster.directSurveyCount,true).title.includes('탐사 4건 · 관찰 5건 · 3개 위치'))
 })
 
 test('같은 좌표는 최대 확대에도 한 위치이며 필터 인덱스가 서로 섞이지 않음',()=>{
@@ -53,6 +54,6 @@ test('대량 데이터에서도 단계별 관찰 수 보존과 출력 키 중복
     assert.equal(result.reduce((sum,p)=>sum+p.count,0),pins.length)
     assert(result.every(p=>Object.values(p.sources).reduce((sum,n)=>sum+n,0)===p.count))
     assert.equal(new Set(result.map(p=>p.key)).size,result.length)
-    assert.equal(result.filter(p=>p.sources.direct).length,pins.filter(p=>p.source==='direct').length)
+    assert.equal(result.reduce((sum,p)=>sum+p.directSurveyCount,0),pins.filter(p=>p.source==='direct').length)
   }
 })

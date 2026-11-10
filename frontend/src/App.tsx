@@ -1,3 +1,4 @@
+import ScrollToTop from './ScrollToTop'
 import DetailPhotos from './DetailPhotos'
 import {readView,writeView} from './viewMemory'
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
@@ -17,6 +18,7 @@ import RecordTable from './RecordTable'
 import ButterflyInfo from './ButterflyInfo'
 import CollectionInbox from './CollectionInbox'
 import PaperBrowser from './PaperBrowser'
+import WebResearch from './WebResearch'
 import type { Paper } from './api'
 import { emptyFilters, emptyTargets, rowsFor, matches, emptySurveyMatches, referenceCandidates } from './recordSearch'
 import './App.css'
@@ -81,7 +83,7 @@ export default function App() {
   const [integration, setIntegration] = useState<IntegrationStatus | null>(null)
   const [integrationError, setIntegrationError] = useState('')
   const [creating, setCreating] = useState(false)
-  const [paperSource, setPaperSource] = useState<Paper | null>(null)
+  const [paperSource, setPaperSource] = useState<(Pick<Paper, 'id' | 'title' | 'url'> & {kind?: 'web'}) | null>(null)
   const [paperRevision, setPaperRevision] = useState(0)
   const [editing, setEditing] = useState<Survey | undefined>()
   const [trashOpen, setTrashOpen] = useState(false)
@@ -153,6 +155,7 @@ export default function App() {
     refreshReferences()
   }
   async function load() {
+    setLoading(true)
     const version = ++snapshot.current
     try {
       const [nextSpecies, nextSurveys, nextWeather] = await Promise.all([listSpecies(), listSurveys(), recordWeather()])
@@ -284,7 +287,7 @@ export default function App() {
     setSelectedId(saved.id); refreshReferences(); void refreshTags(); setTargets(emptyTargets()); setMapFocus(saved.latitude !== null && saved.longitude !== null ? { latitude: saved.latitude, longitude: saved.longitude } : null)
     setCreating(false); setEditing(undefined); setPaperSource(null); setPaperRevision(n => n + 1); setQuery(''); setFilters(emptyFilters()); void refreshWeather(); setNotice(editing ? '수정을 저장했습니다. 기존 기상자료는 보존했습니다.' : '탐사를 저장했습니다. 상세 화면에서 기상자료를 연결할 수 있습니다.')
   }} />
-  return <div className="app-shell">
+  return <div className="app-shell"><ScrollToTop />
     <div className="workspace">
       <aside className="sidebar">
         <header className="app-header"><span className="eyebrow">BUTTERFLY ARCHIVE</span><h1>나비 관찰 기록</h1></header>
@@ -301,7 +304,7 @@ export default function App() {
         <p className="hint">종별 기록 {rows.length}건 · 좌표 있음 {rows.filter(r => r.record.effective_latitude !== null).length}건 · 좌표 없음 {rows.filter(r => r.record.effective_latitude === null).length}건</p>
         <details open><summary style={{cursor: 'pointer', marginBottom: 12}}><strong>종별 기록</strong><small style={{float: 'right'}}>관찰 {observedSpeciesCount}종</small></summary>
         {loading && <p role="status">목록을 불러오는 중입니다.</p>}
-        {error && <p role="alert" className="error">{error}</p>}
+        {error && <div role="alert" className="error">{error} <button type="button" disabled={loading} onClick={() => void load()}>기록 다시 불러오기</button></div>}
         {!loading && !error && filtered.length === 0 && !(query.trim()&&matchedCandidates.length) && <p className="empty">{surveys.length ? '검색 결과가 없습니다.' : '첫 탐사를 등록해 주세요.'}</p>}
         {surveyList}</details></div>
         <button className="trash-open" disabled={formOpen || referenceEditing} onClick={() => showTrash()}>휴지통</button>
@@ -324,7 +327,7 @@ export default function App() {
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
         {notice && mode === 'records' && <p role="status" className="notice">{notice}</p>}
-        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={registered} /> : collectionSource === 'mobile' ? <MobileInbox onRegistered={registered} onEditing={setReferenceEditing} onAddObservation={survey=>{setMode('records');setTab('table');setTableMode('surveys');selectSurvey(survey);setDetailOpen(true);setDetailEditing(true)}} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <div className="collection-preparation"><strong>수집 기능 준비 중</strong><p>현재는 수집처 선택 화면입니다. 실제 조회·가져오기 기능은 아직 연결되지 않았습니다.</p><p className="hint">수집은 사용자가 실행할 때만 진행하며, 사진은 기본적으로 가져오지 않는 방식으로 준비합니다.</p></div>}</div></section>}
+        {mode === 'collection' && <section className="collection-view"><div className="catalog-toolbar"><h2>자료 수집</h2></div><div className="collection-panel"><span className="eyebrow">{selectedSource.method}</span><h3>{selectedSource.name}</h3><p>{selectedSource.description}</p>{collectionSource === 'naturing' || collectionSource === 'inaturalist' ? <CollectionInbox key={collectionSource} source={collectionSource} remoteTarget={collectionRemote} onRegistered={registered} /> : collectionSource === 'mobile' ? <MobileInbox onRegistered={registered} onEditing={setReferenceEditing} onAddObservation={survey=>{setMode('records');setTab('table');setTableMode('surveys');selectSurvey(survey);setDetailOpen(true);setDetailEditing(true)}} /> : collectionSource === 'papers' ? <PaperBrowser species={species} revision={paperRevision} onRegister={paper => { setPaperSource(paper); setCreating(true) }} /> : <WebResearch species={species} revision={paperRevision} onRegister={source => {setPaperSource({...source, kind:'web'}); setCreating(true)}} />}</div></section>}
         {mode === 'info' && <ButterflyInfo currentReferences={referencesReady && references.length ? references : undefined} targets={targets} onTargets={changeTargets} species={species} onCreated={s => { setSpecies(current => [...current, s]); setInfoQuery(''); refreshReferences() }} onUpdated={s => referenceUpdated(s.id, s.host_plants)} onEditing={setReferenceEditing} sidebar={infoSidebar} query={infoQuery} revision={referenceRevision} surveys={surveys} registerOpen={registerOpen} onRegisterOpen={setRegisterOpen} />}
         {mapVisited && <div className="map-workspace" hidden={tab !== 'map' || mode !== 'records'}><MapView infoContainer={mapInfoFooter} distribution={distribution} shown={tab === 'map' && mode === 'records'} pins={pins} onOpen={pin=>{
           const survey=surveys.find(s=>s.id===pin.surveyId)

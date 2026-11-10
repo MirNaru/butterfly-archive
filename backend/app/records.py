@@ -204,15 +204,17 @@ def list_surveys(connection: sqlite3.Connection | None = None) -> list[dict]:
                 surveys[row['survey_id']]['photo_ids'].append(row['photo_id'])
             if row['observation_id'] is not None:
                 photos.setdefault(row['observation_id'], []).append(row['photo_id'])
-        for row in connection.execute(f"""SELECT o.*, s.korean_name AS species_name,
+        rows = connection.execute(f"""SELECT o.*, s.korean_name AS species_name,
                 ci.payload_json AS imported_payload, ci.inference_json AS imported_inference
                 FROM observations o LEFT JOIN species s ON s.id=o.species_id
                 LEFT JOIN collection_imports ci ON ci.observation_id=o.id
-                WHERE {ACTIVE_OBSERVATION} ORDER BY o.id"""):
-            survey = surveys.get(row['survey_id'])
-            if survey is not None:
-                survey['observations'].append(observation_view(row, survey, tags.get(row['id'], []), photos.get(row['id'], [])))
-        return [{**s,**display_location(s['place_name'],s['latitude'],s['longitude'])} for s in surveys.values()]
+                WHERE {ACTIVE_OBSERVATION} ORDER BY o.id""").fetchall()
+    # 목록 응답용 좌표 변환과 JSON 처리는 읽기 트랜잭션을 닫은 뒤 수행합니다.
+    for row in rows:
+        survey = surveys.get(row['survey_id'])
+        if survey is not None:
+            survey['observations'].append(observation_view(row, survey, tags.get(row['id'], []), photos.get(row['id'], [])))
+    return [{**s,**display_location(s['place_name'],s['latitude'],s['longitude'])} for s in surveys.values()]
 
 
 def validate_survey_photo_count(value, original=None):

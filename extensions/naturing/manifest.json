@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "나비 아카이브 · 네이처링",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "description": "공개 관찰 기록을 읽고 다음 관찰을 연속으로 로컬 DB로 전송합니다.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "unlimitedStorage"
   ],
   "action": {
     "default_popup": "popup.html",
