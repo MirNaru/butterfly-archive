@@ -77,6 +77,9 @@ export const getWeather = (type: 'survey' | 'observation', id: number) => reques
 export const findStations = (target_type: 'survey' | 'observation', target_id: number) => request<Station[]>('/weather/stations', post({ target_type, target_id }))
 export const queryWeather = (target_type: 'survey' | 'observation', target_id: number, station_id: number, refresh = false) => request<SavedWeather>('/weather/query', post({ target_type, target_id, station_id, refresh }))
 export const recordWeather = () => request<Record<number, SavedWeather>>('/record-weather')
+export interface WeatherQueueStatus { running: boolean; total: number; saved: number; skipped: number; missing: number; pending: number }
+export const startWeatherQueue = () => request<WeatherQueueStatus>('/weather-queue', { ...post({}), headers: {'Content-Type':'application/json', 'X-Butterfly-Client':'app'} })
+export const weatherQueueStatus = () => request<WeatherQueueStatus>('/weather-queue')
 export const getReference = (id: number) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`)
 export const saveReference = (id: number, value: import('./models').SpeciesReference, version: string | null) => request<import('./models').ReferenceDocument>(`/species/${id}/reference`, { ...post({ ...value, expected_updated_at: version }), method: 'PUT' })
 export const findExploration = (on: string, region: string) => request<import('./models').ExplorationRow[]>(`/exploration?${new URLSearchParams({ on, region })}`)

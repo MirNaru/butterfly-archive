@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import Field
 from app.schemas import InputModel
-from app import api_usage, naver_maps, weather_store
+from app import api_usage, naver_maps, weather_queue, weather_store
 from app.integration_settings import require_maps, maps_ready, kma_ready
 
 
@@ -79,3 +79,19 @@ def weather_stations(value: WeatherTarget):
 @router.post("/weather/query")
 def weather_query(value: WeatherRequest):
     return weather_store.query(value.target_type, value.target_id, value.station_id, value.refresh)
+
+
+class WeatherQueueRequest(InputModel):
+    limit: int = Field(default=15000, ge=1, le=15000, strict=True)
+
+
+@router.post("/weather-queue")
+def start_weather_queue(value: WeatherQueueRequest, request: Request):
+    if request.headers.get("X-Butterfly-Client") != "app":
+        raise HTTPException(403, "기록 화면에서 요청해 주세요.")
+    return weather_queue.start(value.limit)
+
+
+@router.get("/weather-queue")
+def weather_queue_status():
+    return weather_queue.status()

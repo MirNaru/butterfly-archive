@@ -30,9 +30,35 @@ def context(target_type: str, target_id: int) -> dict:
         result = {"date": record["effective_date"], "time": record["observation_time"],
                   "latitude": record["effective_latitude"], "longitude": record["effective_longitude"],
                   "place": record["effective_place"]}
+    return time_context(result)
+
+
+def time_context(result):
     result["kind"] = "hourly" if result["time"] else "daily"
     result["target_time"] = result["date"].replace("-", "") + (result["time"][:2] + "00" if result["time"] else "")
     return result
+
+
+def save_automatic(oid, ctx, station, payload):
+    with connect_database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("SELECT 1 FROM weather_links WHERE observation_id=?", (oid,)).fetchone():
+            return False
+        try:
+            if context("observation", oid) != ctx:
+                return False
+        except IntegrationError as error:
+            if error.status == 404:
+                return False
+            raise
+        sample = db.execute("""SELECT id FROM weather_samples WHERE station_id=? AND kind=? AND target_time=?
+            ORDER BY id DESC LIMIT 1""", (station["id"], ctx["kind"], ctx["target_time"])).fetchone()
+        sample_id = sample[0] if sample else db.execute("""INSERT INTO weather_samples
+            (station_id,kind,target_time,payload_json,fetched_at) VALUES (?,?,?,?,?)""",
+            (station["id"],ctx["kind"],ctx["target_time"],json.dumps(payload,ensure_ascii=False),now_kst().isoformat())).lastrowid
+        db.execute("""INSERT INTO weather_links(observation_id,sample_id,context_json,station_json,distance_km)
+            VALUES (?,?,?,?,?)""", (oid,sample_id,json.dumps(ctx),json.dumps(station),station["distance_km"]))
+        return True
 
 
 def ensure_past(ctx: dict) -> None:

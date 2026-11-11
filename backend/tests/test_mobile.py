@@ -168,7 +168,7 @@ def test_mobile_migration_from_thirteen_preserves_rows_and_rolls_back(client,mon
         for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
             db.execute('DROP TABLE '+table)
         db.execute('ALTER TABLE tags DROP COLUMN category')
-        db.execute('PRAGMA user_version=13')
+        db.execute('DROP TABLE map_lookup_cache'); db.execute('PRAGMA user_version=13')
     with monkeypatch.context() as patch:
         patch.setattr(migrations,'MOBILE_STATEMENTS',migrations.MOBILE_STATEMENTS+('INVALID SQL',))
         with pytest.raises(sqlite3.Error):migrations.initialize_database()

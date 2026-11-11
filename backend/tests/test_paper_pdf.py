@@ -64,7 +64,7 @@ def test_version_twelve_migration_failure_preserves_rows(client, monkeypatch):
     with connect_database() as db:
         for table in ('mobile_photos','mobile_limits','mobile_sessions','mobile_settings'):
             db.execute('DROP TABLE '+table)
-        db.execute('DROP TABLE paper_files'); db.execute('ALTER TABLE tags DROP COLUMN category'); db.execute('PRAGMA user_version=12')
+        db.execute('DROP TABLE paper_files'); db.execute('ALTER TABLE tags DROP COLUMN category'); db.execute('DROP TABLE map_lookup_cache'); db.execute('PRAGMA user_version=12')
     with monkeypatch.context() as patch:
         patch.setattr(migrations, 'PAPER_FILE_STATEMENTS', migrations.PAPER_FILE_STATEMENTS + ('INVALID SQL',))
         with pytest.raises(sqlite3.Error): migrations.initialize_database()

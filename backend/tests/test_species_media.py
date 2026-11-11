@@ -48,7 +48,7 @@ def test_version_fourteen_tag_migration_preserves_ids_links_and_has_backup(clien
     with connect_database() as db:
         before=[tuple(r) for r in db.execute('SELECT * FROM survey_tags')]
         db.execute('ALTER TABLE tags DROP COLUMN category')
-        db.execute('PRAGMA user_version=14')
+        db.execute('DROP TABLE map_lookup_cache'); db.execute('PRAGMA user_version=14')
     initialize_database();initialize_database()
     with connect_database() as db:
         assert db.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION

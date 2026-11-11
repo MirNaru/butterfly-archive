@@ -104,10 +104,10 @@ def test_schema_15_upgrade_keeps_papers_and_backup(client, monkeypatch):
     with connect_database() as db:
         for table in ('web_observations', 'web_sources', 'paper_organization', 'gemini_daily_usage'):
             db.execute(f'DROP TABLE {table}')
-        db.execute('PRAGMA user_version=15')
+        db.execute('DROP TABLE map_lookup_cache'); db.execute('PRAGMA user_version=15')
     migrations.initialize_database()
     assert client.get('/api/papers').json()['items'][0]['id'] == paper['id']
-    backup, = database_path().parent.glob('*.before-v16-*.bak')
+    backup, = database_path().parent.glob(f'*.before-v{migrations.SCHEMA_VERSION}-*.bak')
     with sqlite3.connect(backup) as db:
         assert db.execute('PRAGMA user_version').fetchone()[0] == 15
         assert db.execute('SELECT COUNT(*) FROM papers').fetchone()[0] == 1

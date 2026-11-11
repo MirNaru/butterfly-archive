@@ -5,6 +5,7 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
@@ -61,6 +62,43 @@ def record(client, **changes):
 def query(client, target_id, **changes):
     return client.post("/api/weather/query", json={"target_type": "survey", "target_id": target_id,
                                                  "station_id": 108, **changes})
+
+
+def test_automatic_weather_waits_outside_registration_and_shares_one_response(client, upstream, monkeypatch):
+    from app import weather_queue
+    original = weather.fetch_text
+    entered, release, done = Event(), Event(), Event()
+
+    def delayed(endpoint, params):
+        if endpoint == "kma_sfcdd.php":
+            entered.set()
+            assert release.wait(5)
+        return original(endpoint, params)
+
+    run = weather_queue.run
+    def tracked(limit):
+        try:
+            run(limit)
+        finally:
+            done.set()
+
+    monkeypatch.setattr(weather, "fetch_text", delayed)
+    monkeypatch.setattr(weather_queue, "run", tracked)
+    first = record(client, observations=[{}])["observations"][0]["id"]
+    second = record(client, observations=[{}])["observations"][0]["id"]
+    assert upstream == []
+    try:
+        result = client.post("/api/weather-queue", json={}, headers={"X-Butterfly-Client": "app"})
+        assert result.json()["running"]
+        assert entered.wait(5)
+        record(client, observations=[{}])
+        assert client.get("/api/weather-queue").json()["running"]
+    finally:
+        release.set()
+        assert done.wait(5)
+    assert weather_queue.status()["saved"] == 2
+    assert len(upstream) == 2 and upstream[-1][1]["stn"] == 0
+    assert {first, second} <= {int(key) for key in client.get("/api/record-weather").json()}
 
 
 def test_weather_persist_restart_and_shared_sample(client, upstream):

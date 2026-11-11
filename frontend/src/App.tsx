@@ -4,7 +4,8 @@ import DetailPhotos from './DetailPhotos'
 import {readView,writeView} from './viewMemory'
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { listSpecies, listSurveys, integrationStatus, recordWeather, catalogExploration, listTags } from './api'
+import { listSpecies, listSurveys, integrationStatus, recordWeather, catalogExploration, listTags, startWeatherQueue, weatherQueueStatus } from './api'
+import type { WeatherQueueStatus } from './api'
 import { CAPTURE, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
 import SurveyForm, { type SurveyFormHandle } from './SurveyForm'
@@ -79,6 +80,19 @@ export default function App() {
   const [detailEditing, setDetailEditing] = useState(false)
   const detailForm = useRef<SurveyFormHandle>(null)
   const [tab, setTab] = useState<'map' | 'table'>(savedView.tab === 'map' ? 'map' : 'table')
+  const [weatherQueue, setWeatherQueue] = useState<WeatherQueueStatus | null>(null)
+  const [weatherQueueError, setWeatherQueueError] = useState('')
+  const [weather, setWeather] = useState<Record<number, SavedWeather>>({})
+  useEffect(() => {
+    if (!weatherQueue?.running) return
+    const timer = window.setTimeout(() => {
+      void weatherQueueStatus().then(next => {
+        setWeatherQueue(next)
+        if (!next.running && next.saved) void recordWeather().then(setWeather).catch(() => setWeatherQueueError('저장된 기상을 읽지 못했습니다.'))
+      }).catch(() => setWeatherQueue(previous => previous && {...previous}))
+    }, 5000)
+    return () => window.clearTimeout(timer)
+  }, [weatherQueue])
   const [mapVisited, setMapVisited] = useState(savedView.tab === 'map')
   const [mapFocus, setMapFocus] = useState<Coordinate | null>(null)
   const [integration, setIntegration] = useState<IntegrationStatus | null>(null)
@@ -109,7 +123,6 @@ export default function App() {
     }
     return defaults
   })
-  const [weather, setWeather] = useState<Record<number, SavedWeather>>({})
   const [referenceEditing, setReferenceEditing] = useState(false)
   const [mode, setMode] = useState<'records' | 'info' | 'collection'>(savedView.mode === 'info' || savedView.mode === 'collection' ? savedView.mode : 'records')
   const [collectionRemote, setCollectionRemote] = useState<HTMLDivElement | null>(null)
@@ -352,7 +365,7 @@ export default function App() {
 
         </div>
         </div>
-        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setSelectedId(null); setSelectedRecord(null); setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
+        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setSelectedId(null); setSelectedRecord(null); setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { if (mode === 'collection') { setWeatherQueueError(''); void startWeatherQueue().then(setWeatherQueue).catch(() => setWeatherQueueError('기상 수집을 시작하지 못했습니다.')); } setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
       </aside>
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>
@@ -375,7 +388,7 @@ export default function App() {
 
         </>}
       </main>
-      <footer className="workspace-status"><span>개인 기록 · 로컬 저장</span><span>기상은 저장 후 재사용 · 자동 갱신 없음</span>{tab === 'map' && mode === 'records' && <><span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span><div className="distribution-footer" ref={setMapInfoFooter}/></>}</footer>
+      <footer className="workspace-status"><span>개인 기록 · 로컬 저장</span>{mode === 'records' && <span role="status">{weatherQueueError || (weatherQueue?.running ? '기상 백그라운드 수집 중 · 저장 ' + weatherQueue.saved + '건' : weatherQueue?.total ? '기상 저장 ' + weatherQueue.saved + '건 · 자료 없음 ' + weatherQueue.missing + '건 · 재시도 대기 ' + weatherQueue.pending + '건' : '기상은 저장 후 재사용')}</span>}{tab === 'map' && mode === 'records' && <><span>네이버 지도 · 위치 조회는 외부 연결을 사용합니다.</span><div className="distribution-footer" ref={setMapInfoFooter}/></>}</footer>
       </div>
     </div>
     {form}
