@@ -101,6 +101,26 @@ def test_automatic_weather_waits_outside_registration_and_shares_one_response(cl
     assert {first, second} <= {int(key) for key in client.get("/api/record-weather").json()}
 
 
+def test_automatic_weather_retries_a_transient_provider_error(client, upstream, monkeypatch):
+    from app import weather_queue
+    oid = record(client, observations=[{}])["observations"][0]["id"]
+    original = weather.fetch_text
+    failures = []
+
+    def transient(endpoint, params):
+        if endpoint == "kma_sfcdd.php" and not failures:
+            failures.append(endpoint)
+            raise integration_settings.IntegrationError("연결 실패", 503)
+        return original(endpoint, params)
+
+    monkeypatch.setattr(weather, "fetch_text", transient)
+    monkeypatch.setattr(weather_queue, "sleep", lambda _: None)
+    monkeypatch.setattr(weather_queue, "progress", dict(running=True,total=0,saved=0,skipped=0,missing=0,pending=0))
+    weather_queue.run(1)
+    assert failures and weather_queue.status()["saved"] == 1
+    assert str(oid) in client.get("/api/record-weather").json()
+
+
 def test_weather_persist_restart_and_shared_sample(client, upstream):
     first, second = record(client), record(client)
     result = query(client, first["id"])

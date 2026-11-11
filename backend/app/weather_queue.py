@@ -110,7 +110,15 @@ def run(limit):
         add_counts(total=sum(map(len,groups.values())))
         for (kind,target), entries in groups.items():
             try:
-                collect_group(kind,target,entries)
+                try:
+                    collect_group(kind,target,entries)
+                except IntegrationError as error:
+                    if error.status not in (502, 503):
+                        raise
+                    sleep(10)
+                    # 이미 저장된 항목은 충돌 검사에서 보존하며, 이 단계의
+                    # 외부 실패는 관측값을 저장하기 전에 발생합니다.
+                    collect_group(kind,target,entries)
             except IntegrationError as error:
                 if error.status == 404:
                     missing_until.update((oid, now_kst().date()) for oid, _ in entries)
