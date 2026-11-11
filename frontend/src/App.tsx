@@ -4,7 +4,7 @@ import DetailPhotos from './DetailPhotos'
 import {readView,writeView} from './viewMemory'
 // 탐사 등록과 지도·표 보기의 선택 상태를 관리합니다.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { listSpecies, listSurveys, integrationStatus, recordWeather, catalogExploration, listTags, startWeatherQueue, weatherQueueStatus } from './api'
+import { listSpecies, listSurveys, integrationStatus, recordWeather, recordReview, catalogExploration, listTags, startWeatherQueue, weatherQueueStatus } from './api'
 import type { WeatherQueueStatus } from './api'
 import { CAPTURE, PURPOSE, RESULT, SEX, STAGE, SOURCE_TYPE } from './models'
 import type { Species, Survey, MapPin, Coordinate, IntegrationStatus, SavedWeather, ExplorationRow, Tag } from './models'
@@ -83,12 +83,20 @@ export default function App() {
   const [weatherQueue, setWeatherQueue] = useState<WeatherQueueStatus | null>(null)
   const [weatherQueueError, setWeatherQueueError] = useState('')
   const [weather, setWeather] = useState<Record<number, SavedWeather>>({})
+  const weatherRefresh = useRef({ time: 0, saved: 0 })
   useEffect(() => {
     if (!weatherQueue?.running) return
     const timer = window.setTimeout(() => {
       void weatherQueueStatus().then(next => {
         setWeatherQueue(next)
-        if (!next.running && next.saved) void recordWeather().then(setWeather).catch(() => setWeatherQueueError('저장된 기상을 읽지 못했습니다.'))
+        if (next.saved !== weatherRefresh.current.saved &&
+            (!next.running || Date.now() - weatherRefresh.current.time >= 30_000)) {
+          weatherRefresh.current.time = Date.now()
+          void recordWeather().then(rows => {
+            weatherRefresh.current.saved = next.saved
+            setWeather(rows)
+          }).catch(() => setWeatherQueueError('저장된 기상을 읽지 못했습니다.'))
+        }
       }).catch(() => setWeatherQueue(previous => previous && {...previous}))
     }, 5000)
     return () => window.clearTimeout(timer)
@@ -105,6 +113,8 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState<{ survey: Survey; observationId: number | null } | null>(null)
   const formOpen = creating || !!editing || trashOpen || detailOpen
   const [query, setQuery] = useState(typeof savedView.query === 'string' ? savedView.query : '')
+  const [reviewFlags, setReviewFlags] = useState<Record<number, string[]> | null>(null)
+  const reviewSearch = query.trim().replace(/\s+/g, '') === '검수필요'
   const [filterRevision, setFilterRevision] = useState(0)
   const [infoQuery, setInfoQuery] = useState(typeof savedView.infoQuery === 'string' ? savedView.infoQuery : '')
   const [holdingQuery, setHoldingQuery] = useState(typeof savedView.holdingQuery === 'string' ? savedView.holdingQuery : '')
@@ -138,6 +148,18 @@ export default function App() {
   const selectedSource = collectionSources.find(source => source.id === collectionSource)!
   const holdingShown = mode === 'records' && tab === 'table' && tableMode === 'holdings'
   const needsRecords = mode === 'records' && !holdingShown
+  const automaticWeatherShown = mode === 'records' && tab === 'table'
+  useEffect(() => {
+    if (!automaticWeatherShown) return
+    let active = true
+    weatherRefresh.current = {time:0,saved:0}
+    void startWeatherQueue().then(next => {
+      if (active) setWeatherQueue(next)
+    }).catch(() => {
+      if (active) setWeatherQueueError('기상 수집을 시작하지 못했습니다.')
+    })
+    return () => { active = false }
+  }, [automaticWeatherShown])
   const [targets, setTargets] = useState(emptyTargets)
   const [references, setReferences] = useState<ExplorationRow[]>([])
   const [referenceLoading, setReferenceLoading] = useState(true)
@@ -228,7 +250,19 @@ export default function App() {
   const referenceMap = useMemo(() => new Map(references.map(row => [row.id, row])), [references])
   const ranks = useMemo(() => new Map(species.map((s, index) => [s.id, index])), [species])
   const allRecords = useMemo(() => needsRecords ? rowsFor(surveys, species, weather) : [], [needsRecords, surveys, species, weather])
-  const matchedRows = useMemo(() => allRecords.filter(row => matches(row, filters, query)), [allRecords, filters, query])
+  useEffect(() => {
+    if (!reviewSearch || mode !== 'records') return
+    const controller = new AbortController()
+    void recordReview(controller.signal).then(setReviewFlags).catch(error => {
+      if (!controller.signal.aborted) setError(error instanceof Error ? error.message : '검수 목록을 읽지 못했습니다.')
+    })
+    return () => controller.abort()
+  }, [reviewSearch, mode, surveys])
+  const matchedRows = useMemo(() => allRecords.flatMap(row => {
+    if (!reviewSearch) return matches(row,filters,query) ? [row] : []
+    const flags = reviewFlags?.[row.record.id]
+    return flags && matches(row,filters,'') ? [{...row,reviewFlags:flags}] : []
+  }), [allRecords, filters, query, reviewSearch, reviewFlags])
   const speciesGroups=useMemo(()=>groupSpecies(matchedRows,filters.place||query,ranks),[matchedRows,filters.place,query,ranks])
   const matchedCandidates = useMemo(() => needsRecords && referencesReady ? referenceCandidates(references, allRecords, filters, emptyTargets(), query) : [], [needsRecords, referencesReady, references, allRecords, filters, query])
   const exactSpecies=species.find(s=>query.trim()&&[s.korean_name,s.scientific_name].some(n=>n?.toLowerCase()===query.trim().toLowerCase()))
@@ -365,7 +399,7 @@ export default function App() {
 
         </div>
         </div>
-        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setSelectedId(null); setSelectedRecord(null); setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { if (mode === 'collection') { setWeatherQueueError(''); void startWeatherQueue().then(setWeatherQueue).catch(() => setWeatherQueueError('기상 수집을 시작하지 못했습니다.')); } setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
+        <nav className="tabs" aria-label="화면 선택"><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'map' && mode === 'records'} onClick={() => { setSelectedId(null); setSelectedRecord(null); setMode('records'); setTab('map'); setMapVisited(true) }}>지도</button><button disabled={referenceEditing || formOpen} aria-pressed={tab === 'table' && mode === 'records'} onClick={() => { setMode('records'); setTab('table') }}>기록</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'info'} onClick={() => { setMode('info'); setTab('table') }}>나비 도감</button><button disabled={referenceEditing || formOpen} aria-pressed={mode === 'collection'} onClick={() => { setMode('collection'); setTab('table') }}>자료 수집</button></nav>
       </aside>
       <div className="main-shell">
       <main className={`main-pane${tab === 'map' && mode === 'records' ? ' map-pane' : mode === 'info' ? ' catalog-pane' : ' record-pane'}`}>

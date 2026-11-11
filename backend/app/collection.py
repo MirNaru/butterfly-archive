@@ -9,8 +9,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.database import connect_database
-from app.collection_import import registration_info, import_item, preserve_stage_override, observed_datetime, source_location_note
-from app.regions import display_location
+from app.collection_import import registration_info, import_item, preserve_stage_override, observed_datetime, source_location_note, review_flags, review_region
+from app.regions import display_location, observation_area_codes
 
 router = APIRouter(prefix='/api/collection', tags=['collection'])
 
@@ -119,6 +119,8 @@ def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le
             ordering = f'collection_observed_key(payload_json) IS NULL, collection_observed_key(payload_json) {direction}, id {direction}'
         rows = db.execute(f'SELECT * FROM collected_observations WHERE {pending} ORDER BY {ordering} LIMIT ? OFFSET ?', (source, limit, offset)).fetchall()
         items = []
+        confirmed_regions = {}
+        season_fences = {}
         for row in rows:
             payload = json.loads(row['payload_json'])
             info = registration_info(db, payload)
@@ -131,7 +133,7 @@ def list_collected(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le
                 payload = {**payload, 'korean_name':species['korean_name'], 'scientific_name':species['scientific_name'] or ''}
             imported = db.execute('SELECT observation_id,payload_json,inference_json FROM collection_imports WHERE item_id=?', (row['id'],)).fetchone()
             items.append({**payload, **location, 'id':row['id'], 'review_status':row['review_status'], 'last_received_at':row['last_received_at'],
-                          'eligible':info['eligible'], 'reason':info['reason'], 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],
+                          'eligible':info['eligible'], 'reason':info['reason'], 'review_flags':review_flags(db,payload,info,confirmed_regions,season_fences), 'exempt':info['exempt'], 'inferred_stage':json.loads(imported['inference_json'])['stage'] if imported else info['inference']['stage'],
                           'species_id':info['species_id'], 'stage_manual':bool(info['inference'].get('manual_stage_override')), 'version':hashlib.sha256(row['payload_json'].encode()).hexdigest(),
                           'observation_id':imported['observation_id'] if imported else None,
                           'source_changed':bool(imported and imported['payload_json'] != row['payload_json'])})
@@ -217,6 +219,8 @@ def register_selected(value: CollectionSelection, request: Request):
     results = []
     registered_species = set()
     taxon_matches = {}
+    confirmed_regions = {}
+    season_fences = {}
     with connect_database() as db:
         db.execute('BEGIN IMMEDIATE')
         for item_id in dict.fromkeys(value.ids):
@@ -236,10 +240,23 @@ def register_selected(value: CollectionSelection, request: Request):
             if not info['eligible']:
                 results.append({'id':item_id, 'status':'skipped', 'reason':info['reason']})
                 continue
+            info['inference']['review_flags'] = review_flags(db,payload,info,confirmed_regions,season_fences)
             observation_id = import_item(db, row, info, payload)
+            if info['species_id'] in confirmed_regions:
+                confirmed_regions[info['species_id']].update(observation_area_codes(review_region(payload)))
             registered_species.add(info['species_id'])
             results.append({'id':item_id, 'status':'registered', 'observation_id':observation_id})
         from app.vagrant_years import sync_vagrant_years
+        from app.exact_cases import exact_case_groups, consolidate_exact_cases
+        new_ids = {r['observation_id'] for r in results if r['status']=='registered'}
+        duplicates = [group for group in exact_case_groups(db,registered_species) if new_ids.intersection(group)]
+        if duplicates:
+            merged = consolidate_exact_cases(db,duplicates,datetime.now(timezone.utc).isoformat())
+            representatives = {item['original']:item['kept'] for item in merged}
+            for result in results:
+                oid = result.get('observation_id')
+                if oid in representatives:
+                    result['observation_id'] = representatives[oid]
         sync_vagrant_years(db, registered_species)
         from app.records import read_survey
         ids = [r['observation_id'] for r in results if r.get('observation_id')]

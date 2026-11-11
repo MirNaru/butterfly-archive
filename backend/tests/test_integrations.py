@@ -121,6 +121,19 @@ def test_automatic_weather_retries_a_transient_provider_error(client, upstream, 
     assert str(oid) in client.get("/api/record-weather").json()
 
 
+def test_obscured_weather_uses_only_stations_within_public_radius(client, upstream, monkeypatch):
+    from app import weather_queue
+    monkeypatch.setattr(weather_queue, "progress", dict(running=True,total=2,saved=0,skipped=0,missing=0,pending=0))
+    monkeypatch.setattr(weather_queue, "missing_until", {})
+    ids = [record(client, observations=[{}])["observations"][0]["id"] for _ in range(2)]
+    ctx = weather_store.context("observation", ids[0])
+    weather_queue.collect_group("daily", ctx["target_time"], [(ids[0],ctx,100),(ids[1],ctx,20_000)])
+    stored = client.get("/api/record-weather").json()
+    assert str(ids[0]) not in stored
+    assert stored[str(ids[1])]["weather"]["station"]["id"] == 108
+    assert weather_queue.status()["missing"] == 1
+
+
 def test_weather_persist_restart_and_shared_sample(client, upstream):
     first, second = record(client), record(client)
     result = query(client, first["id"])

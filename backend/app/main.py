@@ -108,6 +108,14 @@ def surveys_list():
     return records.list_surveys()
 
 
+@app.get("/api/record-review")
+def record_review():
+    from app.collection_import import existing_review_flags
+    from app.database import connect_database
+    with connect_database() as db:
+        return existing_review_flags(db)
+
+
 @app.post("/api/surveys", response_model=Survey, status_code=201)
 def survey_create(value: SurveyInput):
     try:

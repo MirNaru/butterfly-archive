@@ -1,6 +1,7 @@
 """등록된 관찰의 누락 기상을 단일 백그라운드 작업에서 연결합니다."""
 import json
 import logging
+import sqlite3
 from collections import defaultdict
 from threading import Lock, Thread
 from time import sleep
@@ -27,6 +28,8 @@ def candidates(limit):
     with connect_database() as db:
         rows = db.execute(f"""SELECT o.id, COALESCE(o.observation_date,s.survey_date) AS day,
             o.observation_time AS time,
+            COALESCE(json_extract(ci.payload_json,'$.location_obscured'),0) AS obscured,
+            json_extract(ci.payload_json,'$.location_accuracy') AS accuracy,
             CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.place_name ELSE s.place_name END AS place,
             CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.latitude ELSE s.latitude END AS lat,
             CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.longitude ELSE s.longitude END AS lng,
@@ -35,8 +38,9 @@ def candidates(limit):
             LEFT JOIN collection_import_views ci ON ci.observation_id=o.id
             WHERE {ACTIVE_OBSERVATION} AND o.result='observed'
             AND NOT EXISTS(SELECT 1 FROM weather_links w WHERE w.observation_id=o.id)
-            AND COALESCE(json_extract(ci.payload_json,'$.location_obscured'),0)=0
-            AND COALESCE(json_extract(ci.payload_json,'$.location_accuracy'),0)<=5000
+            AND CASE WHEN json_type(ci.payload_json,'$.location_accuracy') IN ('integer','real')
+                THEN json_extract(ci.payload_json,'$.location_accuracy') BETWEEN 0 AND 20000
+                ELSE 1 END
             AND TRIM(COALESCE(json_extract(ci.payload_json,'$.weather_raw'),'')) IN ('','정보가 없습니다.')
             AND COALESCE(o.observation_date,s.survey_date) < ?
             ORDER BY o.id DESC""", (today.isoformat(),)).fetchall()
@@ -45,13 +49,15 @@ def candidates(limit):
     for row in rows:
         if missing_until.get(row['id']) == today:
             continue
-        if row['lat'] is None or row['lng'] is None or row['method']=='approximate':
+        if row['lat'] is None or row['lng'] is None or (row['method']=='approximate' and not row['obscured']):
             continue
-        if not locate_point(row['lat'], row['lng']):
+        if row['obscured'] and not isinstance(row['accuracy'], (int,float)):
+            continue
+        if not row['obscured'] and not locate_point(row['lat'], row['lng']):
             continue
         ctx = weather_store.time_context(dict(date=row['day'], time=row['time'],
             latitude=row['lat'], longitude=row['lng'], place=row['place']))
-        groups[ctx['kind'],ctx['target_time']].append((row['id'], ctx))
+        groups[ctx['kind'],ctx['target_time']].append((row['id'], ctx, row['accuracy'] if row['obscured'] else None))
         count += 1
         if count == limit:
             break
@@ -80,10 +86,12 @@ def collect_group(kind, target, entries):
             'SELECT station_id,payload_json FROM weather_samples WHERE kind=? AND target_time=? ORDER BY id',
             (kind,target))}
     text = None
-    for oid, ctx in entries:
+    for oid, ctx, radius in entries:
         ordered = sorted(({**s,'distance_km':weather.distance_km(ctx['latitude'],ctx['longitude'],s)}
                           for s in stations), key=lambda s: (s['distance_km'], s['id']))
         for station in ordered[:3]:
+            if radius is not None and station['distance_km'] * 1000 > radius:
+                continue
             sid = station['id']
             if sid not in samples:
                 if text is None:
@@ -96,12 +104,23 @@ def collect_group(kind, target, entries):
                     samples[sid] = None
             payload = samples[sid]
             if payload and any(value['value'] is not None for value in payload['values']):
-                saved = weather_store.save_automatic(oid,ctx,station,payload)
+                saved = save_with_retry(oid,ctx,station,payload)
                 add_counts(**{('saved' if saved else 'skipped'):1})
                 break
         else:
             missing_until[oid] = now_kst().date()
             add_counts(missing=1)
+
+
+def save_with_retry(oid, ctx, station, payload):
+    for attempt in range(4):
+        try:
+            return weather_store.save_automatic(oid,ctx,station,payload)
+        except sqlite3.OperationalError as error:
+            code = getattr(error,'sqlite_errorcode',0) & 255
+            if code not in (sqlite3.SQLITE_BUSY,sqlite3.SQLITE_LOCKED) or attempt == 3:
+                raise
+            sleep(0.25 * 2**attempt)
 
 
 def run(limit):
@@ -121,7 +140,7 @@ def run(limit):
                     collect_group(kind,target,entries)
             except IntegrationError as error:
                 if error.status == 404:
-                    missing_until.update((oid, now_kst().date()) for oid, _ in entries)
+                    missing_until.update((oid, now_kst().date()) for oid, *_ in entries)
                     add_counts(missing=len(entries))
                     continue
                 # 미처리 기록은 다음 진입 시 저장 상태에서 다시 찾습니다.

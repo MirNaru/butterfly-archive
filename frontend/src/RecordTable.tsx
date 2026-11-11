@@ -8,13 +8,40 @@ import { isDirectSurvey, sortEntries, weatherState } from './recordSearch'
 import type { RecordRow, TableEntry } from './recordSearch'
 const extras = { tags: '환경·개체 태그', result: '관찰·미발견', source: '관찰 출처', sourceNote: '출처 근거', stage: '성장 단계', sex: '성별', count: '관찰 개체 수', capture: '채집 여부', captured: '채집 개체 수', coords: '좌표', method: '위치 입력 방식', notes: '메모', updated: '최근 수정', period: '어른벌레 출현 참고 기간', days: '예상 출현 기간 남은 일수', history: '내 채집 이력', regions: '분포 참고', evidence: '참고자료 출처' }
 type Extra = keyof typeof extras
+function weatherSummary(row: RecordRow) {
+  const saved = row.weather?.weather
+  if (!saved) {
+    const source = row.record.source_weather
+    return source?.text ?? ''
+  }
+  const fields = [
+    ['TA', '기온'], ['TA_AVG', '평균기온'], ['RN_DAY', saved.kind === 'hourly' ? '누적 강수량' : '강수량'],
+    ['HM', '습도'], ['HM_AVG', '평균습도'], ['WS', '풍속'], ['WS_AVG', '평균풍속'],
+  ]
+  const values = fields.flatMap(([code, label]) => {
+    const field = saved.values.find(value => value.code === code)
+    return field?.value == null ? [] : [`${label} ${field.value}${field.unit === '도' ? '°C' : field.unit}`]
+  })
+  return `${saved.kind === 'daily' ? '일자료' : '시간자료'}${values.length ? ' | ' + values.join(' | ') : ''}`
+}
 const slot = (n: number) => `${Math.floor((n - 1) / 3) + 1}월 ${['상순', '중순', '하순'][(n - 1) % 3]}`
 export default function RecordTable({ rows, surveys, references, ranks, onSelect, onOpen, selectedId, mode, holdingsView }: { mode: string; holdingsView: ReactNode; rows: RecordRow[]; surveys: Survey[]; references: Map<number, ExplorationRow>; candidates: ExplorationRow[]; ranks: Map<number, number>; onSelect: (s: Survey, id?: number) => void; onOpen: (s: Survey, id?: number) => void; selectedId: number | null }) {
   const [columns, setColumns] = useState<Extra[]>([])
   const [sort, setSort] = useState('classification')
   const [direction, setDirection] = useState<'asc' | 'desc'>('asc')
   function sortBy(key: string) { resetScroll(); setSort(key); setDirection(sort === key && direction === 'asc' ? 'desc' : 'asc') }
-  const entries = useMemo<TableEntry[]>(() => rows.map(row => ({kind:'record',row})), [rows])
+  const [showSeparate, setShowSeparate] = useState(false)
+  const { entries, counts } = useMemo(() => {
+    const entries: TableEntry[] = []
+    const counts = new Map<string, number>()
+    for (const row of rows) {
+      const key = row.record.exact_case_key
+      const count = key ? counts.get(key) ?? 0 : 0
+      if (key) counts.set(key, count + 1)
+      if (showSeparate || !count) entries.push({kind:'record',row})
+    }
+    return {entries, counts}
+  }, [rows, showSeparate])
   const sorted = useMemo(() => sortEntries(entries, references, ranks, sort, direction), [entries,references,ranks,sort,direction])
   const directSurveys = useMemo(() => surveys.filter(isDirectSurvey), [surveys])
   const scroller = useRef<HTMLDivElement>(null)
@@ -30,7 +57,7 @@ export default function RecordTable({ rows, surveys, references, ranks, onSelect
   }, [mode])
   const [scrollPosition, setScrollPosition] = useState({rows, row:0})
   const scrollRow = scrollPosition.rows === rows ? scrollPosition.row : 0
-  const scrollKey = `${mode}:${sort}:${direction}:${rows.map(r => r.record.id).join(',')}`
+  const scrollKey = `${mode}:${sort}:${direction}:${showSeparate}:${rows.map(r => r.record.id).join(',')}`
   useEffect(() => {
     const saved = readView('record-scroll')
     const top = saved.key === scrollKey && typeof saved.top === 'number' ? Math.max(0,saved.top) : 0
@@ -71,17 +98,22 @@ export default function RecordTable({ rows, surveys, references, ranks, onSelect
     <div className="record-controls catalog-toolbar"><h2>{mode === 'holdings' ? '소장 목록' : '관찰 기록표'}</h2>
       {mode !== 'holdings' && <><label className="record-sort">정렬<select value={sort} disabled={mode !== 'records'} onChange={e => { resetScroll(); setSort(e.target.value) }}><option value="classification">분류 순서</option><option value="date">관찰 날짜·시각</option><option value="name">국명</option><option value="count">관찰 개체 수</option><option value="days">예상 출현 기간 남은 일수</option></select></label>
       <button disabled={mode !== 'records'} onClick={() => {resetScroll();setDirection(direction === 'asc' ? 'desc' : 'asc')}}>{direction === 'asc' ? '오름차순' : '내림차순'}</button>
+      {mode === 'records' && [...counts.values()].some(count => count > 1) && <button aria-pressed={showSeparate} onClick={() => {resetScroll();setShowSeparate(value => !value)}}>{showSeparate ? '동일 사례 묶기' : '동일 사례 원본 펼치기'}</button>}
       <details className="record-column-menu" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.open = false }}><summary>표시 열 선택</summary><div className="column-options">{Object.entries(extras).map(([key, text]) => <label className="check" key={key}><input type="checkbox" disabled={mode !== 'records'} checked={columns.includes(key as Extra)} onChange={e => setColumns(e.target.checked ? [...columns, key as Extra] : columns.filter(k => k !== key))} />{text}</label>)}</div></details></>}
     </div>
     {mode === 'holdings' ? holdingsView : mode === 'records' ? <>
       <div className="table-wrap record-scroll" tabIndex={0} aria-label="관찰 기록 목록" ref={scroller} onScroll={e=>{setScrollPosition({rows,row:Math.floor(e.currentTarget.scrollTop/72)});writeView('record-scroll',{key:scrollKey,top:e.currentTarget.scrollTop,left:e.currentTarget.scrollLeft})}}><table className="record-table" style={{minWidth: `${(5+columns.length)*180}px`}}><thead><tr><th><button className="link" onClick={() => sortBy('name')}>국명</button></th><th>학명</th><th>장소</th><th><button className="link" onClick={() => sortBy('date')}>시간</button></th><th>기상</th>{columns.map(k => <th key={k}>{k === 'count' || k === 'days' ? <button className="link" onClick={() => sortBy(k)}>{extras[k]}</button> : extras[k]}</th>)}</tr></thead><tbody>{windowStart>0&&<tr className="record-spacer" aria-hidden="true"><td colSpan={5+columns.length} style={{height:windowStart*72}}/></tr>}{visibleEntries.map(e => {
         const isRecord = e.kind === 'record'
         const r = isRecord ? e.row.record : null
+        const sameCase = r?.exact_case_key ? counts.get(r.exact_case_key) ?? 0 : 0
+        const summary = isRecord ? weatherSummary(e.row) : ''
+        const weatherSource = isRecord ? e.row.weather?.weather?.source ?? r?.source_weather?.source : undefined
+        const weatherNote = isRecord && weatherState(e.row) === 'stale' ? '이전 조건 자료' : ''
         const ref = refFor(e)
         const choose = () => { if (isRecord) onSelect(e.row.survey, e.row.record.id) }
         return <tr key={isRecord ? `record-${e.row.record.id}` : `reference-${e.reference.id}`} className={isRecord ? selectedId === e.row.survey.id ? 'selected' : '' : 'reference-row'} onClick={isRecord ? choose : undefined} onDoubleClick={isRecord ? () => onOpen(e.row.survey, e.row.record.id) : undefined} onKeyDown={isRecord ? event => { if (event.key === 'Enter') { event.preventDefault(); onOpen(e.row.survey, e.row.record.id) } } : undefined}>
-          <td><div className="record-cell">{isRecord ? <button className="link" onClick={event => { event.stopPropagation(); choose() }}>{r?.species_name || '동정 미확정'}</button> : e.reference.korean_name}{!isRecord && <small>종 참고 · 관찰 기록 없음</small>}{r?.source_type === 'indirect' && <small>간접 관찰</small>}</div></td><td><div className="record-cell">{isRecord ? e.row.scientificName || '미등록' : e.reference.scientific_name || '미등록'}</div></td><td><div className="record-cell">{isRecord ? r?.display_place || r?.effective_place || '좌표 지정 위치' : `분포 참고: ${ref?.reference.regions.join(', ') || '미등록'}`}</div></td><td><div className="record-cell">{r ? <>{r.effective_date}{r.observation_time && ` ${r.observation_time.slice(0,5)}`}</> : '관찰 기록 없음'}</div></td>
-          <td className="weather-cell"><div className="record-cell">{isRecord ? <>{({ none: '미연결', current: '저장됨', stale: '이전 조건 자료' })[weatherState(e.row)]}{e.row.weather?.weather ? <small>{e.row.weather.weather.kind === 'daily' ? '일자료' : '시간자료'} · {e.row.weather.weather.values.slice(0, 3).map(v => `${v.label} ${v.value === null ? '자료 없음' : `${v.value}${v.unit}`}`).join(' · ')}</small> : e.row.record.source_weather && <small>{e.row.record.source_weather.source} · {e.row.record.source_weather.text}</small>}</> : '해당 없음'}</div></td>
+          <td><div className="record-cell">{isRecord ? <button className="link" onClick={event => { event.stopPropagation(); choose() }}>{r?.species_name || '동정 미확정'}</button> : e.reference.korean_name}{isRecord && e.row.reviewFlags?.map(flag => <small key={flag} title={flag}>{flag}</small>)}{!isRecord && <small>종 참고 · 관찰 기록 없음</small>}{sameCase > 1 && !showSeparate ? <small>동일 사례 원본 {sameCase}건</small> : r?.source_type === 'indirect' && <small>간접 관찰</small>}</div></td><td><div className="record-cell">{isRecord ? e.row.scientificName || '미등록' : e.reference.scientific_name || '미등록'}</div></td><td><div className="record-cell">{isRecord ? r?.display_place || r?.effective_place || '좌표 지정 위치' : `분포 참고: ${ref?.reference.regions.join(', ') || '미등록'}`}</div></td><td><div className="record-cell">{r ? <>{r.effective_date}{r.observation_time && ` ${r.observation_time.slice(0,5)}`}</> : '관찰 기록 없음'}</div></td>
+          <td className="weather-cell"><div className="record-cell">{isRecord ? <>{weatherSource || '미연결'}{summary && <small title={summary}>{weatherNote && weatherNote + ' · '}{summary}</small>}</> : '해당 없음'}</div></td>
           {columns.map(k => <td className="memo-cell" title={String(extra(e, k))} key={k}><div className="record-cell">{extra(e, k)}</div></td>)}
         </tr>
       })}{windowStart+visibleEntries.length<sorted.length&&<tr className="record-spacer" aria-hidden="true"><td colSpan={5+columns.length} style={{height:(sorted.length-windowStart-visibleEntries.length)*72}}/></tr>}</tbody></table></div>{!entries.length && <p className="empty">조건에 맞는 관찰 기록이 없습니다.</p>}</> : <div className="table-wrap"><table className="survey-record-table"><thead><tr><th>날짜</th><th>장소</th><th>종별 기록</th></tr></thead><tbody>{directSurveys.map(s => <tr key={s.id} className={selectedId===s.id?'selected':''} tabIndex={0} onClick={event=>{if(!(event.target instanceof Element) || !event.target.closest('input,a,select,textarea'))onSelect(s)}} onDoubleClick={() => onOpen(s)} onKeyDown={event=>{if(event.target===event.currentTarget && event.key==='Enter'){event.preventDefault();onOpen(s)}}}><td><button className="link survey-date-button" onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); onOpen(s) } }} onClick={() => onSelect(s)}>{s.survey_date}</button></td><td>{s.display_place || s.place_name || '좌표 지정 장소'}</td><td>{s.observations.length}건 (탐사 전체)</td></tr>)}</tbody></table>{!directSurveys.length && <p className="empty">조건에 맞는 탐사가 없습니다.</p>}</div>}

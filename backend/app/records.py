@@ -13,6 +13,7 @@ from app.trash import ACTIVE_SURVEY, ACTIVE_OBSERVATION, survey_active
 from app.collection_import import observed_datetime, STAGES, source_location_note
 from app.vagrant_years import sync_vagrant_years
 from app.regions import administrative_center, locate as locate_region, current_label, display_location
+from app.exact_cases import exact_case_key
 
 
 class UnknownSpecies(ValueError):
@@ -167,6 +168,15 @@ def observation_view(row, survey, tags, photos):
                      or record['effective_latitude'] != payload.get('latitude')
                      or record['effective_longitude'] != payload.get('longitude'))
             record['source_weather'] = dict(text=weather_text, source='네이처링', url=payload['url'], stale=stale)
+    record['exact_case_key'] = None
+    if record['result'] == 'observed' and record['identification'] == 'user_confirmed' and not (
+        imported_payload and payload.get('location_obscured')
+    ):
+        record['exact_case_key'] = exact_case_key(
+            record['species_id'], record['stage'], record['effective_date'], record['observation_time'],
+            record['effective_latitude'], record['effective_longitude'],
+            record['location_method'] if has_location else survey['location_method'],
+        )
     return record
 
 

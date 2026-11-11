@@ -8,6 +8,60 @@ from app.collection_import import EXEMPT_SPECIES, infer_stage, observed_datetime
 
 APP_HEADERS = {'X-Butterfly-Client':'app'}
 
+def test_only_clear_season_departures_are_flagged():
+    from app.collection_import import far_outside_period
+    guide = {'periods':[{'start':14,'end':28}]}
+    assert far_outside_period(guide,'adult',date(2025,12,10),'')
+    assert not far_outside_period(guide,'adult',date(2025,4,28),'')
+    assert not far_outside_period(guide,'larva',date(2025,12,10),'')
+
+
+def test_registration_keeps_one_exact_case_with_both_sources(client):
+    sid = client.post('/api/species',json={'korean_name':'네발나비'}).json()['id']
+    with connect_database() as db:
+        db.execute('INSERT INTO species_references VALUES(?,?,?)',(sid,json.dumps({'periods':[{'start':1,'end':36}]}),'test'))
+    headers = {'Authorization':f'Bearer {key(client)}'}
+    ids = [client.post('/api/collection/naturing',json={
+        **record(),'source_id':str(n),'url':f'https://www.naturing.net/o/{n}',
+        'korean_name':'네발나비','observed_raw':'2026년 10월 29일 오후 1시 5분'
+    },headers=headers).json()['id'] for n in (1,2)]
+    response = client.post('/api/collection/register',json={'ids':ids},headers=APP_HEADERS)
+    assert response.status_code == 200
+    assert len({r['observation_id'] for r in response.json()['results']}) == 1
+    assert len(client.get('/api/surveys').json()) == 1
+    with connect_database() as db:
+        assert db.execute('SELECT count(*) FROM collection_imports').fetchone()[0] == 2
+        assert db.execute('SELECT count(*) FROM record_trash').fetchone()[0] == 1
+
+def test_exact_case_requires_equal_location_stage_and_time():
+    from app.exact_cases import exact_case_key
+    base = (1,'adult','2025-10-22','09:00',37.5,127.0,'gps')
+    key = exact_case_key(*base)
+    assert key == exact_case_key(*base[:3], '09:00:00', *base[4:])
+    for changed in ((0,2),(1,'larva'),(2,'2025-10-23'),(3,'09:01'),(4,37.50001),(5,127.00001)):
+        args = list(base)
+        args[changed[0]] = changed[1]
+        assert exact_case_key(*args) != key
+    assert exact_case_key(*base[:3],None,*base[4:]) is None
+    assert exact_case_key(*base[:-1],'approximate') is None
+
+
+def test_new_region_flag_clears_after_selected_registration(client):
+    sid = client.post('/api/species',json={'korean_name':'네발나비'}).json()['id']
+    with connect_database() as db:
+        db.execute('INSERT INTO species_references VALUES(?,?,?)',(sid,json.dumps({'region_codes':['39']}),'test'))
+    headers = {'Authorization':f'Bearer {key(client)}'}
+    ids = [client.post('/api/collection/naturing',json={
+        **record(),'source_id':str(n),'url':f'https://www.naturing.net/o/{n}',
+        'korean_name':'네발나비','latitude':37.5666,'longitude':126.9784
+    },headers=headers).json()['id'] for n in (1,2)]
+    assert all(item['review_flags'] for item in client.get('/api/collection').json()['items'])
+    assert client.post('/api/collection/register',json={'ids':ids[:1]},headers=APP_HEADERS).status_code == 200
+    assert client.get('/api/collection').json()['items'][0]['review_flags'] == []
+    with connect_database() as db:
+        saved = json.loads(db.execute('SELECT inference_json FROM collection_imports').fetchone()[0])
+        assert saved['review_flags'][0].startswith('도감 분포 밖')
+
 def test_stage_inference_and_original_time():
     assert len(EXEMPT_SPECIES) == 31
     assert observed_datetime('2026년 5월 10일 오전 12시')[1].hour == 0

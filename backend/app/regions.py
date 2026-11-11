@@ -250,16 +250,16 @@ def observation_area_codes(code):
     return [code]
 
 
-def observation_regions(db):
+def observation_regions(db, species_id=None):
     # 후보·미발견·휴지통은 제외하고 실제 관찰 날짜와 원문 출처를 근거로 연결합니다.
     result = {}
     for r in db.execute("""SELECT o.*,s.place_name AS sp,s.latitude AS slat,s.longitude AS slng,
         COALESCE(o.observation_date,s.survey_date) AS day FROM observations o JOIN surveys s ON s.id=o.survey_id
-        WHERE o.species_id IS NOT NULL AND o.identification='user_confirmed' AND o.result='observed'
+        WHERE o.species_id IS NOT NULL AND (? IS NULL OR o.species_id=?) AND o.identification='user_confirmed' AND o.result='observed'
         AND NOT EXISTS(SELECT 1 FROM collection_import_views ci WHERE ci.observation_id=o.id
             AND json_extract(ci.payload_json,'$.location_obscured')=1)
         AND NOT EXISTS(SELECT 1 FROM record_trash t WHERE t.restored_at IS NULL AND
-        ((t.kind='survey' AND t.survey_id=o.survey_id) OR (t.kind='observation' AND t.observation_id=o.id)))"""):
+        ((t.kind='survey' AND t.survey_id=o.survey_id) OR (t.kind='observation' AND t.observation_id=o.id)))""", (species_id,species_id)):
         own = bool(r['place_name']) or r['latitude'] is not None
         code = locate(r['place_name'] if own else r['sp'],r['latitude'] if own else r['slat'],r['longitude'] if own else r['slng'])
         place=r['place_name'] if own else r['sp']

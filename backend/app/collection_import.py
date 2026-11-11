@@ -1,8 +1,11 @@
 """지정 종의 선택 등록과 도감 기간에 따른 단계 추정을 처리합니다."""
 import json
 import re
+from statistics import quantiles
 from datetime import date, datetime, time, timezone
 from app.schemas import ObservationInput, SurveyInput
+from app.regions import locate, current_label, observation_area_codes, observation_regions
+from app.trash import ACTIVE_OBSERVATION
 
 EXEMPT_SPECIES = frozenset('''호랑나비 산호랑나비 제비나비 산제비나비 긴꼬리제비나비 청띠제비나비 무늬박이제비나비
 배추흰나비 큰줄흰나비 대만흰나비 남방노랑나비 극남노랑나비 노랑나비 갈구리나비
@@ -115,6 +118,120 @@ def source_location_note(payload):
     if payload.get('location_obscured'):
         return f'흐림 위치 · 공개 좌표 오차 {accuracy / 1000:.2f}km · 대략적 위치' if isinstance(accuracy, (int, float)) else '흐림 위치 · 공개 좌표 오차 미상 · 대략적 위치'
     return '공개 좌표 · 정확도 미상' if accuracy is None else ''
+
+
+def annual_day(day):
+    return (date(2000,day.month,day.day)-date(2000,1,1)).days
+
+
+def season_fence(db, sid, stage):
+    days = sorted(annual_day(date.fromisoformat(row[0])) for row in db.execute(f"""
+        SELECT COALESCE(o.observation_date,s.survey_date) FROM observations o
+        JOIN surveys s ON s.id=o.survey_id
+        LEFT JOIN collection_import_views ci ON ci.observation_id=o.id
+        WHERE o.species_id=? AND o.stage=? AND o.result='observed' AND o.identification='user_confirmed'
+        AND {ACTIVE_OBSERVATION}
+        AND (ci.observation_id IS NULL OR json_extract(ci.inference_json,'$.manual_stage_override')=1)
+        """, (sid,stage)))
+    if len(days)<20:
+        return None
+    start = max(zip(days, [days[-1]-366,*days[:-1]]), key=lambda pair: pair[0]-pair[1])[0]
+    q1, _, q3 = quantiles([(day-start)%366 for day in days],method='inclusive')
+    margin = 1.5*(q3-q1)
+    return start,q1-margin,q3+margin
+
+
+def review_region(payload):
+    if payload.get('location_obscured'):
+        return None
+    return locate(payload.get('place_raw', ''), payload.get('latitude'), payload.get('longitude'))
+
+
+def far_outside_period(reference, stage, observed, place):
+    periods = reference.get('lifecycle') or [{**p,'stage':'adult'} for p in reference.get('periods',[])]
+    intervals = []
+    for p in periods:
+        if p['stage'] != stage or not p.get('enabled',True) or (p.get('region') and p['region'] not in place):
+            continue
+        if p.get('start_day') is not None and p.get('end_day') is not None:
+            intervals.append((p['start_day']-1,p['end_day']-1))
+        else:
+            start_month,start_slot = divmod(p['start']-1,3)
+            end_month,end_slot = divmod(p['end']-1,3)
+            start = date(2000,start_month+1,1+10*start_slot)
+            end = (date(2000,end_month+1,10+10*end_slot) if end_slot < 2 else
+                   date.fromordinal((date(2000+int(end_month==11),(end_month+1)%12+1,1)).toordinal()-1))
+            intervals.append((annual_day(start),annual_day(end)))
+    point = annual_day(observed)
+    return bool(intervals) and all(
+        (point-start)%366 > (end-start)%366 and min((start-point)%366,(point-end)%366)>=45
+        for start,end in intervals
+    )
+
+
+def unusual_season(db, sid, reference, stage, observed, place, season_fences):
+    if stage not in STAGES or not far_outside_period(reference,stage,observed,place):
+        return False
+    key = (sid,stage)
+    if key not in season_fences:
+        season_fences[key] = season_fence(db,sid,stage)
+    fence = season_fences[key]
+    if not fence:
+        return True
+    start,low,high = fence
+    offset = (annual_day(observed)-start)%366
+    return not any(low <= point <= high for point in (offset-366,offset,offset+366))
+
+
+def review_flags(db, payload, info, confirmed_regions, season_fences):
+    sid = info['species_id']
+    if not sid or not info['date']:
+        return []
+    inference = info['inference']
+    reference = inference['reference_snapshot']
+    flags = []
+    place = payload.get('place_raw', '')
+    code = review_region(payload)
+    known = set(reference.get('region_codes', [])) - set(reference.get('_region_exclusions', []))
+    areas = observation_area_codes(code)
+    if areas and known and not (known.intersection([*areas, code, code[:2]])):
+        if sid not in confirmed_regions:
+            confirmed_regions[sid] = {entry['code'] for entry in observation_regions(db,sid).get(sid,[])}
+        if not confirmed_regions[sid].intersection(areas):
+            flags.append('도감 분포 밖 · ' + current_label(code))
+    stage = inference['stage'] if inference.get('manual_stage_override') else 'unknown'
+    if unusual_season(db,sid,reference,stage,info['date'],place,season_fences):
+        flags.append('출현 시기가 도감 기간과 크게 다름')
+    return flags
+
+
+def existing_review_flags(db):
+    references = {sid:json.loads(raw) for sid,raw in db.execute(
+        'SELECT species_id,payload_json FROM species_references')}
+    fences = {}
+    result = {}
+    for row in db.execute(f"""SELECT o.id,o.species_id,o.stage,COALESCE(o.observation_date,s.survey_date),
+        CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.place_name ELSE s.place_name END,
+        CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.latitude ELSE s.latitude END,
+        CASE WHEN o.place_name!='' OR o.latitude IS NOT NULL THEN o.longitude ELSE s.longitude END,
+        json_extract(ci.payload_json,'$.location_obscured')
+        FROM observations o JOIN surveys s ON s.id=o.survey_id
+        LEFT JOIN collection_import_views ci ON ci.observation_id=o.id
+        WHERE {ACTIVE_OBSERVATION} AND o.result='observed' AND o.species_id IS NOT NULL"""):
+        oid,sid,stage,day,place,lat,lng,obscured = row
+        reference = references.get(sid)
+        if not reference:
+            continue
+        flags = []
+        known = set(reference.get('region_codes', [])) - set(reference.get('_region_exclusions', []))
+        code = locate(place,lat,lng) if known and not obscured else None
+        if code and not known.intersection([code,code[:2],*observation_area_codes(code)]):
+            flags.append('도감 분포 밖 · ' + current_label(code))
+        if unusual_season(db,sid,reference,stage,date.fromisoformat(day),place,fences):
+            flags.append('출현 시기가 도감 기간과 크게 다름')
+        if flags:
+            result[oid] = flags
+    return result
 
 
 def import_item(db, row, info, payload):

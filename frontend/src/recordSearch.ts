@@ -1,6 +1,6 @@
 // 관찰 필터와 표·지도에 전달할 동일한 검색 결과를 계산합니다.
 import type { Observation, Species, Survey, SavedWeather, ExplorationRow } from './models'
-export interface RecordRow { survey: Survey; record: Observation; scientificName: string; weather?: SavedWeather }
+export interface RecordRow { survey: Survey; record: Observation; scientificName: string; weather?: SavedWeather; reviewFlags?: string[] }
 export interface Filters {
   start: string; end: string; place: string; species: string[]; stage: string[]; sex: string[]; result: string[]; capture: string[]
   time: string; coordinates: string; weather: string; source: string[]; tags: string[]

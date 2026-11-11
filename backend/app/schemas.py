@@ -139,6 +139,7 @@ class Observation(ObservationInput):
     effective_place: str
     effective_latitude: float | None
     administrative_pin: dict[str, float] | None = None
+    exact_case_key: str | None = None
     effective_longitude: float | None
 
 

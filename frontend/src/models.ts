@@ -6,6 +6,7 @@ export interface CollectedItem {
   observed_raw: string; place_raw: string; weather_raw: string; latitude: number | null; longitude: number | null
   review_status: 'pending'; last_received_at: string
   eligible: boolean; exempt: boolean; reason: string; inferred_stage: keyof typeof STAGE
+  review_flags?: string[]
   observation_id: number | null; source_changed: boolean
 }
 export const RESULT = { observed: '관찰', not_found: '미발견' } as const
@@ -48,6 +49,7 @@ export interface Observation extends ObservationInput {
   id: number; species_name: string | null; effective_date: string; effective_place: string
   effective_latitude: number | null; effective_longitude: number | null
   administrative_pin?: Coordinate | null
+  exact_case_key?: string | null
 }
 export interface SourceWeather { text: string; source: string; url: string; stale: boolean }
 export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
