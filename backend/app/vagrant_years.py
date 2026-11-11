@@ -33,10 +33,23 @@ def domestic_observation(row):
     return bool(DOMESTIC_ADDRESS.match(place.strip()))
 
 
-def sync_vagrant_years(db):
+def sync_vagrant_years(db, species_ids=None):
+    if species_ids is not None and not species_ids:
+        return
+    ids = sorted(species_ids) if species_ids is not None else []
+    restriction = f"WHERE species_id IN ({','.join('?' for _ in ids)})" if ids else ''
+    references = []
+    for reference in db.execute(f'SELECT * FROM species_references {restriction}', ids):
+        raw = json.loads(reference['payload_json'])
+        if raw.get('vagrant') is True:
+            references.append((reference['species_id'], raw))
+    if not references:
+        return
+    vagrant_ids = [species_id for species_id, _ in references]
+    marks = ','.join('?' for _ in vagrant_ids)
     # 목록 단위로 한 번 조회합니다. 삭제·검수 취소·종/날짜/장소 수정도 같은 규칙입니다.
     latest = {}
-    rows = db.execute("""SELECT o.*, s.place_name AS survey_place,
+    rows = db.execute(f"""SELECT o.*, s.place_name AS survey_place,
         s.latitude AS survey_latitude,s.longitude AS survey_longitude,
         COALESCE(o.observation_date,s.survey_date) AS observed_date,
         ci.payload_json AS imported_payload,
@@ -45,19 +58,16 @@ def sync_vagrant_years(db):
         FROM observations o JOIN surveys s ON s.id=o.survey_id
         LEFT JOIN collection_imports ci ON ci.observation_id=o.id
         WHERE o.source_type='indirect' AND o.identification='user_confirmed'
-        AND o.result='observed' AND o.species_id IS NOT NULL
+        AND o.result='observed' AND o.species_id IN ({marks})
         AND NOT EXISTS(SELECT 1 FROM record_trash t WHERE t.restored_at IS NULL
           AND ((t.kind='survey' AND t.survey_id=o.survey_id)
                OR (t.kind='observation' AND t.observation_id=o.id)))
-        ORDER BY observed_date DESC,o.id DESC""", (DOMESTIC_TAG,))
+        ORDER BY observed_date DESC,o.id DESC""", (DOMESTIC_TAG, *vagrant_ids))
     for row in rows:
         if row['species_id'] not in latest and domestic_observation(row):
             latest[row['species_id']] = row
-    for reference in db.execute('SELECT * FROM species_references').fetchall():
-        raw = json.loads(reference['payload_json'])
-        if raw.get('vagrant') is not True:
-            continue
-        observation = latest.get(reference['species_id'])
+    for species_id, raw in references:
+        observation = latest.get(species_id)
         if observation is None and not raw.get('_vagrant_year_managed'):
             continue
         years = [int(observation['observed_date'][:4])] if observation else []
@@ -68,4 +78,4 @@ def sync_vagrant_years(db):
             continue
         raw.update(sighting_years=years, sighting_source=evidence, _vagrant_year_managed=True)
         db.execute('UPDATE species_references SET payload_json=?,updated_at=? WHERE species_id=?',
-                   (json.dumps(raw, ensure_ascii=False), datetime.now(timezone.utc).isoformat(), reference['species_id']))
+                   (json.dumps(raw, ensure_ascii=False), datetime.now(timezone.utc).isoformat(), species_id))

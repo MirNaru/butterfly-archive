@@ -215,6 +215,8 @@ def edit_stage(item_id: int, value: StageEdit, request: Request):
 def register_selected(value: CollectionSelection, request: Request):
     local_screen(request)
     results = []
+    registered_species = set()
+    taxon_matches = {}
     with connect_database() as db:
         db.execute('BEGIN IMMEDIATE')
         for item_id in dict.fromkeys(value.ids):
@@ -229,14 +231,16 @@ def register_selected(value: CollectionSelection, request: Request):
             if imported:
                 results.append({'id':item_id, 'status':'already_registered', 'observation_id':imported[0]})
                 continue
-            info = registration_info(db, json.loads(row['payload_json']))
+            payload = json.loads(row['payload_json'])
+            info = registration_info(db, payload, taxon_matches)
             if not info['eligible']:
                 results.append({'id':item_id, 'status':'skipped', 'reason':info['reason']})
                 continue
-            observation_id = import_item(db, row, info)
+            observation_id = import_item(db, row, info, payload)
+            registered_species.add(info['species_id'])
             results.append({'id':item_id, 'status':'registered', 'observation_id':observation_id})
         from app.vagrant_years import sync_vagrant_years
-        sync_vagrant_years(db)
+        sync_vagrant_years(db, registered_species)
         from app.records import read_survey
         ids = [r['observation_id'] for r in results if r.get('observation_id')]
         surveys = []

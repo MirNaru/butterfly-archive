@@ -56,20 +56,26 @@ def infer_stage(reference, observed, place):
     return {'stage':stage, 'method':'reference_period_later_stage', 'slot':slot, 'day':day,
             'matched_periods':matched, 'reference_snapshot':reference}
 
-def registration_info(db, payload):
+def registration_info(db, payload, taxon_matches=None):
     # 원문을 보존하고 줄바꿈 전 첫 국명으로 도감 종을 찾습니다.
     name = payload['korean_name'].splitlines()[0].strip()
     if payload.get('source') == 'inaturalist':
         scientific = payload.get('scientific_name', '')
         taxon_id = (payload.get('original') or {}).get('taxon', {}).get('id')
-        matches = db.execute('''SELECT s.id,s.korean_name FROM species s
-            LEFT JOIN species_references r ON r.species_id=s.id
-            WHERE s.scientific_name=? OR EXISTS (
-                SELECT 1 FROM json_each(COALESCE(r.payload_json,'{}'),'$.inaturalist_names') a
-                WHERE json_extract(a.value,'$.status')='linked'
-                AND json_extract(a.value,'$.name')=?
-                AND (? IS NULL OR json_extract(a.value,'$.taxon_id')=?)
-            )''', (scientific, scientific, taxon_id, taxon_id)).fetchall()
+        key = (scientific, taxon_id)
+        if taxon_matches is not None and key in taxon_matches:
+            matches = taxon_matches[key]
+        else:
+            matches = db.execute('''SELECT s.id,s.korean_name FROM species s
+                LEFT JOIN species_references r ON r.species_id=s.id
+                WHERE s.scientific_name=? OR EXISTS (
+                    SELECT 1 FROM json_each(COALESCE(r.payload_json,'{}'),'$.inaturalist_names') a
+                    WHERE json_extract(a.value,'$.status')='linked'
+                    AND json_extract(a.value,'$.name')=?
+                    AND (? IS NULL OR json_extract(a.value,'$.taxon_id')=?)
+                )''', (scientific, scientific, taxon_id, taxon_id)).fetchall()
+            if taxon_matches is not None:
+                taxon_matches[key] = matches
         species = matches[0] if len(matches) == 1 else None
         name = species['korean_name'] if species else name
     else:
@@ -111,8 +117,7 @@ def source_location_note(payload):
     return '공개 좌표 · 정확도 미상' if accuracy is None else ''
 
 
-def import_item(db, row, info):
-    payload = json.loads(row['payload_json'])
+def import_item(db, row, info, payload):
     stage = info['inference']['stage']
     stage_label = STAGES.get(stage, '미확인')
     review = '사용자가 체크하여 검수 완료'
