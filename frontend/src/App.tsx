@@ -1,3 +1,4 @@
+import CloseConfirmation from './CloseConfirmation'
 import ScrollToTop from './ScrollToTop'
 import DetailPhotos from './DetailPhotos'
 import {readView,writeView} from './viewMemory'
@@ -130,6 +131,7 @@ export default function App() {
   const [referenceError, setReferenceError] = useState('')
   const [referenceRevision, setReferenceRevision] = useState(0)
   const [selectedRecord, setSelectedRecord] = useState<number | null>(null)
+  const [detailCloseConfirm, setDetailCloseConfirm] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [loading, setLoading] = useState(true)
@@ -230,18 +232,25 @@ export default function App() {
   const selected = filtered.find(s => s.id === selectedId)
   const mapShown = mode === 'records' && tab === 'map'
   const pins: MapPin[] = useMemo(() => !mapShown ? [] : [
-    ...rows.flatMap(({ survey, record: r }) => r.effective_latitude !== null && r.effective_longitude !== null ? [{ id: `record-${r.id}`, surveyId: survey.id, source: pinSource(r), latitude: r.effective_latitude, longitude: r.effective_longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}${r.source_location_note ? ' · ' + r.source_location_note : ''}` }] : []),
+    ...rows.flatMap(({ survey, record: r }): MapPin[] => {
+      const latitude = r.administrative_pin?.latitude ?? r.effective_latitude
+      const longitude = r.administrative_pin?.longitude ?? r.effective_longitude
+      if (latitude === null || longitude === null) return []
+      const note = r.administrative_pin ? '행정구역 중심 표시 · 정확한 관찰 위치 미상' : r.source_location_note
+      return [{ id: `record-${r.id}`, surveyId: survey.id, source: r.administrative_pin ? 'administrative' : pinSource(r), latitude, longitude, label: `${r.effective_date} · ${r.species_name || '동정 미확정'} · ${RESULT[r.result]}${note ? ' · ' + note : ''}` }]
+    }),
     ...(activeSpeciesId===null?emptySurveys:[]).flatMap(s => s.latitude !== null && s.longitude !== null ? [{ id: `survey-${s.id}`, surveyId: s.id, latitude: s.latitude, longitude: s.longitude, label: `${s.survey_date} · ${s.display_place || s.place_name || '탐사 위치'} · 종별 기록 없음` }] : []),
   ], [mapShown,rows, emptySurveys,activeSpeciesId])
   const selectSurvey = useCallback((s: Survey, recordId?: number) => {
     setSelectedId(s.id); setSelectedRecord(recordId ?? null)
-    const record = recordId ? s.observations.find(o => o.id === recordId) : rows.find(row => row.survey.id === s.id && row.record.effective_latitude !== null && row.record.effective_longitude !== null)?.record
-    const latitude = record?.effective_latitude ?? (!recordId && !s.observations.length ? s.latitude : null)
-    const longitude = record?.effective_longitude ?? (!recordId && !s.observations.length ? s.longitude : null)
+    const record = recordId ? s.observations.find(o => o.id === recordId) : rows.find(row => row.survey.id === s.id && (row.record.administrative_pin || row.record.effective_latitude !== null && row.record.effective_longitude !== null))?.record
+    const latitude = record?.administrative_pin?.latitude ?? record?.effective_latitude ?? (!recordId && !s.observations.length ? s.latitude : null)
+    const longitude = record?.administrative_pin?.longitude ?? record?.effective_longitude ?? (!recordId && !s.observations.length ? s.longitude : null)
     setMapFocus(latitude !== null && longitude !== null ? {latitude,longitude} : null)
   }, [rows])
   const openRecordDetail = useCallback((s: Survey, recordId?: number) => {
     setDetailEditing(false)
+    setDetailCloseConfirm(false)
     selectSurvey(s, recordId)
     setDetailOpen(true)
   }, [selectSurvey])
@@ -258,8 +267,8 @@ export default function App() {
   const recordTable = useMemo(() => <RecordTable mode={tableMode} holdingsView={null} rows={rows} surveys={filtered} references={referenceMap} candidates={candidates} ranks={ranks} onSelect={selectSurvey} onOpen={openRecordDetail} selectedId={selectedId} />, [tableMode, rows, filtered, referenceMap, candidates, ranks, selectSurvey, openRecordDetail, selectedId])
   function chooseSpecies(id:number) {
     setSelectedSpeciesId(id);setSelectedId(null);setSelectedRecord(null)
-    const latest=matchedRows.filter(r=>r.record.species_id===id&&r.record.effective_latitude!==null).sort((a,b)=>b.record.effective_date.localeCompare(a.record.effective_date))[0]?.record
-    setMapFocus(latest&&latest.effective_latitude!==null&&latest.effective_longitude!==null?{latitude:latest.effective_latitude,longitude:latest.effective_longitude}:null)
+    const latest=matchedRows.filter(r=>r.record.species_id===id&&(r.record.administrative_pin||r.record.effective_latitude!==null)).sort((a,b)=>b.record.effective_date.localeCompare(a.record.effective_date))[0]?.record
+    setMapFocus(latest?.administrative_pin ?? (latest&&latest.effective_latitude!==null&&latest.effective_longitude!==null?{latitude:latest.effective_latitude,longitude:latest.effective_longitude}:null))
   }
   const observedSpeciesCount=new Set(matchedRows.filter(r=>r.record.result==='observed'&&r.record.species_id!==null).map(r=>r.record.species_id)).size
   const surveyList=<nav aria-label="종별 기록" className="survey-list">
@@ -371,8 +380,8 @@ export default function App() {
     </div>
     {form}
           {detailOpen && detailSurvey && <dialog className={`record-detail-dialog${detailEditing ? ' survey-dialog' : ''}`} aria-labelledby="record-detail-title" ref={node => { if (node && !node.open) { node.showModal(); node.querySelector<HTMLButtonElement>('[data-detail-close]')?.focus() } }} onCancel={event => { event.preventDefault(); closeRecordDetail() }}>
-            <header className="record-detail-header"><h2 id="record-detail-title">{detailEditing ? '관찰 기록 수정' : '관찰 기록 상세'}</h2><div className="record-detail-actions">{!detailEditing && <><button type="button" className="danger" onClick={()=>{setDetailOpen(false);showTrash({survey:detailSurvey,observationId:null})}}>탐사 전체 삭제</button><button type="button" onClick={()=>setDetailEditing(true)}>기록 수정</button></>}<button type="button" autoFocus data-detail-close onClick={closeRecordDetail}>닫기</button></div></header>
-            {detailEditing ? <SurveyForm embedded closeRef={detailForm} selectedObservationId={selectedRecord} initial={detailSurvey} species={species} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} onCancel={() => setDetailEditing(false)} onSaved={saved => void saveDetail(saved)} /> : <Detail key={`${detailSurvey.id}-${detailSurvey.updated_at}`} species={species} tagOptions={tags} survey={detailSurvey} selectedRecord={selectedRecord} onDelete={id => { setDetailOpen(false); showTrash({ survey: detailSurvey, observationId: id }) }} onWeatherChanged={() => void refreshWeather()} onEdit={() => setDetailEditing(true)} />}
+            <header className="record-detail-header"><h2 id="record-detail-title">{detailEditing ? '관찰 기록 수정' : '관찰 기록 상세'}</h2><div className="record-detail-actions">{!detailEditing && <><button type="button" className="danger" onClick={()=>{setDetailOpen(false);showTrash({survey:detailSurvey,observationId:null})}}>탐사 전체 삭제</button><button type="button" onClick={()=>{setDetailCloseConfirm(false);setDetailEditing(true)}}>기록 수정</button></>}<>{detailEditing && detailCloseConfirm ? <CloseConfirmation onContinue={() => detailForm.current?.cancelClose()} onDiscard={() => { setDetailCloseConfirm(false); setDetailEditing(false) }} /> : <button type="button" autoFocus data-detail-close onClick={closeRecordDetail}>닫기</button>}</></div></header>
+            {detailEditing ? <SurveyForm embedded onCloseConfirmationChange={setDetailCloseConfirm} closeRef={detailForm} selectedObservationId={selectedRecord} initial={detailSurvey} species={species} tagOptions={tags} onTagCreated={rememberTag} tagsError={tagsError} onRetryTags={() => void refreshTags()} onCancel={() => { setDetailCloseConfirm(false); setDetailEditing(false) }} onSaved={saved => void saveDetail(saved)} /> : <Detail key={`${detailSurvey.id}-${detailSurvey.updated_at}`} species={species} tagOptions={tags} survey={detailSurvey} selectedRecord={selectedRecord} onDelete={id => { setDetailOpen(false); showTrash({ survey: detailSurvey, observationId: id }) }} onWeatherChanged={() => void refreshWeather()} onEdit={() => { setDetailCloseConfirm(false); setDetailEditing(true) }} />}
           </dialog>}
     {trashOpen && <TrashDialog target={deleteTarget} onClose={() => setTrashOpen(false)} onChanged={reloadAfterTrash} />}
   </div>

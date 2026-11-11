@@ -14,7 +14,7 @@ export type DisplayPin = Summary & {
   surveyCount: number; directSurveyCount: number
   locationKey?: string; expansionZoom?: number
 }
-const emptyCounts = (): SourceCounts => ({direct: 0, naturing: 0, inaturalist: 0, other: 0})
+const emptyCounts = (): SourceCounts => ({direct: 0, naturing: 0, inaturalist: 0, other: 0, administrative: 0})
 export const locationKey = (pin: Pick<MapPin, 'latitude' | 'longitude'>) => `${pin.latitude},${pin.longitude}`
 
 // 네이버 축척 이름을 가정하지 않고 실제 화면의 경도 폭을 256px 세계 타일에 맞춥니다.

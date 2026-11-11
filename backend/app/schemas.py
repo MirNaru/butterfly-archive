@@ -138,6 +138,7 @@ class Observation(ObservationInput):
     effective_date: date
     effective_place: str
     effective_latitude: float | None
+    administrative_pin: dict[str, float] | None = None
     effective_longitude: float | None
 
 

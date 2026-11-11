@@ -40,7 +40,7 @@ export default function LocationPicker({ onApply }: { onApply: (value: LocationI
       <button type="button" onClick={() => setVisited(true)} disabled={visited}>지도 열기</button>
       {visited && <MapView shown={open} pins={point ? [{ ...point, id: 'draft', surveyId: 0, label: '선택 위치' }] : []} focus={point} onPick={busy ? undefined : p => { setPoint(p); setAddress(''); setMethod('map'); setNotice('') }} />}
       {point && <><p>위도 {point.latitude.toFixed(6)} · 경도 {point.longitude.toFixed(6)}{address && ` · ${address}`}</p>
-        <button type="button" disabled={busy} onClick={() => void reverse()}>선택 좌표의 주소 확인</button>
+        <button type="button" disabled={busy || Boolean(address)} onClick={() => void reverse()}>선택 좌표의 주소 확인</button>
         <button type="button" disabled={busy} onClick={() => { onApply({ ...point, place_name: address, location_method: method }); setOpen(false) }}>이 위치 적용</button></>}
       {busy && <p role="status">위치 정보를 조회하는 중입니다.</p>}
       {notice && <p role="status">{notice}</p>}

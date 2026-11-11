@@ -7,6 +7,7 @@ export const PIN_STYLE = {
   naturing: { label: '네이처링', color: '#4285d4' },
   inaturalist: { label: 'iNaturalist', color: '#4c9b67' },
   other: { label: '기타 간접 관찰', color: '#858b93' },
+  administrative: { label: '행정구역 중심 표시', color: '#cc5959' },
 } satisfies Record<PinSource, { label: string; color: string }>
 
 export function pinSource(record: Pick<ObservationInput, 'source_type' | 'source_note'>): PinSource {
@@ -43,7 +44,7 @@ export function directPinsFirst<T extends { source?: PinSource }>(pins: T[]): T[
 
 // 원호의 위 끝은 iNaturalist, 아래 끝은 네이처링에 배정합니다.
 function ringFill(sources: SourceCounts) {
-  const order = (['naturing', 'other', 'inaturalist'] as const).filter(source => sources[source] > 0)
+  const order = (['naturing', 'other', 'administrative', 'inaturalist'] as const).filter(source => sources[source] > 0)
   if (!order.length) return '#e3e5e7'
   if (order.length === 1) return PIN_STYLE[order[0]].color
 

@@ -236,6 +236,11 @@ def test_map_input_empty_result_and_valid_point(client, monkeypatch):
     assert client.post("/api/maps/geocode", json={"query": "시험 주소"}).json()[0]["latitude"] == 37.5
     monkeypatch.setattr(naver_maps, "request_json", lambda *args: {"status": {"code": 3}})
     assert client.post("/api/maps/reverse", json={"latitude": 37.5, "longitude": 127}).json() == {"address": None}
+    def unexpected_request(*args):
+        pytest.fail("A saved map lookup must not call the provider again")
+    monkeypatch.setattr(naver_maps, "request_json", unexpected_request)
+    assert client.post("/api/maps/geocode", json={"query": "시험   주소"}).json()[0]["latitude"] == 37.5
+    assert client.post("/api/maps/reverse", json={"latitude": 37.5, "longitude": 127}).json() == {"address": None}
     row = record(client, location_method="map")
     assert row["location_method"] == "map"
 

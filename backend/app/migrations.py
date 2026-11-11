@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.database import connect_database, database_path
 from app.tags import DEFAULT_TAGS
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 18
 STATEMENTS = (
     """CREATE TABLE species (
         id INTEGER PRIMARY KEY, korean_name TEXT NOT NULL UNIQUE,
@@ -159,6 +159,37 @@ RESEARCH_STATEMENTS = (
 )
 
 
+# 원문과 당시 도감 근거는 그대로 두고 읽기 화면에 쓰는 필드만 별도로 유지합니다.
+IMPORT_VIEW_PAYLOAD = """json_object(
+    'source', json_extract({row}.payload_json,'$.source'),
+    'location_accuracy', json(COALESCE({row}.payload_json -> '$.location_accuracy','null')),
+    'location_obscured', json_extract({row}.payload_json,'$.location_obscured'),
+    'latitude', json(COALESCE({row}.payload_json -> '$.latitude','null')),
+    'longitude', json(COALESCE({row}.payload_json -> '$.longitude','null')),
+    'place_raw', COALESCE(json_extract({row}.payload_json,'$.place_raw'),''),
+    'weather_raw', COALESCE(json_extract({row}.payload_json,'$.weather_raw'),''),
+    'observed_raw', json_extract({row}.payload_json,'$.observed_raw'),
+    'url', json_extract({row}.payload_json,'$.url'))"""
+IMPORT_VIEW_INFERENCE = """json_object(
+    'stage', json_extract({row}.inference_json,'$.stage'),
+    'manual_stage_override', json_extract({row}.inference_json,'$.manual_stage_override'))"""
+IMPORT_VIEW_STATEMENTS = (
+    """CREATE TABLE IF NOT EXISTS collection_import_views(
+        item_id INTEGER PRIMARY KEY REFERENCES collection_imports(item_id) ON DELETE CASCADE,
+        observation_id INTEGER NOT NULL UNIQUE,
+        payload_json TEXT NOT NULL, inference_json TEXT NOT NULL)""",
+    f"""CREATE TRIGGER IF NOT EXISTS collection_import_view_insert AFTER INSERT ON collection_imports BEGIN
+        INSERT INTO collection_import_views VALUES(NEW.item_id, NEW.observation_id,
+            {IMPORT_VIEW_PAYLOAD.format(row='NEW')}, {IMPORT_VIEW_INFERENCE.format(row='NEW')}); END""",
+    f"""CREATE TRIGGER IF NOT EXISTS collection_import_view_update
+        AFTER UPDATE OF payload_json,inference_json,observation_id ON collection_imports BEGIN
+        UPDATE collection_import_views SET observation_id=NEW.observation_id,
+            payload_json={IMPORT_VIEW_PAYLOAD.format(row='NEW')},
+            inference_json={IMPORT_VIEW_INFERENCE.format(row='NEW')}
+        WHERE item_id=OLD.item_id; END""",
+)
+
+
 def initialize_database() -> None:
     target = database_path()
     had_content = target.is_file() and target.stat().st_size > 0
@@ -188,6 +219,8 @@ def initialize_database() -> None:
             expected_new.add('paper_files')
         if version < 14:
             expected_new.update({'mobile_settings','mobile_sessions','mobile_limits','mobile_photos'})
+        if version < 18:
+            expected_new.add('map_lookup_cache')
         if version < 2:
             expected_new.update({"api_usage", "weather_stations", "weather_samples", "weather_links"})
         if version == 0:
@@ -212,4 +245,16 @@ def initialize_database() -> None:
             connection.execute("INSERT INTO tags(name,category) VALUES('사육','individual') ON CONFLICT(name) DO NOTHING")
         if version < 5:
             connection.executemany('INSERT INTO tags(name) VALUES(?)', [(name,) for name in DEFAULT_TAGS])
+        if version < 17:
+            for statement in IMPORT_VIEW_STATEMENTS:
+                connection.execute(statement)
+            # 원문은 변경하지 않으며 실패하면 스키마와 요약 생성을 함께 되돌립니다.
+            connection.execute('DELETE FROM collection_import_views')
+            connection.execute(f"""INSERT INTO collection_import_views
+                SELECT ci.item_id,ci.observation_id,{IMPORT_VIEW_PAYLOAD.format(row='ci')},
+                    {IMPORT_VIEW_INFERENCE.format(row='ci')} FROM collection_imports ci""")
+        if version < 18:
+            connection.execute("""CREATE TABLE map_lookup_cache (
+                service TEXT NOT NULL, lookup_key TEXT NOT NULL, response_json TEXT NOT NULL,
+                PRIMARY KEY(service, lookup_key))""")
         connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

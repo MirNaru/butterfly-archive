@@ -37,14 +37,18 @@ def current_label(code):
     if code.startswith(('24','36')):
         return '전남광주통합특별시 '+(f"(옛 {p['province']} 지역)" if p['level']=='sido' else p['name'])
     if code in ('23010','23080'):
-        return f"인천광역시 (옛 {p['name']} 범위 · 개편지역 확인 필요)"
+        return f"인천광역시 (옛 {p['name']} 범위)"
     if code=='23020': return '인천광역시 제물포구 (옛 동구 범위)'
     return p['label']
 
 
-def display_location(place, lat=None, lng=None, code=None):
+_REGION_UNSET = object()
+
+
+def display_location(place, lat=None, lng=None, code=_REGION_UNSET):
     """원문은 저장한 그대로 두고 현재 행정명과 확정 가능한 한국어 상세만 표시합니다."""
-    code=code or locate(place,lat,lng)
+    if code is _REGION_UNSET:
+        code=locate(place,lat,lng)
     if not code: return {'display_place':place,'place_search':place,'location_note':'행정지역 미확인' if place else ''}
     f=index()[code];label=current_label(code)
     original=place.strip()
@@ -55,8 +59,25 @@ def display_location(place, lat=None, lng=None, code=None):
             if original==a or original.startswith(a+' '):
                 tail=original[len(a):];break
     display=label+tail
-    note='2025년 경계에서 구역 개편 후 세부 지역을 확정할 수 없습니다.' if code in ('23010','23080') else ''
-    return {'display_place':display,'place_search':' '.join([place,display,*aliases(f)]),'location_note':note}
+    return {'display_place':display,'place_search':' '.join([place,display,*aliases(f)]),'location_note':''}
+
+
+@lru_cache(maxsize=512)
+def administrative_center(code):
+    """경계 중심에 가까운 내부 점을 지도 표시용으로 반환합니다."""
+    feature = index()[code]
+    west, south, east, north = feature['bbox']
+    latitude, longitude = (south + north) / 2, (west + east) / 2
+    if contains(feature, latitude, longitude):
+        return {'latitude': latitude, 'longitude': longitude}
+    offsets = sorted(((y, x) for y in range(-16, 17) for x in range(-16, 17)),
+                     key=lambda pair: pair[0] ** 2 + pair[1] ** 2)
+    for y, x in offsets:
+        lat = latitude + y * (north - south) / 32
+        lng = longitude + x * (east - west) / 32
+        if contains(feature, lat, lng):
+            return {'latitude': lat, 'longitude': lng}
+    return None
 
 
 @router.get('')
@@ -132,15 +153,58 @@ def resolve_name(text, province=''):
 
 def ring_contains(ring, x, y):
     inside = False
-    for a, b in zip(ring, [*ring[1:], ring[0]]):
+    for i, a in enumerate(ring):
+        b = ring[(i + 1) % len(ring)]
         if (a[1] > y) != (b[1] > y) and x < (b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]:
             inside = not inside
     return inside
 
 
+def prepare_ring(ring):
+    """수평 띠별 경계 후보를 준비하며 최종 교차 판정식과 원본 좌표는 보존합니다."""
+    bottom = min(p[1] for p in ring)
+    top = max(p[1] for p in ring)
+    count = min(128, max(1, len(ring) // 16))
+    scale = count / (top - bottom) if top != bottom else 0
+    bands = [[] for _ in range(count)]
+    for i, a in enumerate(ring):
+        b = ring[(i + 1) % len(ring)]
+        if a[1] == b[1]:
+            continue
+        edge = (a, b)
+        first = max(0, min(count - 1, int((min(a[1], b[1]) - bottom) * scale)))
+        last = max(0, min(count - 1, int((max(a[1], b[1]) - bottom) * scale)))
+        for band in range(first, last + 1):
+            bands[band].append(edge)
+    return bottom, top, scale, bands
+
+
+def prepared_ring_contains(prepared, x, y):
+    bottom, top, scale, bands = prepared
+    if y < bottom or y > top:
+        return False
+    band = max(0, min(len(bands) - 1, int((y - bottom) * scale)))
+    inside = False
+    for a, b in bands[band]:
+        if (a[1] > y) != (b[1] > y) and x < (b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]:
+            inside = not inside
+    return inside
+
+
+@lru_cache(maxsize=512)
+def prepared_polygons(code):
+    geometry = index()[code]['geometry']
+    polygons = [geometry['coordinates']] if geometry['type'] == 'Polygon' else geometry['coordinates']
+    return [[prepare_ring(ring) for ring in polygon] for polygon in polygons]
+
+
 def contains(feature, lat, lng):
     left, bottom, right, top = feature['bbox']
     if not left <= lng <= right or not bottom <= lat <= top: return False
+    code = feature.get('properties', {}).get('code')
+    if code and index().get(code) is feature:
+        return any(prepared_ring_contains(p[0],lng,lat) and not any(prepared_ring_contains(h,lng,lat) for h in p[1:])
+                   for p in prepared_polygons(code))
     geometry = feature['geometry']
     polygons = [geometry['coordinates']] if geometry['type']=='Polygon' else geometry['coordinates']
     return any(ring_contains(p[0],lng,lat) and not any(ring_contains(h,lng,lat) for h in p[1:]) for p in polygons)
@@ -150,8 +214,7 @@ def contains(feature, lat, lng):
 @lru_cache(maxsize=8192)
 def locate(place, lat=None, lng=None):
     if lat is not None and lng is not None:
-        found = [code for code,f in index().items() if f['properties']['level']=='sigungu' and contains(f,lat,lng)]
-        return found[0] if len(found)==1 else None
+        return locate_point(lat, lng)
     place = place.strip()
     if place.startswith('대한민국 '): place = place[5:]
     found = []
@@ -160,6 +223,13 @@ def locate(place, lat=None, lng=None):
         if any(place==a or place.startswith(a+' ') for a in aliases(f)): found.append(code)
     children = [c for c in found if len(c)>2]
     return children[0] if len(children)==1 else found[0] if len(found)==1 else None
+
+
+@lru_cache(maxsize=65536)
+def locate_point(lat, lng):
+    """같은 좌표의 지역 판정을 원문 주소와 별개로 재사용합니다."""
+    found = [code for code,f in index().items() if f['properties']['level']=='sigungu' and contains(f,lat,lng)]
+    return found[0] if len(found)==1 else None
 
 
 def observation_area_codes(code):
@@ -186,7 +256,7 @@ def observation_regions(db):
     for r in db.execute("""SELECT o.*,s.place_name AS sp,s.latitude AS slat,s.longitude AS slng,
         COALESCE(o.observation_date,s.survey_date) AS day FROM observations o JOIN surveys s ON s.id=o.survey_id
         WHERE o.species_id IS NOT NULL AND o.identification='user_confirmed' AND o.result='observed'
-        AND NOT EXISTS(SELECT 1 FROM collection_imports ci WHERE ci.observation_id=o.id
+        AND NOT EXISTS(SELECT 1 FROM collection_import_views ci WHERE ci.observation_id=o.id
             AND json_extract(ci.payload_json,'$.location_obscured')=1)
         AND NOT EXISTS(SELECT 1 FROM record_trash t WHERE t.restored_at IS NULL AND
         ((t.kind='survey' AND t.survey_id=o.survey_id) OR (t.kind='observation' AND t.observation_id=o.id)))"""):

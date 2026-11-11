@@ -12,7 +12,7 @@ from app.holdings import validate_observation_links
 from app.trash import ACTIVE_SURVEY, ACTIVE_OBSERVATION, survey_active
 from app.collection_import import observed_datetime, STAGES, source_location_note
 from app.vagrant_years import sync_vagrant_years
-from app.regions import locate as locate_region, current_label, display_location
+from app.regions import administrative_center, locate as locate_region, current_label, display_location
 
 
 class UnknownSpecies(ValueError):
@@ -142,6 +142,12 @@ def observation_view(row, survey, tags, photos):
         effective_longitude=record["longitude"] if has_location else survey["longitude"],
     )
     record.update(display_location(record['effective_place'],record['effective_latitude'],record['effective_longitude'],region_code))
+    record['administrative_pin'] = (
+        administrative_center(region_code)
+        if region_code and len(region_code) == 5 and record['source_type'] == 'indirect'
+        and record['effective_latitude'] is None and record['effective_longitude'] is None
+        else None
+    )
     record['source_weather'] = None
     if imported_payload:
         payload = json.loads(imported_payload)
@@ -174,7 +180,7 @@ def read_survey(connection: sqlite3.Connection, survey_id: int) -> dict | None:
     observations = []
     for row in connection.execute(
         f"""SELECT o.*, s.korean_name AS species_name, ci.payload_json AS imported_payload, ci.inference_json AS imported_inference FROM observations o
-        LEFT JOIN species s ON s.id=o.species_id LEFT JOIN collection_imports ci ON ci.observation_id=o.id
+        LEFT JOIN species s ON s.id=o.species_id LEFT JOIN collection_import_views ci ON ci.observation_id=o.id
         WHERE survey_id=? AND {ACTIVE_OBSERVATION} ORDER BY o.id""", (survey_id,)):
         record = observation_view(row, survey, tag_names(connection, 'observation', row['id']), linked_ids(connection, 'observation', row['id']))
         observations.append(record)
@@ -207,7 +213,7 @@ def list_surveys(connection: sqlite3.Connection | None = None) -> list[dict]:
         rows = connection.execute(f"""SELECT o.*, s.korean_name AS species_name,
                 ci.payload_json AS imported_payload, ci.inference_json AS imported_inference
                 FROM observations o LEFT JOIN species s ON s.id=o.species_id
-                LEFT JOIN collection_imports ci ON ci.observation_id=o.id
+                LEFT JOIN collection_import_views ci ON ci.observation_id=o.id
                 WHERE {ACTIVE_OBSERVATION} ORDER BY o.id""").fetchall()
     # 목록 응답용 좌표 변환과 JSON 처리는 읽기 트랜잭션을 닫은 뒤 수행합니다.
     for row in rows:

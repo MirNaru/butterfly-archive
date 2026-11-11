@@ -47,6 +47,7 @@ export interface Observation extends ObservationInput {
   effective_tags: string[]
   id: number; species_name: string | null; effective_date: string; effective_place: string
   effective_latitude: number | null; effective_longitude: number | null
+  administrative_pin?: Coordinate | null
 }
 export interface SourceWeather { text: string; source: string; url: string; stale: boolean }
 export interface SurveyUpdate extends Omit<SurveyInput, 'observations'> {
@@ -80,7 +81,7 @@ export interface Holding extends HoldingInput { id: number; korean_name: string;
 
 export interface Coordinate { latitude: number; longitude: number }
 export interface AddressCandidate extends Coordinate { address: string }
-export type PinSource = 'direct' | 'naturing' | 'inaturalist' | 'other'
+export type PinSource = 'direct' | 'naturing' | 'inaturalist' | 'other' | 'administrative'
 export interface MapPin extends Coordinate { id: string; surveyId: number; label: string; source?: PinSource }
 export interface Station extends Coordinate { id: number; name: string; distance_km: number | null; as_of: string }
 export interface WeatherContext {

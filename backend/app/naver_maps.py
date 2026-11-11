@@ -1,9 +1,34 @@
 """사용자 요청에 한해 주소와 좌표를 변환합니다. 비밀 키는 백엔드에만 둡니다."""
 import math
+import json
+from threading import Lock
+from app.database import connect_database
 from app.integration_settings import require_maps, request_json, IntegrationError
+
+_lookup_locks = tuple(Lock() for _ in range(64))
+
+
+def stored_lookup(service, key, fetch):
+    # 같은 입력의 동시 요청을 묶고 외부 응답을 기다리는 동안 DB 연결을 닫습니다.
+    with _lookup_locks[hash((service, key)) % len(_lookup_locks)]:
+        with connect_database() as db:
+            row = db.execute('SELECT response_json FROM map_lookup_cache WHERE service=? AND lookup_key=?',
+                             (service, key)).fetchone()
+        if row:
+            return json.loads(row[0])
+        result = fetch()
+        with connect_database() as db:
+            db.execute('INSERT INTO map_lookup_cache VALUES(?,?,?) ON CONFLICT DO NOTHING',
+                       (service, key, json.dumps(result, ensure_ascii=False)))
+        return result
 
 
 def geocode(query: str) -> list[dict]:
+    query = ' '.join(query.split())
+    return stored_lookup('geocode', query, lambda: _geocode(query))
+
+
+def _geocode(query: str) -> list[dict]:
     data = request_json("geocode", "https://maps.apigw.ntruss.com/map-geocode/v2/geocode",
                         {"query": query, "count": 5}, require_maps())
     try:
@@ -22,6 +47,11 @@ def geocode(query: str) -> list[dict]:
 
 
 def reverse(latitude: float, longitude: float) -> dict:
+    key = f'{latitude},{longitude}'
+    return stored_lookup('reverse', key, lambda: _reverse(latitude, longitude))
+
+
+def _reverse(latitude: float, longitude: float) -> dict:
     data = request_json("reverse", "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc",
                         {"coords": f"{longitude},{latitude}", "output": "json", "orders": "roadaddr,addr"}, require_maps())
     try:

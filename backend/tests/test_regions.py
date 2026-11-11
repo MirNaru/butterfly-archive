@@ -51,7 +51,7 @@ def test_current_display_preserves_original_and_english_is_coordinate_based(clie
     assert display_location('Jeju, South Korea',33.3614,126.5359)['display_place'].startswith('제주특별자치도 ')
     assert display_location('Unknown English location')['display_place']=='Unknown English location'
     assert display_location('Tokyo',35.68,139.69)['display_place']=='Tokyo'
-    assert '개편지역 확인 필요' in current_label('23010')
+    assert current_label('23010') == '인천광역시 (옛 중구 범위)'
     assert current_label('36010').startswith('전남광주통합특별시 ')
     original='강원도 정선군 고한읍'
     saved=record(client,place_name=original,latitude=None,longitude=None,observations=[{}])
@@ -110,6 +110,26 @@ def test_duplicate_evidence_and_withdrawal(client):
     assert reference(client,sid)['reference']['region_codes']==[]
     assert client.get('/api/regions').status_code==200
     assert client.get('/api/regions/boundaries').json()['type']=='FeatureCollection'
+
+
+def test_administrative_pin_keeps_original_coordinates_empty(client):
+    from app.regions import contains, index
+    saved = record(client, place_name='강원 양구', latitude=None, longitude=None, observations=[
+        {'source_type': 'indirect', 'source_note': 'https://example.test/record'},
+        {'source_type': 'indirect', 'source_note': 'https://www.naturing.net/o/1'},
+        {'source_type': 'indirect', 'source_note': 'https://www.inaturalist.org/observations/1'},
+        {'source_type': 'indirect', 'source_note': '공개 논문'},
+    ])
+    actual = client.get('/api/surveys').json()[0]['observations']
+    assert actual[0]['administrative_pin'] == saved['observations'][0]['administrative_pin']
+    assert actual[0]['effective_latitude'] is None and actual[0]['effective_longitude'] is None
+    pin = actual[0]['administrative_pin']
+    assert contains(index()[actual[0]['administrative_region_code']], pin['latitude'], pin['longitude'])
+    assert all(row['administrative_pin'] == pin for row in actual[1:])
+    missing = record(client, place_name='', latitude=None, longitude=None, observations=[
+        {'source_type': 'indirect', 'source_note': 'https://www.naturing.net/o/2'},
+    ])
+    assert missing['observations'][0]['administrative_pin'] is None
 
 
 def test_observation_area_covers_city_metropolis_but_not_province():
