@@ -316,3 +316,34 @@ def test_repeated_transport_failure_stops_without_advancing(client, monkeypatch)
     assert not inaturalist.state_path().exists()
     with connect_database() as db:
         assert db.execute("SELECT attempts FROM api_usage WHERE service='inaturalist'").fetchone()[0]==2
+
+def test_first_backup_allows_another_writer(client, monkeypatch):
+    from contextlib import contextmanager
+
+    provider(monkeypatch, [[observation(11)]])
+    observed = []
+
+    @contextmanager
+    def measured_connection():
+        with connect_database() as connection:
+            class BackupProbe:
+                def __getattr__(self, name):
+                    return getattr(connection, name)
+
+                def backup(self, destination):
+                    writer = sqlite3.connect(database_path(), timeout=0.05)
+                    try:
+                        writer.execute('BEGIN IMMEDIATE')
+                        writer.rollback()
+                        observed.append(True)
+                    finally:
+                        writer.close()
+                    connection.backup(destination)
+
+            yield BackupProbe()
+
+    monkeypatch.setattr(inaturalist, 'connect_database', measured_connection)
+    response = sync(client)
+    assert response.status_code == 200
+    assert response.json()['created'] == 1
+    assert observed == [True]

@@ -1,4 +1,6 @@
 """확장 프로그램의 공개 관찰 자료를 인증 후 검토 대기함에 저장합니다."""
+import sqlite3
+import time
 import hashlib
 import json
 import secrets
@@ -68,11 +70,19 @@ def authenticate(request: Request, db):
 @router.post('/naturing')
 def receive(value: CollectedObservation, request: Request):
     payload = value.model_dump(mode='json', exclude={'collected_at', 'review_status'})
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     now = datetime.now(timezone.utc).isoformat()
     with connect_database() as db:
         authenticate(request, db)
-        db.execute('BEGIN IMMEDIATE')
+        # 잠금을 얻기 전의 실패만 다시 시도합니다. 저장 본문을 반복하지 않습니다.
+        db.execute('PRAGMA busy_timeout=3000')
+        try:
+            db.execute('BEGIN IMMEDIATE')
+        except sqlite3.OperationalError as error:
+            if getattr(error, 'sqlite_errorcode', 0) & 255 != sqlite3.SQLITE_BUSY:
+                raise
+            time.sleep(0.25)
+            db.execute('BEGIN IMMEDIATE')
+        authenticate(request, db)
         old = db.execute('SELECT * FROM collected_observations WHERE source=? AND source_id=?', (value.source, value.source_id)).fetchone()
         encoded = json.dumps(preserve_stage_override(old,payload),ensure_ascii=False,sort_keys=True)
         outcome = 'unchanged' if old and old['payload_json'] == encoded else 'updated' if old else 'created'

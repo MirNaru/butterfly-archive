@@ -87,3 +87,5 @@ android는 MediaStore·ACCESS_MEDIA_LOCATION 동의 후 setRequireOriginal과 Ex
 도감 읽기는 SpeciesInfoModal.tsx, 편집은 ReferenceModal.tsx·ReferenceEditor.tsx에서 분리합니다. 대표·단계별 동정 사진 역할은 기존 species_references JSON에 보관하고, /species/{id}/photos는 활성 관찰·탐사 공통 사진과 도감 지정 사진의 합집합을 12개씩 제공합니다.
 
 논문 정리와 웹 자료는 `backend/app/research.py`에서 관리합니다. Gemini 키는 서버 환경 변수에서 읽습니다. 브라우저에는 설정 여부만 돌려주고, 외부 요청은 공개 자료 검색과 선택한 PDF의 첫 두 쪽 텍스트에 한해 사용자가 실행합니다.
+
+iNaturalist 최초 보호 복사와 외부 자료 정규화는 수집 요청 잠금 안에서 완료하고 DB 쓰기 트랜잭션은 실제 저장 직전에 시작합니다. 네이처링 수신은 쓰기 잠금 획득의 SQLITE_BUSY에 한해 한 번 재시도하고 획득 뒤 연결 키를 다시 확인합니다. 저장 본문과 호출 횟수 예약은 다시 실행하지 않습니다.

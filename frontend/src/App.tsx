@@ -147,7 +147,8 @@ export default function App() {
   const snapshot = useRef(0)
   const initialized = useRef(false)
   async function registered(changes?: Survey[]) {
-    if (!changes || !initialized.current) { await load(); return }
+    if (!initialized.current) { refreshReferences(); return }
+    if (!changes) { await load(); return }
     if (!changes.length) return
     snapshot.current++
     const updated = new Map(changes.map(s => [s.id,s]))
@@ -166,19 +167,39 @@ export default function App() {
     } catch (error) { setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.') }
     finally { setLoading(false) }
   }
+  const needsSurveys = mode !== 'collection'
   useEffect(() => {
     let active = true
-    const version = snapshot.current
-    Promise.all([listSpecies(), listSurveys(), recordWeather()])
-      .then(([nextSpecies, nextSurveys, nextWeather]) => {
-        if (active && version === snapshot.current) { initialized.current = true; setSpecies(nextSpecies); setSurveys(nextSurveys); setWeather(nextWeather); setError('') }
-      })
-      .catch((error: unknown) => {
-        if (active) setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.')
-      })
-      .finally(() => { if (active) setLoading(false) })
+    listSpecies().then(next => { if (active) setSpecies(next) })
+      .catch(() => { if (active && !initialized.current) setError('종 목록을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [])
+  useEffect(() => {
+    if (!needsSurveys || initialized.current) return
+    let active = true
+    const controller = new AbortController()
+    const version = snapshot.current
+    listSurveys(controller.signal)
+      .then(next => {
+        if (active && version === snapshot.current) {
+          initialized.current = true
+          setSurveys(next)
+          setError('')
+        }
+      })
+      .catch((error: unknown) => {
+        if (active && version === snapshot.current) setError(error instanceof Error ? error.message : '목록을 불러오지 못했습니다.')
+      })
+      .finally(() => { if (active && version === snapshot.current) setLoading(false) })
+    return () => { active = false; controller.abort() }
+  }, [needsSurveys])
+  useEffect(() => {
+    if (!needsRecords) return
+    let active = true
+    recordWeather().then(next => { if (active) setWeather(next) })
+      .catch(() => { if (active) setNotice('저장 기상을 읽지 못했습니다. 기록 목록은 사용할 수 있습니다.') })
+    return () => { active = false }
+  }, [needsRecords])
   useEffect(() => {
     let active = true
     if (!needsRecords) return

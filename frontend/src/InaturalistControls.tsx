@@ -1,22 +1,35 @@
 // 공식 API의 검색 조건과 중지·재개 가능한 과거 및 최신 수집을 표시합니다.
 import { useEffect, useRef, useState } from 'react'
 import { searchInat, syncInat } from './api'
+import { readView, writeView } from './viewMemory'
 type Match = { id: number; name: string; scientific_name: string }
+function savedMatch(value: unknown): Match | null {
+  if (!value || typeof value !== 'object' || !('id' in value) || typeof value.id !== 'number' ||
+      !('name' in value) || typeof value.name !== 'string' ||
+      !('scientific_name' in value) || typeof value.scientific_name !== 'string') return null
+  return { id: value.id, name: value.name, scientific_name: value.scientific_name }
+}
 export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpdated: () => void; onBusyChange: (busy: boolean) => void }) {
-  const [mode, setMode] = useState<'history' | 'latest'>('history')
+  const [saved] = useState(() => readView('inaturalist-collection'))
+  const [mode, setMode] = useState<'history' | 'latest'>(saved.mode === 'latest' ? 'latest' : 'history')
   const [taxonQuery, setTaxonQuery] = useState('')
   const [placeQuery, setPlaceQuery] = useState('')
-  const [taxa, setTaxa] = useState<Match[]>([])
-  const [places, setPlaces] = useState<Match[]>([])
-  const [taxon, setTaxon] = useState<Match | null>(null)
-  const [place, setPlace] = useState<Match>({ id: 6891, name: '대한민국', scientific_name: '' })
-  const [start, setStart] = useState('')
-  const [end, setEnd] = useState('')
+  const [taxon, setTaxon] = useState(() => savedMatch(saved.taxon))
+  const [place, setPlace] = useState(() => savedMatch(saved.place) ?? { id: 6891, name: '대한민국', scientific_name: '' })
+  const [taxa, setTaxa] = useState<Match[]>(() => taxon ? [taxon] : [])
+  const [places, setPlaces] = useState<Match[]>(() => place.id === 6891 ? [] : [place])
+  const [start, setStart] = useState(typeof saved.start === 'string' ? saved.start : '')
+  const [end, setEnd] = useState(typeof saved.end === 'string' ? saved.end : '')
+  useEffect(() => { writeView('inaturalist-collection', { mode, taxon, place, start, end }) }, [mode, taxon, place, start, end])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const stopped = useRef(false)
-  useEffect(() => () => { stopped.current = true }, [])
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; stopped.current = true }
+  }, [])
   async function search(kind: 'taxa' | 'places') {
     setBusy(true); onBusyChange(true); setError('')
     try {
@@ -28,19 +41,21 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
   }
   async function collect() {
     stopped.current = false; setBusy(true); onBusyChange(true); setError(''); setNotice('자료를 가져오는 중입니다.')
+    let savedPage = false
     const totals = { created: 0, updated: 0, unchanged: 0, excluded: 0 }
     try {
       // 50건씩 최대 40번 확인하며 각 단위의 진행 위치를 저장합니다.
       for (let page = 0; page < 40 && !stopped.current; page++) {
         const result = await syncInat({ mode, taxon_id: mode === 'history' ? taxon!.id : null, place_id: place.id, start: start || null, end: end || null })
         for (const key of ['created', 'updated', 'unchanged', 'excluded'] as const) totals[key] += result[key]
-        onUpdated()
+        savedPage = true
+        if (!mounted.current) return
         setNotice(`신규 ${totals.created} · 원문 변경 ${totals.updated} · 중복 ${totals.unchanged} · 제외 ${totals.excluded}건\n${result.done ? '현재 검색 범위의 수집을 마쳤습니다.' : '진행 위치를 저장했습니다. 중지 후 같은 조건으로 이어갈 수 있습니다.'}`)
         if (result.done) break
         if (page === 39) setNotice(previous => previous + '\n이번 실행의 2000건 확인 한도에 도달했습니다. 같은 버튼으로 이어서 수집해 주세요.')
       }
     } catch (e) { setError(e instanceof Error ? e.message : '수집하지 못했습니다.') }
-    finally { setBusy(false); onBusyChange(false) }
+    finally { if (mounted.current) { if (savedPage) onUpdated(); setBusy(false); onBusyChange(false) } }
   }
   return <details className="inaturalist-controls"><summary>iNaturalist 자료 가져오기</summary>
     <p className="hint">키·로그인 없이 공개 나비 자료만 조회합니다. 과거 수집은 종별로 이어가고, 최신 수집은 종과 관계없이 새로 게시된 나비 관찰을 가져옵니다. 게시일과 실제 관찰일은 다를 수 있습니다.</p>

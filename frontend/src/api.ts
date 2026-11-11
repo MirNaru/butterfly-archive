@@ -61,7 +61,7 @@ export const updateHolding = (id: number, value: import('./models').HoldingInput
 export const listSpecies = () => request<Species[]>('/species')
 export const listCatalog = () => request<import('./models').SpeciesCatalog[]>('/species/catalog')
 export const addSpecies = (korean_name: string, scientific_name: string) => request<Species>('/species', post({ korean_name, scientific_name: scientific_name || null }))
-export const listSurveys = () => request<Survey[]>('/surveys', {signal: AbortSignal.timeout(60000)})
+export const listSurveys = (signal?: AbortSignal) => request<Survey[]>('/surveys', {signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000)})
 export const listTrash = () => request<import('./models').TrashEntry[]>('/trash')
 export const trashSurvey = (survey: Survey, observationId: number | null) => request<{ id: number }>(`/surveys/${survey.id}${observationId === null ? '' : `/observations/${observationId}`}`, { ...post({ expected_updated_at: survey.updated_at }), method: 'DELETE' })
 export const restoreTrash = (entry: import('./models').TrashEntry) => request<{ survey_id: number }>(`/trash/${entry.id}/restore`, post({ expected_deleted_at: entry.deleted_at }))

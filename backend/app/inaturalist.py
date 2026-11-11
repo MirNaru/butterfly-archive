@@ -227,19 +227,21 @@ def sync(value: SyncInput, request: Request):
             raise IntegrationError('응답의 진행 순서가 올바르지 않아 수집을 중단했습니다.')
         counts = dict(created=0, updated=0, unchanged=0, excluded=0)
         stamp = datetime.now(timezone.utc).isoformat()
+        payloads = [payload for row in rows if (payload := normalized(row)) is not None]
+        counts['excluded'] = len(rows) - len(payloads)
+        # 수집 잠금 안에서 최초 보호 사본을 만들되 DB 쓰기 잠금은 저장 직전에 획득합니다.
+        if not states:
+            backup = database_path().with_name(database_path().name + '.before-inaturalist-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.bak')
+            with connect_database() as source:
+                destination = sqlite3.connect(backup)
+                try:
+                    source.backup(destination)
+                finally:
+                    destination.close()
         with connect_database() as db:
             db.execute('BEGIN IMMEDIATE')
-            # 최초 반입 전에 확정된 전체 DB 보호 복사본을 남깁니다.
-            if not states:
-                backup = database_path().with_name(database_path().name + '.before-inaturalist-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + '.bak')
-                with connect_database() as source, sqlite3.connect(backup) as destination:
-                    source.backup(destination)
-            for row in rows:
-                payload = normalized(row)
-                if payload is None:
-                    counts['excluded'] += 1
-                else:
-                    counts[save_payload(db, payload, stamp)] += 1
+            for payload in payloads:
+                counts[save_payload(db, payload, stamp)] += 1
         high = max(state.get('pending_high', 0), max(ids, default=0))
         # 과거 수집 중 새로 게시된 자료도 전체 최신 조회에서 빠짐없이 이어갑니다.
         done = len(rows) < PAGE_SIZE or (value.mode == 'latest' and not state.get('completed_high') and not since and state.get('scanned', 0) + len(rows) >= INITIAL_LATEST_SIZE)

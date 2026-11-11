@@ -5,15 +5,15 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const extraction = readFileSync(__dirname + '/extract.js', 'utf8').replaceAll('export function', 'function');
 const code = extraction + '\n' + readFileSync(__dirname + '/background.js', 'utf8').replace("import { extractObservation, hasExcludedLocation } from './extract.js';", '').replace('export async function', 'async function');
-async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false, missingRecords = false, transient = [], stopOnRetry = false } = {}) {
-  let listener, job, writes = 0, stored = 0, moves = 0, current = 10;
+async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false, missingRecords = false, transient = [], stopOnRetry = false, resume = false } = {}) {
+  let listener, job, writes = 0, stored = 0, moves = 0, current = resume ? 11 : 10;
   const sent = [];
   let resolveDone;
   const done = new Promise(resolve => { resolveDone = resolve; });
   const chrome = {
     storage: {
-      session: { get: async () => ({}), set: async value => { job = value.autoJob; if (!job.running) resolveDone(); else if (stopOnRetry && job.message.includes("재시도 대기")) await new Promise(resolve => listener({type:"auto-stop"}, {}, resolve)); } },
-      local: { get: async () => ({ connectionKey: 'test' }), set: async () => {stored++;} },
+      session: { get: async () => resume ? {autoJob:{running:false, tabId:1, pendingId:'11', completed:2, skipped:0}} : {}, set: async value => { job = value.autoJob; if (!job.running) resolveDone(); else if (stopOnRetry && job.message.includes("재시도 대기")) await new Promise(resolve => listener({type:"auto-stop"}, {}, resolve)); } },
+      local: { get: async () => ({ connectionKey: 'test', 'observation:11': {source_id:'11',place_raw:'경기 가평군',latitude:37,longitude:127} }), set: async () => {stored++;} },
     },
     runtime: { onMessage: { addListener: fn => { listener = fn; } } },
     tabs: {
@@ -258,4 +258,12 @@ test('재시도 대기 중 사용자 중지는 다음 전송을 막음', async (
   const result = await scenario({ transient: [503], stopOnRetry: true });
   assert.deepEqual(result.sent, ['11']);
   assert.match(result.job.message, /사용자가 중지/);
+});
+
+test('중단 당시 대기 자료를 먼저 보내고 다음 관찰로 이동', async () => {
+  const result = await scenario({ resume: true });
+  assert.deepEqual(result.sent, ['11', '12', '13', '14', '15']);
+  assert.equal(result.moves, 4);
+  assert.equal(result.job.completed, 7);
+  assert.equal(result.job.pendingId, null);
 });

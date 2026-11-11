@@ -3,7 +3,9 @@ import { extractObservation, hasExcludedLocation } from './extract.js';
 
 const endpoint = 'http://127.0.0.1:8000/api/collection/naturing';
 let activeJob = null;
+let previousJob = null;
 const ready = chrome.storage.session.get('autoJob').then(async ({ autoJob }) => {
+  previousJob = autoJob;
   if (autoJob?.running) await chrome.storage.session.set({ autoJob: { ...autoJob, running: false, message: `${autoJob.completed}건 처리 후 실행이 중단됐습니다. 페이지를 확인한 뒤 다시 시작하세요.` } });
 });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -45,12 +47,14 @@ async function update(job, message) {
   if (activeJob !== job) return;
   message += ` · 위치 비공개·미입력 ${job.skipped}건 제외`;
   job.message = message;
-  await chrome.storage.session.set({ autoJob: { running: true, completed: job.completed, message } });
+  previousJob = { running: true, completed: job.completed, skipped: job.skipped, tabId: job.tabId, pendingId: job.pendingId, message };
+  await chrome.storage.session.set({ autoJob: previousJob });
 }
 async function finish(job, message) {
   if (activeJob !== job) return;
   activeJob = null;
-  await chrome.storage.session.set({ autoJob: { running: false, completed: job.completed, skipped:job.skipped, message:message + ` · 위치 비공개·미입력 ${job.skipped}건 제외` } });
+  previousJob = { running: false, completed: job.completed, skipped: job.skipped, tabId: job.tabId, pendingId: job.pendingId, message: message + ` · 위치 비공개·미입력 ${job.skipped}건 제외` };
+  await chrome.storage.session.set({ autoJob: previousJob });
 }
 // 앱의 일시적인 저장 지연에도 현재 관찰을 확인한 뒤에만 다음 관찰로 이동합니다.
 async function sendRecord(job, record, connectionKey) {
@@ -94,6 +98,20 @@ async function run(job) {
   const visited = new Set([job.startId]);
   let expectedId = job.startId;
   try {
+    if (job.pendingId) {
+      const key = `observation:${job.pendingId}`;
+      const saved = await chrome.storage.local.get([key, 'connectionKey']);
+      const record = saved[key];
+      if (record?.source_id !== job.pendingId || hasExcludedLocation(record)) {
+        throw new Error('전송 대기 자료를 확인하지 못했습니다. 현재 관찰을 다시 읽어 주세요.');
+      }
+      if (activeJob !== job) return;
+      if (!saved.connectionKey) throw new Error('앱 연결 키를 먼저 저장해 주세요.');
+      if (!await sendRecord(job, record, saved.connectionKey)) return;
+      job.pendingId = null;
+      job.completed++;
+      await update(job, `${job.completed}건 전송 완료 · 대기 자료 복구 완료`);
+    }
     while (activeJob === job) {
       await update(job, `${job.completed}건 전송 완료 · 다음 관찰 확인 중`);
       const before = await chrome.tabs.get(job.tabId);
@@ -124,10 +142,14 @@ async function run(job) {
       if (activeJob !== job) return;
       if (hasExcludedLocation(record)) { job.skipped++; continue; }
       await chrome.storage.local.set({ [`observation:${record.source_id}`]: record });
+      if (activeJob !== job) return;
+      job.pendingId = record.source_id;
+      await update(job, `${job.completed}건 전송 완료 · 현재 관찰 저장 확인 중`);
       const { connectionKey } = await chrome.storage.local.get('connectionKey');
       if (!connectionKey) throw new Error('앱 연결 키를 저장해 주세요.');
       if (activeJob !== job) return;
       if (!await sendRecord(job, record, connectionKey)) return;
+      job.pendingId = null;
       job.completed++;
     }
   } catch (error) { await finish(job, `${job.completed}건 전송 완료 후 중단 · ${error.message}`); }
@@ -148,7 +170,11 @@ chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     const { connectionKey } = await chrome.storage.local.get('connectionKey');
     if (!connectionKey) throw new Error('앱 연결 키를 먼저 저장해 주세요.');
     const tab = await chrome.tabs.get(message.tabId);
-    const job = { tabId: tab.id, startId: observationId(tab.url), completed: 0, skipped:0 };
+    if (activeJob) throw new Error('자동전송이 이미 진행 중입니다.');
+    const startId = observationId(tab.url);
+    const resume = previousJob?.tabId === tab.id && previousJob.pendingId === startId;
+    const job = { tabId: tab.id, startId, pendingId: resume ? startId : null,
+      completed: resume ? previousJob.completed : 0, skipped: resume ? previousJob.skipped : 0 };
     activeJob = job;
     await update(job, '0건 · 자동전송을 시작합니다.');
     respond({ ok: true });
