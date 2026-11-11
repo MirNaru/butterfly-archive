@@ -14,7 +14,7 @@
 | `viewer_server.py`, `viewer_web` | 원본 DB를 읽지 않는 외부 사본 조회 서버·정적 화면. |
 | `extensions/naturing` | 사용자 Chrome에서 시작하는 네이처링 확장. 설치·연결은 해당 README. |
 | `backend/app/assets` | 로컬 지역 경계 원본과 표시용 단순화 자료. 정밀 판정과 화면 경량 경계는 구분합니다. |
-| `start_app.py`, `나비 아카이브 실행.cmd` | PC 루프백 서버와 인증 세션 실행. |
+| `start_app.py`, `ButterflyAdmin.exe` | PC 루프백 서버와 인증 세션 실행. |
 | `start_mobile.py`, `setup_lan.ps1`, `Caddy.lan` | 집 안 HTTPS·방화벽·로컬 인증서 구성. |
 | `start_viewer.py`, `start_viewer.ps1`, `setup_viewer.ps1`, `Caddyfile` | 제한 계정의 외부 조회 구성·실행. 코드 수정만으로 운영 복사본이 자동 갱신되지는 않습니다. |
 | `data` | 실제 DB·진행 파일·사진·논문·키·인증서·보호 사본. Git 제외, 임의 이동 금지. |
