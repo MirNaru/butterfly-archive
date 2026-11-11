@@ -5,7 +5,7 @@ export const LIFE_STAGES: { key: LifeStage; label: string; color: string }[] = [
   { key: 'pupa', label: '번데기', color: '#b08c5e' }, { key: 'adult', label: '어른벌레', color: '#917ba3' },
 ]
 export interface LifeFilter { year: string; region: string; source: '' | 'direct' | 'indirect' }
-export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; region?: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[]; stageEstimated?: boolean }
+export interface LifeSample { speciesId: number; stage: LifeStage; date: string; day: number; place: string; region?: string; source: string; sourceType: 'direct' | 'indirect'; observationIds: number[]; stageEstimated?: boolean; regionCode?: string; regionBasis?: 'coordinates' | 'place' | 'unknown'; count?: number | null }
 export interface BoxStats { n: number; q1: number; median: number; q3: number; low: number; high: number; outliers: number[] }
 export const BOX_MINIMUM = 20
 const DAY = 86400000
@@ -36,18 +36,57 @@ export function boxStats(values: number[]): BoxStats | null {
   const inside = sorted.filter(x => x >= q1 - 1.5 * iqr && x <= q3 + 1.5 * iqr)
   return { n: sorted.length, q1, median, q3, low: inside[0], high: inside[inside.length - 1], outliers: sorted.filter(x => x < q1 - 1.5 * iqr || x > q3 + 1.5 * iqr) }
 }
-export function collectLifeSamples(surveys: Survey[]): LifeSample[] {
+export function collectLifeSamples(surveys: Survey[], analysisSpeciesId?: number): LifeSample[] {
   const groups = new Map<string, LifeSample>()
   for (const survey of surveys) for (const record of survey.observations) {
     const accepted = record.identification === 'user_confirmed' || record.identification === 'candidate' && record.source_type === 'indirect' && (record.collection_accepted || record.stage_inferred)
     if (!record.species_id || record.result !== 'observed' || record.stage === 'unknown' || !accepted) continue
+    if (analysisSpeciesId !== undefined && (record.species_id !== analysisSpeciesId || record.stage !== 'adult')) continue
     const origin = record.source_type === 'indirect' ? record.source_note.trim() : `survey-${survey.id}`
-    const key = JSON.stringify([record.species_id, record.stage, record.effective_date, record.effective_place, record.effective_latitude, record.effective_longitude, record.source_type, origin])
+    const key = analysisSpeciesId === undefined
+      ? JSON.stringify([record.species_id, record.stage, record.effective_date, record.effective_place, record.effective_latitude, record.effective_longitude, record.source_type, origin])
+      : record.exact_case_key ?? String(record.id)
     const previous = groups.get(key)
     if (previous) previous.observationIds.push(record.id)
-    else groups.set(key, { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, region: record.administrative_region || '행정지역 미확인', source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id], stageEstimated: record.stage_inferred || false })
+    else {
+      const sample: LifeSample = { speciesId: record.species_id, stage: record.stage, date: record.effective_date, day: dayOfYear(record.effective_date), place: record.effective_place, region: record.administrative_region || '행정지역 미확인', source: record.source_note || '직접 관찰', sourceType: record.source_type, observationIds: [record.id], stageEstimated: record.stage_inferred || false }
+      if (analysisSpeciesId !== undefined) {
+        const method = record.place_name || record.latitude !== null ? record.location_method : survey.location_method
+        sample.regionCode = method === 'approximate' ? undefined : record.administrative_region_code ?? undefined
+        sample.regionBasis = !sample.regionCode ? 'unknown' : record.effective_latitude === null ? 'place' : 'coordinates'
+        sample.count = record.count
+      }
+      groups.set(key, sample)
+    }
   }
   return [...groups.values()]
+}
+
+const analysisRegions: Record<string,string> = {
+  '11':'서울특별시','21':'부산광역시','22':'대구광역시','23':'인천광역시','24':'광주광역시','25':'대전광역시','26':'울산광역시','29':'세종특별자치시',
+  '31':'경기도','32':'강원특별자치도','33':'충청북도','34':'충청남도','35':'전북특별자치도','36':'전라남도','37':'경상북도','38':'경상남도','39':'제주특별자치도',
+}
+
+export function adultAnalysisGroups(samples: LifeSample[], byRegion: boolean, filter: LifeFilter) {
+  const groups = new Map<string, {year: string; region: string; regionCode: string; samples: LifeSample[]}>()
+  let unknownRegion = 0
+  for (const sample of samples) {
+    const year = sample.date.slice(0,4)
+    if (sample.stage !== 'adult' || (filter.year && year !== filter.year) || (filter.source && sample.sourceType !== filter.source)) continue
+    const regionCode = byRegion ? sample.regionCode?.slice(0,2) ?? '' : ''
+    if (byRegion && !analysisRegions[regionCode]) { unknownRegion++; continue }
+    if (byRegion && filter.region && regionCode !== filter.region) continue
+    const key = `${year}:${regionCode}`
+    let group = groups.get(key)
+    if (!group) {
+      group = {year, region: analysisRegions[regionCode] ?? '', regionCode, samples: []}
+      groups.set(key,group)
+    }
+    group.samples.push(sample)
+  }
+  const sorted = [...groups.values()].sort((a,b) => b.year.localeCompare(a.year) || a.region.localeCompare(b.region,'ko'))
+  return { eligible: sorted.filter(group => group.samples.length >= BOX_MINIMUM),
+    small: sorted.filter(group => group.samples.length < BOX_MINIMUM), unknownRegion }
 }
 export function lifeWindows(reference: SpeciesReference, stage: LifeStage, region: string): LifePeriod[] {
   const active = reference.lifecycle.filter(p => p.enabled && p.stage === stage)
@@ -104,7 +143,7 @@ export function densityShape(group: ReturnType<typeof observationGroups>[number]
       paths.push({curve, fill})
     }
   }
-  return { paths, medianY:roof(box.median), q1Y:roof(box.q1), q3Y:roof(box.q3) }
+  return { paths, maximum, medianY:roof(box.median), q1Y:roof(box.q1), q3Y:roof(box.q3) }
 }
 export function stageData(reference: SpeciesReference, allSamples: LifeSample[], stage: LifeStage, filter: LifeFilter) {
   const windows = lifeWindows(reference, stage, filter.region)

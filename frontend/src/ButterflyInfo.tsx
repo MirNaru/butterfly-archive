@@ -234,7 +234,7 @@ export default function ButterflyInfo({ currentReferences, targets, onTargets, s
         e.preventDefault(); moveScroll(e.key === 'Home' ? 0 : e.key === 'End' ? scroll.max : scroll.left + deltas[e.key])
       }
     }} /></div>
-    {editing && !editMode && <SpeciesInfoModal species={editing.species} document={editing.document} onClose={()=>{setEditing(null);onEditing(false)}} onEdit={()=>setEditMode(true)}/> }
+    {editing && !editMode && <SpeciesInfoModal species={editing.species} document={editing.document} surveys={surveys} onClose={()=>{setEditing(null);onEditing(false)}} onEdit={()=>setEditMode(true)}/> }
     {editing && editMode && <ReferenceModal species={editing.species} initial={editing.document} onClose={() => setEditMode(false)} onSaved={reference => { setCatalog(current => current.map(s => s.id === editing.species.id ? { ...s, reference, host_plants: reference.host_plants } : s)); onUpdated({ ...editing.species, host_plants: reference.host_plants }); setEditing(null); onEditing(false); setNotice('나비 정보를 저장했습니다.') }} />}
   </section>
 }

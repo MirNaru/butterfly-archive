@@ -1,11 +1,23 @@
 // 한살이 통계의 표본 단위와 연말·윤일·구간 경계를 검증합니다.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, densityShape, adultExtremes, inLifePeriod, isOutlier, BOX_MINIMUM } from '../src/lifeCycle.ts'
+import { boxStats, dayOfYear, dayLabel, slotEnd, observationGroups, collectLifeSamples, stageData, lifeWindows, rangeParts, densityShape, adultExtremes, inLifePeriod, isOutlier, adultAnalysisGroups, BOX_MINIMUM } from '../src/lifeCycle.ts'
 const window = (start, end, extra={}) => ({id:'test',stage:'adult',start,end,source:'시험 도감',edition:'2026',region:'',enabled:true,...extra})
 const reference = {lifecycle:[],periods:[],source:'시험 도감'}
 const filter = {year:'',region:'',source:''}
 const sample = (date, extra={}) => ({speciesId:1,stage:'adult',date,day:dayOfYear(date),place:'서울',sourceType:'direct',observationIds:[1],...extra})
+test('심층 분석은 연도 및 행정구역마다 20사례를 독립적으로 확인', () => {
+ const local = Array.from({length:20}, () => sample('2026-05-05',{region:'서울',regionCode:'11010'}))
+ const other = Array.from({length:19}, () => sample('2026-05-05',{region:'제주',regionCode:'39',sourceType:'indirect'}))
+ const prior = Array.from({length:19}, () => sample('2025-05-05',{region:'서울',regionCode:'11010'}))
+ const samples = [...local,...other,...prior,sample('2026-02-01'),sample('2026-04-01',{stage:'egg'})]
+ const byYear = adultAnalysisGroups(samples,false,filter)
+ assert.deepEqual(byYear.eligible.map(g=>[g.year,g.samples.length]),[['2026',40]])
+ const byRegion = adultAnalysisGroups(samples,true,filter)
+ assert.deepEqual(byRegion.eligible.map(g=>[g.year,g.region,g.samples.length]),[['2026','서울특별시',20]])
+ assert.equal(byRegion.unknownRegion,1)
+ assert.equal(adultAnalysisGroups(samples,true,{...filter,year:'2026',region:'39',source:'indirect'}).small[0].samples.length,19)
+})
 test('사분위수·이상치·최소 표본·동일 날짜', () => {
  assert.equal(boxStats([1,2,3,4]),null)
  assert.equal(BOX_MINIMUM,20)

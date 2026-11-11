@@ -429,6 +429,15 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .life-detail-dialog .table-wrap table { table-layout: fixed; min-width: 600px; }
 .life-detail-dialog p, .life-detail-dialog li, .life-history p { overflow-wrap: anywhere; }
 .life-detail-dialog li { margin: 10px 0; }
+.species-analysis-dialog .toolbar label { display: flex; align-items: center; gap: 6px; }
+.life-detail-dialog.species-analysis-dialog { width: min(1400px, calc(100vw - 32px)); }
+.species-analysis-scroll { overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.species-analysis-plot { display: block; width: 100%; min-width: 1050px; height: auto; }
+.species-analysis-plot text { fill: #403a44; font-size: 14px; }
+.species-analysis-plot svg :is(line, path, ellipse) { vector-effect: non-scaling-stroke; }
+.species-analysis-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; list-style: none; padding: 0 14px 12px; margin: 0; }
+.species-analysis-legend li { margin: 0; font-size: 13px; }
+.species-analysis-legend i { display: inline-block; width: 16px; height: 4px; margin-right: 6px; vertical-align: middle; }
 .life-period-editor { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin: 14px 0; }
 .life-period-editor legend { font-weight: 600; padding: 0 6px; }
 .life-period-editor .check { align-self: end; }
