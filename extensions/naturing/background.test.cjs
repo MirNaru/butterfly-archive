@@ -5,13 +5,14 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const extraction = readFileSync(__dirname + '/extract.js', 'utf8').replaceAll('export function', 'function');
 const code = extraction + '\n' + readFileSync(__dirname + '/background.js', 'utf8').replace("import { extractObservation, hasExcludedLocation } from './extract.js';", '').replace('export async function', 'async function');
-async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false, missingRecords = false } = {}) {
+async function scenario({ missing = false, repeat = false, fail = false, stop = false, privateRecords = false, missingRecords = false, transient = [], stopOnRetry = false } = {}) {
   let listener, job, writes = 0, stored = 0, moves = 0, current = 10;
+  const sent = [];
   let resolveDone;
   const done = new Promise(resolve => { resolveDone = resolve; });
   const chrome = {
     storage: {
-      session: { get: async () => ({}), set: async value => { job = value.autoJob; if (!job.running) resolveDone(); } },
+      session: { get: async () => ({}), set: async value => { job = value.autoJob; if (!job.running) resolveDone(); else if (stopOnRetry && job.message.includes("재시도 대기")) await new Promise(resolve => listener({type:"auto-stop"}, {}, resolve)); } },
       local: { get: async () => ({ connectionKey: 'test' }), set: async () => {stored++;} },
     },
     runtime: { onMessage: { addListener: fn => { listener = fn; } } },
@@ -27,12 +28,17 @@ async function scenario({ missing = false, repeat = false, fail = false, stop = 
   vm.runInNewContext(code, {
     chrome, URL, Set, Date, AbortController, AbortSignal,
     setTimeout: fn => setImmediate(() => { if (stop && job?.running) listener({type:'auto-stop'}, {}, () => {}); fn(); }),
-    fetch: async () => { writes++; return { ok: !fail, json: async () => fail ? { detail: '전송 실패' } : { outcome: 'created' } }; },
+    fetch: async (_url, options) => {
+      sent.push(JSON.parse(options.body).source_id);
+      const status = transient[writes++] ?? (fail ? 401 : 200);
+      if (status === 'timeout') throw new Error('시간 초과');
+      return { status, ok: status === 200, json: async () => status === 200 ? { outcome: 'unchanged' } : { detail: '전송 실패' } };
+    },
   });
   const response = await new Promise(resolve => listener({ type: 'auto-start', tabId: 1 }, {}, resolve));
   assert.equal(response.ok, true);
   await done;
-  return { job, writes, stored, moves };
+  return { job, writes, stored, moves, sent };
 }
 test('세 건을 넘겨 다섯 건 전송한 뒤 다음 관찰이 없을 때 종료', async () => {
   const result = await scenario();
@@ -231,4 +237,25 @@ test('탐색 로딩 실패를 다음 관찰 없음과 구분', async () => {
   const pending = harness.run();
   harness.timeout();
   await assert.rejects(pending, /링크가 아직 준비되지/);
+});
+
+test('일시적인 로컬 저장 오류와 응답 유실 후 같은 관찰부터 이어서 전송', async () => {
+  const result = await scenario({ transient: [503, 'timeout'] });
+  assert.deepEqual(result.sent, ['11', '11', '11', '12', '13', '14', '15']);
+  assert.equal(result.job.completed, 5);
+  assert.equal(result.stored, 5);
+});
+
+test('재시도 한도를 넘으면 현재 관찰을 보관하고 다음 관찰로 이동하지 않음', async () => {
+  const result = await scenario({ transient: [503, 503, 503] });
+  assert.deepEqual(result.sent, ['11', '11', '11']);
+  assert.equal(result.moves, 1);
+  assert.equal(result.stored, 1);
+  assert.equal(result.job.completed, 0);
+});
+
+test('재시도 대기 중 사용자 중지는 다음 전송을 막음', async () => {
+  const result = await scenario({ transient: [503], stopOnRetry: true });
+  assert.deepEqual(result.sent, ['11']);
+  assert.match(result.job.message, /사용자가 중지/);
 });

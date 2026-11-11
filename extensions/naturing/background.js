@@ -52,6 +52,44 @@ async function finish(job, message) {
   activeJob = null;
   await chrome.storage.session.set({ autoJob: { running: false, completed: job.completed, skipped:job.skipped, message:message + ` · 위치 비공개·미입력 ${job.skipped}건 제외` } });
 }
+// 앱의 일시적인 저장 지연에도 현재 관찰을 확인한 뒤에만 다음 관찰로 이동합니다.
+async function sendRecord(job, record, connectionKey) {
+  const body = JSON.stringify(record);
+  const retryDelays = [1000, 3000];
+  const controller = new AbortController();
+  job.controller = controller;
+  for (let attempt = 0; activeJob === job; attempt++) {
+    let response;
+    let failure;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${connectionKey}` },
+        body,
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+      });
+    } catch (error) {
+      if (activeJob !== job || controller.signal.aborted) return false;
+      failure = error;
+    }
+    if (activeJob !== job) return false;
+    if (response?.ok) {
+      const result = await response.json();
+      if (!['created', 'updated', 'unchanged'].includes(result.outcome)) throw new Error('DB 응답을 확인하지 못했습니다.');
+      return activeJob === job;
+    }
+    const retryable = !response || [502, 503, 504].includes(response.status);
+    if (!retryable || attempt >= retryDelays.length) {
+      const result = response ? await response.json().catch(() => null) : null;
+      throw new Error(result?.detail || failure?.message || '전송 자료를 확인해 주세요.');
+    }
+    await update(job, `${job.completed}건 전송 완료 · 현재 관찰 전송 재시도 대기 (${attempt + 1}/${retryDelays.length})`);
+    if (activeJob !== job) return false;
+    await delay(retryDelays[attempt]);
+  }
+  return false;
+}
+
 async function run(job) {
   const visited = new Set([job.startId]);
   let expectedId = job.startId;
@@ -89,11 +127,7 @@ async function run(job) {
       const { connectionKey } = await chrome.storage.local.get('connectionKey');
       if (!connectionKey) throw new Error('앱 연결 키를 저장해 주세요.');
       if (activeJob !== job) return;
-      job.controller = new AbortController();
-      const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${connectionKey}` }, body: JSON.stringify(record), signal: AbortSignal.any([job.controller.signal, AbortSignal.timeout(15000)]) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '전송 자료를 확인해 주세요.');
-      if (!['created', 'updated', 'unchanged'].includes(result.outcome)) throw new Error('DB 응답을 확인하지 못했습니다.');
+      if (!await sendRecord(job, record, connectionKey)) return;
       job.completed++;
     }
   } catch (error) { await finish(job, `${job.completed}건 전송 완료 후 중단 · ${error.message}`); }
