@@ -9,6 +9,7 @@ import { PIN_STYLE, pinAppearance, directPinsFirst, clusterAppearance } from './
 import { buildPinIndex, clusterZoom, markerBounds, locationKey } from './mapClusters'
 import type { DisplayPin } from './mapClusters'
 import type { PinSource } from './models'
+import MapPrediction from './MapPrediction'
 
 import { boundaryLevel, loadBoundaries, paddedBounds, RegionLayer, visibleParts } from './regionLayer'
 import type { BoundaryData, Bounds } from './regionLayer'
@@ -34,6 +35,7 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
   const pinIndex = useRef<{pins: MapPin[]; index: ReturnType<typeof buildPinIndex>; generation: number} | null>(null)
   const targets = useRef(new Map<string, DisplayPin>())
   const [ready, setReady] = useState(false)
+  const [prediction, setPrediction] = useState<(Coordinate & {x:number;y:number}) | null>(null)
   const [error, setError] = useState('')
   const [group, setGroup] = useState<string | null>(null)
   const [hidden, setHidden] = useState(true)
@@ -92,6 +94,13 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
       const center = latest.current.focus || { latitude: 36.5, longitude: 127.8 }
       map.current = new api.Map(element.current, { center: new api.LatLng(center.latitude, center.longitude), zoom: latest.current.focus ? 13 : 7 })
       api.Event.addListener(map.current, 'click', e => latest.current.onPick?.({ latitude: e.coord.lat(), longitude: e.coord.lng() }))
+      api.Event.addListener(map.current, 'rightclick', e => {
+        if (latest.current.onPick || !element.current) return
+        const {width,height} = element.current.getBoundingClientRect()
+        setPrediction({latitude:e.coord.lat(),longitude:e.coord.lng(),
+          x:Math.max(0,Math.min(width-470,(e.offset?.x ?? width/2)+8)),
+          y:Math.max(0,Math.min(height-280,e.offset?.y ?? height/2))})
+      })
       setReady(true)
     }).catch(e => { if (active) { started.current = null; setError(e instanceof Error ? e.message : '지도를 표시하지 못했습니다.') } })
     return () => { active = false }
@@ -225,7 +234,9 @@ export default function MapView({ shown, pins, focus, onSelect, onOpen, onPick, 
     </>,infoContainer)}
     {error && <div role="alert" className="error">{error} {!ready && <button type="button" onClick={() => { setError(''); setMapRetry(n => n + 1) }}>지도 다시 불러오기</button>}</div>}
     {!ready && !error && shown && <p role="status">지도를 불러오는 중입니다.</p>}
-    <div className="map-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" /></div>
+    <div className="map-frame prediction-frame"><div className="map-canvas" ref={element} aria-label="네이버 지도" />
+      {shown&&prediction&&<MapPrediction key={`${prediction.latitude},${prediction.longitude}`} point={prediction} close={()=>setPrediction(null)} />}
+    </div>
     {grouped.length > 0 && <div className="map-records"><strong>이 위치의 기록 {grouped.length}건</strong>{grouped.map(pin => <button type="button" key={pin.id} onClick={() => onSelect?.(pin)} onDoubleClick={() => onOpen?.(pin)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();onOpen?.(pin)}}} title="더블클릭하면 기록 탭에서 탐사 상세를 엽니다"><span style={{color:PIN_STYLE[pin.source || 'direct'].color}}>●</span> {PIN_STYLE[pin.source || 'direct'].label} · {pin.label}</button>)}</div>}
   </section>
 }

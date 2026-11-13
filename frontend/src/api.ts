@@ -2,6 +2,31 @@
 import type { Species, Survey, SurveyInput, SurveyUpdate, AddressCandidate, Coordinate, Station, SavedWeather, IntegrationStatus } from './models'
 
 const ROOT = '/api'
+export interface Prediction {
+  date: string
+  temperature_c: number | null
+  rain_mm: number | null
+  wind_m_s: number | null
+  occurrence_score: number | null
+  temporal_score: number | null
+  habitat_score: number | null
+  guide_distribution_score?: number | null
+  guide_distance_km?: number | null
+  observation_location_score?: number | null
+  observation_distance_km?: number | null
+  located_case_count?: number
+  weather_score: number | null
+  gdd_applied: boolean
+  weather_source: string | null
+  sample_count: number
+  year_count: number
+  region_count: number
+  warnings: string[]
+}
+export function predictButterfly(id: number, point: Coordinate, date: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({species_id:String(id), latitude:String(point.latitude), longitude:String(point.longitude), date})
+  return request<Prediction>('/predictions/butterfly?' + query, { signal })
+}
 export interface AdministrativeRegion { code: string; name: string; province: string; label: string; group: string; level: string }
 let regionRequest: Promise<{regions: AdministrativeRegion[]; source: string; source_url: string}> | undefined
 export function listRegions() {

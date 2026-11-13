@@ -5,7 +5,7 @@ export interface PolygonStyle {strokeColor:string;strokeWeight:number;strokeOpac
 export interface NaverPolygon {setMap(map:NaverMap|null):void;setOptions(options:PolygonStyle):void}
 export interface MarkerIcon { content: string; anchor: { x: number; y: number } }
 export interface NaverMarker { setMap(map: NaverMap | null): void; setIcon(icon: MarkerIcon): void; setTitle(title: string): void; setZIndex(zIndex: number): void }
-export interface MapClick { coord: LatLng }
+export interface MapClick { coord: LatLng; offset?: {x:number;y:number} }
 export interface NaverMaps {
   Polygon: new (options: PolygonStyle & { map:NaverMap|null; paths:LatLng[][] }) => NaverPolygon
   MapTypeId: { NORMAL: string; SATELLITE: string }

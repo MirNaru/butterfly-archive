@@ -59,6 +59,8 @@ app.include_router(paper_pdf_router)
 app.include_router(research_router)
 app.include_router(regions_router)
 app.include_router(mobile_router)
+from app.predictions import router as prediction_router
+app.include_router(prediction_router)
 
 
 @app.get('/api/record-weather')
