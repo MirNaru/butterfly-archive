@@ -7,6 +7,7 @@ export default function WebResearch({ species, revision, onRegister }: {
   species: Species[]; revision: number; onRegister: (source: WebSource) => void
 }) {
   const [ready, setReady] = useState(false)
+  const [remaining, setRemaining] = useState<number | null>(null)
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<GroundedSearch | null>(null)
   const [page, setPage] = useState(0)
@@ -18,7 +19,7 @@ export default function WebResearch({ species, revision, onRegister }: {
 
   useEffect(() => {
     let active = true
-    researchStatus().then(value => { if (active) setReady(value.gemini_ready) })
+    researchStatus().then(value => { if (active) { setReady(value.gemini_ready); setRemaining(value.remaining) } })
       .catch(e => { if (active) setError(e.message) })
     return () => { active = false }
   }, [])
@@ -35,7 +36,7 @@ export default function WebResearch({ species, revision, onRegister }: {
     setBusy(true); setError(''); setResult(null)
     try { setResult(await searchWeb(query.trim())) }
     catch (e) { setError(e instanceof Error ? e.message : '검색에 실패했습니다.') }
-    finally { setBusy(false) }
+    finally { setBusy(false); void researchStatus().then(value => setRemaining(value.remaining)).catch(() => {}) }
   }
 
   async function saveSource(event: FormEvent<HTMLFormElement>) {
@@ -54,8 +55,9 @@ export default function WebResearch({ species, revision, onRegister }: {
   return <section className="paper-browser">
     <form className="paper-control-row" onSubmit={runSearch}>
       <label>공개 자료 검색<input value={query} onChange={e => setQuery(e.target.value)} minLength={2} maxLength={300} required /></label>
-      <button disabled={!ready || busy || query.trim().length < 2}>Gemini 검색</button>
+      <button disabled={!ready || remaining === 0 || busy || query.trim().length < 2}>Gemini 검색</button>
     </form>
+    {ready && remaining !== null && <p className="hint">오늘 앱의 Gemini 호출 {remaining}회 남음</p>}
     {!ready && <p className="hint">Gemini 무료 프로젝트 설정 후 검색할 수 있습니다. 원문 주소는 직접 보관할 수 있습니다.</p>}
     {result && <section aria-label="Gemini 검색 결과">
       <p className="memo">{result.answer}</p>

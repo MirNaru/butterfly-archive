@@ -14,8 +14,8 @@ export default function DetailPhotos({ids}:{ids:number[]}) {
     return()=>{active=false}
   },[key,retry])
   const photo=photos.find(p=>p.id===id)
-  return <section className="detail-photo-panel"><h3>사진</h3>{!ids.length?<p className="hint">연결된 사진이 없습니다.</p>:<>
-    <div className="detail-photo-controls"><button type="button" aria-label="이전 사진" disabled={current===0} onClick={()=>setIndex(current-1)}>←</button><span>{current+1} / {ids.length}</span><button type="button" aria-label="다음 사진" disabled={current>=ids.length-1} onClick={()=>setIndex(current+1)}>→</button><button type="button" disabled={!photo?.original_stored} onClick={()=>{setExpanded(true);zoom.current?.showModal()}}>확대</button></div>
+  return <section className="detail-photo-panel">{!ids.length?<><h3>사진</h3><p className="hint">연결된 사진이 없습니다.</p></>:<>
+    <header className="detail-photo-header"><h3>사진</h3><div className="detail-photo-controls"><button type="button" aria-label="이전 사진" disabled={current===0} onClick={()=>setIndex(current-1)}>←</button><span>{current+1} / {ids.length}</span><button type="button" aria-label="다음 사진" disabled={current>=ids.length-1} onClick={()=>setIndex(current+1)}>→</button></div><button className="detail-photo-expand" type="button" disabled={!photo?.original_stored} onClick={()=>{setExpanded(true);zoom.current?.showModal()}}>확대</button></header>
     {photo?.original_stored?<img key={`${id}:${retry}`} src={`/api/photos/${id}/display`} alt={photo.filename} onError={()=>setError('사진을 표시하지 못했습니다. 서버 적용 상태와 보관 파일을 확인해 주세요.')} />:photo?<p className="hint">촬영 정보만 등록된 사진입니다. 사진·촬영 정보 관리에서 원본 보관을 선택해 주세요.</p>:<p role="status">사진 정보를 읽는 중입니다.</p>}
     {error&&<p role="alert">{error}<button type="button" onClick={()=>{setError('');setRetry(n=>n+1)}}>다시 읽기</button></p>}
     <dialog ref={zoom} className="detail-photo-zoom" onCancel={e=>e.stopPropagation()} onClose={()=>setExpanded(false)}><button type="button" onClick={()=>zoom.current?.close()}>확대 닫기</button>{expanded&&photo?.original_stored&&<img src={`/api/photos/${id}/display`} alt={photo.filename}/>}</dialog>

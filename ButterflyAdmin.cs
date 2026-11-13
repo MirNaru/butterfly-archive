@@ -17,6 +17,7 @@ internal sealed class ButterflyAdmin : Form
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
     private readonly string[] commands = { "pc", "viewer", "mobile", "certificate" };
     private bool busy;
+    private bool viewerRunning;
 
     [STAThread]
     private static void Main()
@@ -91,16 +92,24 @@ internal sealed class ButterflyAdmin : Form
             if (index >= 0)
             {
                 foreach (var button in buttons) button.Enabled = false;
-                Display(index, "yellow", index == 3 ? "확인 중" : "켜는 중");
+                bool stoppingViewer = index == 1 && viewerRunning;
+                Display(index, "yellow", index == 3 ? "확인 중" : stoppingViewer ? "끄는 중" : "켜는 중");
                 Append(buttons[index].Text);
-                Append(await Task.Run(() => Run(commands[index])));
+                try
+                {
+                    Append(await Task.Run(() => Run(stoppingViewer ? "viewer-stop" : commands[index])));
+                }
+                catch (Exception error)
+                {
+                    Append(error.Message);
+                }
             }
             await RefreshStatus();
         }
         catch (Exception error)
         {
             Append(error.Message);
-            if (index >= 0) Display(index, "red", "상태 확인 실패");
+            Display(1, "yellow", "읽기 전용 서버 상태 확인 실패");
         }
         finally
         {
@@ -120,6 +129,11 @@ internal sealed class ButterflyAdmin : Form
             var fields = lines[i].Split(new[] { '|' }, 2);
             if (fields.Length != 2) throw new InvalidOperationException("서버 상태 형식이 올바르지 않습니다.");
             Display(i, fields[0], fields[1]);
+            if (i == 1)
+            {
+                viewerRunning = fields[0] == "green" || fields[0] == "yellow";
+                buttons[i].Text = viewerRunning ? "읽기 전용 서버 종료" : "읽기 전용 서버 실행 · 사본 갱신";
+            }
         }
     }
 

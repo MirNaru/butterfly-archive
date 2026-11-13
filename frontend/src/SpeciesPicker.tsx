@@ -49,7 +49,7 @@ export default function SpeciesPicker({species,value,onChange,name,required=fals
   function reveal(){setOpen(true);setActive(Math.max(0,options.findIndex(item=>String(item.id)===value)))}
   function choose(item:Species){if(input.current?.matches(':disabled'))return;onChange(String(item.id));setQuery(null);setOpen(false);setActive(-1)}
   return <div className="species-picker">
-    <label htmlFor={id}>종{required && <span className="required-mark" aria-label="필수"> *</span>}</label>
+    <label htmlFor={id}><span>종{required && <span className="required-mark" aria-label="필수"> *</span>}</span></label>
     <input ref={input} id={id} name={name?`${name}-search`:undefined} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-options`} aria-activedescendant={open&&active>=0&&options[active]?`${id}-option-${options[active].id}`:undefined} aria-required={required} aria-invalid={invalid||undefined} autoComplete="off" autoFocus={autoFocus} disabled={disabled} placeholder="종명·학명 검색" value={query??selected?.korean_name??''}
       onFocus={event=>event.currentTarget.select()} onClick={()=>{if(!open)reveal()}} onBlur={()=>setOpen(false)}
       onChange={event=>{setQuery(event.target.value);onChange('');setActive(0);setOpen(true)}}

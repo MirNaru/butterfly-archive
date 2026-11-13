@@ -74,6 +74,7 @@ class PaperSearch(InputModel):
     start: date | None = None
     end: date | None = None
     page: int = Field(default=1, ge=1, le=100, strict=True)
+    preview: bool = False
 
 
 def crossref_rows(raw):
@@ -174,6 +175,7 @@ def refresh(value: PaperSearch, request: Request):
     if value.species_id and not species:
         raise HTTPException(422, '선택한 종을 찾지 못했습니다.')
     warnings, counts = [], {'received': 0, 'created': 0, 'duplicate': 0, 'excluded': 0}
+    recommendations = {}
     for provider in (('crossref', 'kci') if value.provider == 'all' else (value.provider,)):
         if provider == 'kci' and not os.getenv('KCI_API_KEY', '').strip():
             warnings.append('KCI 인증키가 없어 KCI 조회를 생략했습니다. .env의 KCI_API_KEY를 설정해 주세요.')
@@ -181,7 +183,12 @@ def refresh(value: PaperSearch, request: Request):
         try:
             if provider == 'crossref':
                 phrase = species['scientific_name'] if species and species['scientific_name'] else 'butterfly'
-                phrase += ' ' + value.query
+                query = value.query.strip()
+                if value.preview and query.casefold() == 'distal gene':
+                    query = 'Distal-less'
+                elif value.preview and query == '분류학':
+                    query = 'taxonomy'
+                phrase += ' ' + query
                 if value.topic == 'new_record':
                     phrase += ' Korea first record'
                 elif value.topic == 'rearing':
@@ -189,9 +196,11 @@ def refresh(value: PaperSearch, request: Request):
                 filters = ['type:journal-article']
                 if value.start:
                     filters.append('from-pub-date:' + value.start.isoformat())
-                if value.end:
-                    filters.append('until-pub-date:' + value.end.isoformat())
-                rows = crossref_rows(fetch(provider, {'query': phrase.strip(), 'sort': 'published', 'order': 'desc', 'rows': 50, 'offset': (value.page - 1) * 50, 'filter': ','.join(filters)}))
+                end = min(value.end or date.today(), date.today()) if value.preview else value.end
+                if end:
+                    filters.append('until-pub-date:' + end.isoformat())
+                sort = 'score' if value.preview else 'published'
+                rows = crossref_rows(fetch(provider, {'query': phrase.strip(), 'sort': sort, 'order': 'desc', 'rows': 50, 'offset': (value.page - 1) * 50, 'filter': ','.join(filters)}))
             else:
                 params = {'apiCode': 'articleSearch', 'key': os.environ['KCI_API_KEY'].strip(), 'title': species['korean_name'] if species else '나비', 'page': value.page, 'displayCount': 50, 'sortNm': 'pubiYr'}
                 if value.query:
@@ -202,17 +211,28 @@ def refresh(value: PaperSearch, request: Request):
                     params['dateTo'] = value.end.strftime('%Y%m')
                 rows = kci_rows(fetch(provider, params))
             with connect_database() as db:
-                db.execute('BEGIN IMMEDIATE')
+                if not value.preview:
+                    db.execute('BEGIN IMMEDIATE')
                 for paper in rows:
                     counts['received'] += 1
                     if not relevant(paper, value.topic, species):
                         counts['excluded'] += 1
                         continue
                     paper['butterfly_related'] = True
+                    if value.preview:
+                        key = paper['doi'] or ' '.join(paper['title'].casefold().split()) or paper['source_id']
+                        if key in recommendations:
+                            counts['duplicate'] += 1
+                        else:
+                            recommendations[key] = {field: paper[field] for field in ('title','url','provider','published')}
+                        continue
                     counts['created' if save_paper(db, paper, datetime.now(timezone.utc).isoformat()) else 'duplicate'] += 1
         except (IntegrationError, ValueError, KeyError, TypeError, ET.ParseError):
             warnings.append(f'{provider} 조회에 실패했습니다. 기존 자료는 유지합니다. 인증 설정·호출 제한·응답 상태를 확인해 주세요.')
-    return {**counts, 'warnings': warnings}
+    result = {**counts, 'warnings': warnings}
+    if value.preview:
+        result['recommendations'] = list(recommendations.values())
+    return result
 
 
 @router.get('')

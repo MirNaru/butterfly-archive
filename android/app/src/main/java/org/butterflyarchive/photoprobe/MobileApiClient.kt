@@ -26,8 +26,9 @@ internal class MobileApiClient(context: Context, private val sessions: SessionSt
     private val connectivity=context.getSystemService(ConnectivityManager::class.java)
     @Volatile private var activeConnection: HttpsURLConnection?=null
     fun cancelCurrent() { activeConnection?.disconnect() }
-    fun request(route: String, body: JSONObject?=null, login: Boolean=false): JSONObject {
-        require(route in setOf("login","session","logout","photos"))
+    fun request(route: String, body: JSONObject?=null, login: Boolean=false, image: ByteArray?=null, png: Boolean=false): JSONObject {
+        require(route in setOf("login","session","logout","photos","photos/original"))
+        require((route=="photos/original")==(image!=null))
         require((route=="login")==login)
         if(connectivity.activeNetwork?.let { connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) }==true)
             throw IOException("VPN 연결을 사용 중입니다. 집 안 Wi-Fi 연결 상태를 확인해 주세요.")
@@ -36,19 +37,20 @@ internal class MobileApiClient(context: Context, private val sessions: SessionSt
         } ?: throw IOException("집 안 Wi-Fi에 연결해 주세요.")
         val session=if(login) null else sessions.load()
         if(!login && session==null && route!="session") throw ApiFailure(401,"PC에서 연결 코드를 발급해 연결해 주세요.")
-        val payload=body?.toString()?.toByteArray(Charsets.UTF_8)
-        if(payload!=null&&payload.size>32768) throw IOException("사진 정보가 전송 크기 제한을 넘었습니다.")
-        val connection=network.openConnection(URL("$LAN_ORIGIN/m/api/$route")) as HttpsURLConnection
+        val payload=image ?: body?.toString()?.toByteArray(Charsets.UTF_8)
+        if(image==null&&payload!=null&&payload.size>32768) throw IOException("사진 정보가 전송 크기 제한을 넘었습니다.")
+        val suffix=if(image==null) "" else if(png) "?filename=shared.png" else "?filename=shared.jpg"
+        val connection=network.openConnection(URL("$LAN_ORIGIN/m/api/$route$suffix")) as HttpsURLConnection
         activeConnection=connection
         try {
             connection.instanceFollowRedirects=false
             connection.connectTimeout=10000;connection.readTimeout=20000
             connection.useCaches=false
-            connection.requestMethod=if(body==null) "GET" else "POST"
+            connection.requestMethod=if(payload==null) "GET" else "POST"
             session?.let { connection.setRequestProperty("Cookie","$SESSION_COOKIE=${it.token}") }
             if(payload!=null) {
                 connection.doOutput=true
-                connection.setRequestProperty("Content-Type","application/json")
+                connection.setRequestProperty("Content-Type",if(image==null) "application/json" else "application/octet-stream")
                 connection.setRequestProperty("Origin",LAN_ORIGIN)
                 connection.setRequestProperty("X-Butterfly-Mobile","1")
                 connection.setFixedLengthStreamingMode(payload.size)

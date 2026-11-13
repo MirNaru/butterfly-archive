@@ -148,7 +148,10 @@ dt { color: #706b60; } dd { margin: 0; }
 .inat-row button { flex: 0 0 auto; white-space: nowrap; }
 .inat-mode { width: 215px; }
 .inat-taxon-query { width: 180px; }
-.inat-taxon-select { width: 250px; }
+.inat-species-row { align-items: flex-start; }
+.inat-taxon-target { flex: 1 1 320px; min-width: min(100%, 280px); overflow-wrap: anywhere; }
+.inat-taxon-results { list-style: none; padding: 0; margin: 4px 0; max-height: 180px; overflow: auto; }
+.inat-taxon-results button { width: 100%; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .inat-place-query { width: 120px; }
 .inat-place-select { width: 125px; }
 .inat-date { width: 130px; }
@@ -628,7 +631,10 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .detail-information { min-width:0; }
 .detail-survey-panel, .detail-information .observation, .detail-photo-panel { background:var(--accent-faint,#fffbef); border:0; border-radius:12px; padding:16px; margin:0 0 14px; overflow-wrap:anywhere; }
 .detail-photo-panel { position:sticky; top:80px; min-width:0; }
-.detail-photo-panel img { width:100%; height: min(60vh,600px); object-fit:contain; display:block; }
+.detail-photo-header { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; margin-bottom:16px; }
+.detail-photo-header h3 { margin:0; }
+.detail-photo-expand { justify-self:end; }
+.detail-photo-panel > img { display:block; width:100%; height:auto; }
 .detail-photo-controls, .record-detail-actions { display:flex; align-items:center; gap:8px; }
 .record-detail-actions button, .observation-delete button { font-size:12px; padding:6px 10px; }
 .record-detail-actions .danger { margin-right:12px; }
@@ -668,7 +674,7 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .collection-table tbody td { height: 76px; max-height: 76px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
 .collection-table td:nth-child(6) { white-space: nowrap; }
 .collection-table td small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.collection-table tbody tr:hover > td, .collection-table tbody tr:focus-within > td { background: #f3f3ef; }
+.collection-table tbody tr:hover > td, .collection-table tbody tr:focus-within > td { background: var(--accent-faint); }
 .collection-table tbody tr.selected > td { background: var(--accent-soft); }
 .paper-table td { padding: 8px 10px; font-size: 13px; }
 .paper-table td form { display: flex; align-items: end; gap: 6px; }
@@ -676,7 +682,7 @@ button.danger { color: #8e382f; border-color: #d9b9b5; background: #fff5f3; }
 .paper-table td form button { margin-bottom: 4px; }
 .paper-table td button, .paper-table td input { padding: 4px 6px; font-size: 12px; }
 .paper-table summary { padding: 4px 0; }
-.species-options > li:hover, .filter-options .check:hover { background: #f3f3ef; }
+.species-options > li:hover, .filter-options .check:hover { background: var(--accent-faint); }
 .species-options > li[aria-selected="true"], .filter-options .check:has(input:checked) { background: var(--accent-soft); }
 .tag-picker { border-color: transparent; }
 .sidebar, .main-shell { border-color: transparent; }
@@ -685,6 +691,24 @@ dialog .scroll-top-button { position: sticky; bottom: 8px; float: right; margin:
 
 .collection-cell { max-height: 52px; overflow: hidden; line-height: 17px; text-overflow: ellipsis; }
 .collection-heading .collection-progress { visibility: visible; }
+
+/* 선택은 체크박스로만 바꾸고 체크박스 열은 글자용 높이 제한에서 제외합니다. */
+.collection-table td:first-child .collection-cell { display: flex; align-items: center; justify-content: center; min-height: 24px; max-height: none; overflow: visible; line-height: normal; }
+.collection-table td:first-child input[type="checkbox"] { margin: 0; }
+.collection-stage-dialog .species-picker > label > span { white-space: nowrap; }
+.close-confirmation { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.close-confirmation > span { margin: 0; font-size: 12px; }
+.close-confirmation > button { background: var(--accent-soft); white-space: nowrap; }
+.close-confirmation > button:hover:not(:disabled) { background: #ffe9a0; }
+.sidebar .collection-source-list button:not([aria-pressed='true']), .sidebar .collection-remote-actions button, .sidebar .sidebar-scroll > button { border-color: transparent; background: white; }
+.sidebar .collection-source-list button:not([aria-pressed='true']):hover:not(:disabled), .sidebar .collection-remote-actions button:hover:not(:disabled), .sidebar .sidebar-scroll > button:hover:not(:disabled) { background: var(--accent-faint); }
+
+.collection-table :is(th, td):first-child { padding-inline: 10px; text-align: center; }
+
+.sidebar .trash-open { border-color: transparent; background: white; }
+
+/* 머리글과 본문 체크박스의 기본 여백·기준선을 동일하게 맞춥니다. */
+.collection-table :is(th, td):first-child input[type="checkbox"] { display: block; width: 18px; height: 18px; margin: 0 auto; }
 .prediction-frame { position:relative; }
 .map-prediction { position:absolute; z-index:20; display:flex; gap:8px; align-items:flex-start; max-width:100%; max-height:100%; overflow:auto; padding:4px; }
 .map-prediction form,.map-prediction section { background:white; border:1px solid var(--border); border-radius:10px; padding:10px; width:225px; max-width:100%; }

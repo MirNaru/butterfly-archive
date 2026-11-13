@@ -37,6 +37,14 @@ def test_collection_dedup_metadata_and_no_key(client, monkeypatch):
     assert not client.get('/api/papers/status').json()['kci_ready']
 
 
+def test_recommendation_preview_does_not_import_papers(client, monkeypatch):
+    monkeypatch.setattr(papers, 'fetch', lambda *args: remote())
+    result = client.post('/api/papers/refresh', json={'preview': True}, headers=HEADERS)
+    assert result.status_code == 200
+    assert result.json()['recommendations'][0]['url'] == 'https://doi.org/10.1000/test'
+    assert client.get('/api/papers').json()['total'] == 0
+
+
 def test_registration_preserves_evidence_original_date_and_trash(client, monkeypatch):
     paper = collect(client, monkeypatch)
     sid = client.post('/api/species', json={'korean_name': '논문 시험 나비'}).json()['id']

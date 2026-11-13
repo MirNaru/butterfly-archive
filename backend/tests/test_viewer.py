@@ -4,6 +4,7 @@ import json
 import secrets
 import threading
 import time
+import sqlite3
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
@@ -12,6 +13,68 @@ from test_integrations import client
 from app.database import database_path
 
 HEADERS={'X-Butterfly-Client':'app'}
+
+
+def test_legacy_auth_migration_preserves_sessions(tmp_path):
+    (tmp_path/'auth').mkdir()
+    with sqlite3.connect(tmp_path/'auth/viewer.sqlite3') as db:
+        db.execute('CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,label TEXT NOT NULL,expires REAL NOT NULL)')
+        db.execute("INSERT INTO sessions VALUES('existing','personal',123)")
+    viewer_server.initialize_auth(tmp_path)
+    viewer_server.initialize_auth(tmp_path)
+    with viewer_server.connect(tmp_path) as db:
+        assert dict(db.execute('SELECT * FROM sessions').fetchone())==dict(token_hash='existing',label='personal',expires=123,purpose='personal')
+    assert len(list((tmp_path/'auth').glob('viewer-before-review-*.sqlite3')))==1
+
+
+def test_review_code_reuse_expiry_rotation_and_revocation(client,tmp_path,monkeypatch):
+    folder=tmp_path/'viewer';(folder/'snapshots').mkdir(parents=True)
+    viewer_server.initialize_auth(folder)
+    monkeypatch.setenv('BUTTERFLY_VIEWER_ROOT',str(folder))
+    (folder/'snapshots/current.json').write_text('{}')
+    server=viewer_server.ViewerServer(('127.0.0.1',0),folder)
+    worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
+    try:
+        assert client.post('/api/viewer/review-code').status_code==403
+        personal=client.post('/api/viewer/connection',headers=HEADERS).json()['code']
+        personal_cookie=viewer_request(server,'/viewer/login',{'code':personal})[2].split(';')[0]
+        code=client.post('/api/viewer/review-code',headers=HEADERS).json()['code']
+        assert client.get('/api/viewer/status').json()['review_enabled']
+        assert viewer_request(server,'/viewer/login',{'code':'invalid'})[0]==401
+        before=time.time()
+        first=viewer_request(server,'/viewer/login',{'code':code.lower()})
+        second=viewer_request(server,'/viewer/login',{'code':code})
+        assert first[0]==second[0]==200
+        assert 'Max-Age=2592000' in first[2]
+        cookies=[result[2].split(';')[0] for result in (first,second)]
+        with viewer_server.connect(folder) as db:
+            rows=db.execute("SELECT * FROM sessions WHERE purpose='review'").fetchall()
+            assert len(rows)==2
+            assert all(before+30*86400<=row['expires']<=time.time()+30*86400 for row in rows)
+            assert db.execute('SELECT code_hash FROM review_code').fetchone()[0]==viewer_server.digest(code)
+        assert viewer_request(server,'/viewer/data',cookie=cookies[0])[0]==200
+        assert viewer_request(server,'/viewer/data',{},cookie=cookies[0],method='PUT')[0]==405
+        expires=rows[0]['expires']
+        with monkeypatch.context() as clock:
+            clock.setattr(viewer_server.time,'time',lambda:expires)
+            token_cookie=next(c for c in cookies if viewer_server.digest(c.split('=',1)[1])==rows[0]['token_hash'])
+            assert viewer_request(server,'/viewer/data',cookie=token_cookie)[0]==401
+        new_code=client.post('/api/viewer/review-code',headers=HEADERS).json()['code']
+        assert viewer_request(server,'/viewer/login',{'code':code})[0]==401
+        assert all(viewer_request(server,'/viewer/data',cookie=c)[0]==401 for c in cookies)
+        assert viewer_request(server,'/viewer/data',cookie=personal_cookie)[0]==200
+        renewed=viewer_request(server,'/viewer/login',{'code':new_code})
+        assert renewed[0]==200
+        assert client.post('/api/viewer/review-disable').status_code==403
+        client.post('/api/viewer/review-disable',headers=HEADERS)
+        assert viewer_request(server,'/viewer/data',cookie=renewed[2].split(';')[0])[0]==401
+        assert viewer_request(server,'/viewer/login',{'code':new_code})[0]==401
+        assert viewer_request(server,'/viewer/data',cookie=personal_cookie)[0]==200
+        assert not client.get('/api/viewer/status').json()['review_enabled']
+        client.post('/api/viewer/review-code',headers=HEADERS)
+        client.post('/api/viewer/disable',headers=HEADERS)
+        assert not client.get('/api/viewer/status').json()['review_enabled']
+    finally:server.shutdown();server.server_close();worker.join(timeout=3)
 
 
 def viewer_request(server,path,body=None,cookie='',method=None):

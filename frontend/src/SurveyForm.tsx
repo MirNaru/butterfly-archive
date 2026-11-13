@@ -1,3 +1,4 @@
+import CloseConfirmation from './CloseConfirmation'
 // 한 탐사와 여러 종별 기록을 입력하고 실패 시 작성 내용을 유지합니다.
 import { useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { FormEvent, Ref } from 'react'
@@ -34,7 +35,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
   const [tags, setTags] = useState(initial?.tags || [])
   const photoLocation = useRef<PhotoLocationHandle>(null)
   const [observationDate, setObservationDate] = useState(initial?.observation_date || '')
-  const [observationTime, setObservationTime] = useState(initial?.observation_time || '')
+  const [observationTime, setObservationTime] = useState(initial?.observation_time?.slice(0, 5) || '')
   const prefix = `record-${rowKey}-`
   const speciesName=species.find(s=>String(s.id)===speciesId)?.korean_name
   return <fieldset hidden={!active} data-row-key={rowKey} className="record-fields"><legend>종별 기록 {index + 1}{speciesName ? ` · ${speciesName}` : ''}</legend>
@@ -43,7 +44,7 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
       <label>결과<select name={`${prefix}result`} value={result} onChange={e => setResult(e.target.value as ObservationInput['result'])}><Options values={RESULT} /></select></label>
       <SpeciesPicker name={`${prefix}species_id`} species={species} value={speciesId} onChange={onSpeciesChange} required={!!sourcePreset || result==='not_found'}/>
       {source==='indirect' ? <label>개별 날짜 · 선택<input name={`${prefix}observation_date`} value={observationDate} onChange={e => setObservationDate(e.target.value)} type="date" /></label> : <><input type="hidden" name={`${prefix}observation_date`} value={initial?.observation_date||''}/><p className="hint">관찰 날짜는 탐사 날짜를 사용합니다. 다른 날의 관찰은 별도 탐사로 등록해 주세요.{initial?.observation_date&&` 기존 개별 날짜 ${initial.observation_date}는 보존합니다.`}</p></>}
-      <label>관찰 시각 · 선택<input name={`${prefix}observation_time`} value={observationTime} onChange={e => setObservationTime(e.target.value)} type="time" step="0.000001" /></label>
+      <label>관찰 시각 · 선택<input name={`${prefix}observation_time`} value={observationTime} onChange={e => setObservationTime(e.target.value)} type="time" step={60} /></label>
       {result === 'observed' && <>
         <label>성장 단계<select className="stage-select" name={`${prefix}stage`} defaultValue={initial?.stage ?? ''}><Options values={STAGE} /></select></label>
         <label>성별<select name={`${prefix}sex`} defaultValue={initial?.sex ?? ''}><Options values={SEX} /></select></label>
@@ -65,8 +66,8 @@ function ObservationFields({ rowKey, index, species, remove, initial, active, ta
   </fieldset>
 }
 
-export interface SurveyFormHandle { requestClose(): void }
-export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef, sourcePaper }: { sourcePaper?: {id:number; title:string; url:string; kind?:'web'}; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
+export interface SurveyFormHandle { requestClose(): void; cancelClose(): void }
+export default function SurveyForm({ species, onSaved, onCancel, initial, tagOptions, onTagCreated, tagsError, onRetryTags, embedded = false, selectedObservationId, closeRef, sourcePaper, onCloseConfirmationChange }: { onCloseConfirmationChange?: (confirm: boolean) => void; sourcePaper?: {id:number; title:string; url:string; kind?:'web'}; tagOptions: Tag[]; onTagCreated: (tag: Tag) => void; tagsError: string; onRetryTags: () => void; embedded?: boolean; selectedObservationId?: number | null; closeRef?: Ref<SurveyFormHandle>; initial?: Survey; species: Species[]; onSaved: (survey: Survey) => void; onCancel: () => void }) {
   const [keys, setKeys] = useState(initial ? initial.observations.map((_, index) => index) : [0])
   const [recordSpecies,setRecordSpecies]=useState<Record<number,string>>(()=>Object.fromEntries((initial?.observations||[]).map((record,index)=>[index,record.species_id===null?'':String(record.species_id)])))
   const [surveySource, setSurveySource] = useState<ObservationInput['source_type']>(initial?.observations[0]?.source_type ?? (sourcePaper ? 'indirect' : 'direct'))
@@ -84,7 +85,11 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
   const tagBusy = (active: boolean) => setTagRequests(count => count + (active ? 1 : -1))
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
-  useImperativeHandle(closeRef, () => ({requestClose() { if (!busy && !tagRequests && !photoRequests) setConfirmClose(true) }}), [busy, tagRequests, photoRequests])
+  function changeCloseConfirmation(next: boolean) { setConfirmClose(next); onCloseConfirmationChange?.(next) }
+  useImperativeHandle(closeRef, () => ({
+    requestClose() { if (!busy && !tagRequests && !photoRequests) { setConfirmClose(true); onCloseConfirmationChange?.(true) } },
+    cancelClose() { setConfirmClose(false); onCloseConfirmationChange?.(false) },
+  }), [busy, tagRequests, photoRequests, onCloseConfirmationChange])
   useEffect(() => {
     if (embedded) return
     const element = dialog.current
@@ -158,8 +163,8 @@ export default function SurveyForm({ species, onSaved, onCancel, initial, tagOpt
             {!keys.length && <p className="empty">종별 기록 없이 탐사만 저장할 수 있습니다. 미발견 기록을 자동 생성하지 않습니다.</p>}
           </section>
         </div>
-        <footer className="survey-modal-footer">{confirmClose ? <><span>작성 중인 내용을 저장하지 않고 닫으시겠습니까?</span><button type="button" onClick={() => setConfirmClose(false)}>계속 작성</button><button type="button" onClick={onCancel}>저장하지 않고 닫기</button></> : <><small>전환한 종별 항목의 입력도 함께 저장됩니다.</small><button type="button" disabled={photoRequests > 0} onClick={() => setConfirmClose(true)}>취소</button><button type="submit" className="primary" disabled={photoRequests > 0}>{busy ? '저장 중…' : initial ? '수정 저장' : '탐사 저장'}</button></>}</footer>
+        <footer className="survey-modal-footer">{confirmClose ? <CloseConfirmation onContinue={() => changeCloseConfirmation(false)} onDiscard={onCancel} /> : <><small>전환한 종별 항목의 입력도 함께 저장됩니다.</small><button type="button" disabled={photoRequests > 0} onClick={() => changeCloseConfirmation(true)}>취소</button><button type="submit" className="primary" disabled={photoRequests > 0}>{busy ? '저장 중…' : initial ? '수정 저장' : '탐사 저장'}</button></>}</footer>
       </fieldset>
     </form>
-  return embedded ? content : <dialog ref={dialog} className="survey-dialog" aria-labelledby="survey-dialog-title" onCancel={e => { e.preventDefault(); if (!busy && tagRequests === 0 && photoRequests === 0) setConfirmClose(true) }}>{content}</dialog>
+  return embedded ? content : <dialog ref={dialog} className="survey-dialog" aria-labelledby="survey-dialog-title" onCancel={e => { e.preventDefault(); if (!busy && tagRequests === 0 && photoRequests === 0) changeCloseConfirmation(true) }}>{content}</dialog>
 }

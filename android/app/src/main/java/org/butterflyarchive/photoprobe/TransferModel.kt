@@ -52,6 +52,7 @@ internal class TransferModel(application: Application): AndroidViewModel(applica
     @Volatile private var cancelled=false
     @Volatile private var closed=false
     private var nextSendAt=0L
+    private var sharedPending = emptyList<Uri>()
     var cooldownUntil=0L; private set
     fun thumbnail(uri: Uri): Bitmap?=thumbnails.get(uri.toString())
     private fun emit() { if(!closed) listener?.invoke() }
@@ -99,6 +100,53 @@ internal class TransferModel(application: Application): AndroidViewModel(applica
         post { connected=true;connectionLabel=label+" · PC 연결됨";message="집 안 PC에 연결했습니다. 전송할 사진을 선택해 주세요." }
     }
     fun checkConnection() { runJob({ verifySession() }) }
+    fun sendShared(uris: List<Uri> = emptyList()) {
+        if (uris.isNotEmpty()) {
+            val incoming = uris.filter { it.scheme == ContentResolver.SCHEME_CONTENT }
+            val combined = (sharedPending + incoming).distinct()
+            if (combined.size > MAX_SELECTION || incoming.isEmpty()) {
+                message = "공유할 사진을 최대 500장까지 선택해 주세요."
+                emit()
+                return
+            }
+            sharedPending = combined
+        }
+        if (busy || sharedPending.isEmpty()) return
+        val pending = sharedPending
+        runJob({
+            verifySession()
+            var completed = 0
+            var failed = 0
+            for (uri in pending) {
+                if (cancelled) break
+                try {
+                    val delay = (nextSendAt - SystemClock.elapsedRealtime()).coerceAtLeast(0)
+                    if (delay > 0) Thread.sleep(delay)
+                    if (cancelled) break
+                    nextSendAt = SystemClock.elapsedRealtime() + 700
+                    val maxBytes = 32 * 1024 * 1024
+                    val image = resolver.openInputStream(uri)?.use { it.readNBytes(maxBytes + 1) }
+                        ?: throw IOException("공유 사진을 열지 못했습니다.")
+                    if (image.size > maxBytes) throw IOException("사진 한 장은 32MB 이하여야 합니다.")
+                    val png = image.size >= 4 && image[0] == 0x89.toByte() &&
+                        image[1] == 0x50.toByte() && image[2] == 0x4e.toByte() && image[3] == 0x47.toByte()
+                    val result = api.request("photos/original", image = image, png = png)
+                    if (result.optString("status") !in setOf("received", "duplicate"))
+                        throw IOException("서버의 저장 결과를 확인하지 못했습니다.")
+                    completed++
+                    post { sharedPending = sharedPending - uri }
+                } catch (error: ApiFailure) {
+                    if (error.status in setOf(401, 429) || error.status >= 500) throw error
+                    failed++
+                    post { message = errorText(error) }
+                } catch (error: IOException) {
+                    failed++
+                    post { message = errorText(error) }
+                }
+            }
+            post { message = "공유 사진 · 완료 또는 중복 ${completed}장 · 실패 ${failed}장 · 남은 ${sharedPending.size}장" }
+        })
+    }
     fun logout() { runJob({ api.request("logout",JSONObject()); post { connected=false;connectionLabel="미연결";message="로그아웃했습니다." } }) }
     fun forgetConnection() { runJob({ sessions.clear();post { connected=false;connectionLabel="미연결";message="이 기기의 연결 정보를 지웠습니다. PC 연결 관리에서 이전 세션도 해제할 수 있습니다." } }) }
     private fun loadThumbnail(photo: GalleryPhoto) {

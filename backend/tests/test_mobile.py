@@ -1,6 +1,8 @@
 """모바일의 인증 경계·메타데이터 보존·중복·직접 관찰 등록을 시험 DB로 확인합니다."""
 import json
+from io import BytesIO
 import time
+from PIL import Image
 import pytest
 from fastapi.testclient import TestClient
 from test_integrations import client
@@ -52,6 +54,24 @@ def test_wan_client_cannot_open_lan_upload_even_with_forwarded_header(remote):
     with TestClient(mobile_app,base_url=DOMAIN,client=('198.51.100.2',50000)) as outside:
         assert outside.get('/',headers={'X-Forwarded-For':'192.168.45.12'}).status_code==403
         assert outside.post('/m/api/photos',json=photo(),headers=HEADERS).status_code==403
+
+
+def test_shared_original_requires_session_and_preserves_bytes(client, remote, tmp_path, monkeypatch):
+    monkeypatch.setenv('BUTTERFLY_PHOTO_DIR', str(tmp_path / 'photos'))
+    image = BytesIO()
+    Image.new('RGB', (8, 8)).save(image, format='PNG')
+    data = image.getvalue()
+    url = '/m/api/photos/original?filename=shared.png'
+    headers = {**HEADERS, 'Content-Type': 'application/octet-stream'}
+    assert remote.post(url, content=data, headers=headers).status_code == 401
+    authenticate(client, remote)
+    assert remote.post(url, content=b'invalid', headers=headers).status_code == 422
+    received = remote.post(url, content=data, headers=headers)
+    assert received.status_code == 200, received.text
+    duplicate = remote.post(url, content=data, headers=headers).json()
+    assert duplicate['status'] == 'duplicate' and duplicate['id'] == received.json()['id']
+    assert [p.read_bytes() for p in (tmp_path / 'photos' / 'originals').iterdir()] == [data]
+    assert client.get('/api/mobile/photos').json()['total'] == 1
 
 
 def test_one_time_code_expiry_and_revoke(client,remote):

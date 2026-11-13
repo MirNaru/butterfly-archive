@@ -35,7 +35,11 @@ def gemini_ready():
 
 @router.get('/status')
 def status():
-    return {'gemini_ready': gemini_ready(), 'daily_limit': DAILY_LIMIT}
+    with connect_database() as db:
+        used = db.execute('SELECT calls FROM gemini_daily_usage WHERE day=?',
+                          (now_kst().date().isoformat(),)).fetchone()
+    return {'gemini_ready': gemini_ready(), 'daily_limit': DAILY_LIMIT,
+            'remaining': max(0, DAILY_LIMIT - (used[0] if used else 0))}
 
 
 def gemini_request(payload):
@@ -175,7 +179,9 @@ def extract(file_id: int, value: BibliographyExtraction, request: Request):
                 paper[field] = text
             db.execute('UPDATE papers SET payload_json=? WHERE id=?',
                        (json.dumps(paper, ensure_ascii=False), current['paper_id']))
-    return {'updated': list(changes)}
+    return {'updated': list(changes), 'changes': {
+        field: {'before': before.get(field) or '', 'after': text} for field, text in changes.items()
+    }}
 
 
 @router.put('/pdf/{file_id}/bibliography')

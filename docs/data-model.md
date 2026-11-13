@@ -443,3 +443,8 @@ Android 집 안 전송 앱은 기존 PhotoMetadata JSON과 DB v14를 재사용�
 스키마 17은 collection_import_views(item_id, observation_id, payload_json, inference_json)를 추가합니다. 등록 원문과 당시 도감 근거의 저장 위치는 기존 collection_imports입니다. 파생 payload는 출처·공개 위치 오차와 흐림 여부·좌표·원문 장소·기상·관찰시각·URL만, 파생 inference는 stage와 manual_stage_override만 가집니다. 부모 item_id 외래키와 삭제 연동을 유지하며 삽입·원문 또는 추정 정보 수정 트리거가 같은 트랜잭션에서 요약을 갱신합니다. 원본 보존용 JSON과 과거 근거는 축약하지 않습니다. 현재 수집 대기 자료의 원문과 등록 당시 원문은 계속 구분합니다. v16에서 보호 복사본 후 기존 등록 자료의 요약을 생성하고 실패하면 스키마·요약 생성을 모두 되돌립니다. 복구 시 현재 자료를 별도 보존하고 보호 복사본을 별도 경로에서 확인하며 실행 중인 DB 위에 덮어쓰지 않습니다.
 
 스키마 16용 이전 코드는 v17 DB를 직접 열 수 없으므로 코드만 되돌려 운영하지 않습니다. 복구 시 서버를 중지하고 현 DB를 보존한 뒤 보호 복사본을 별도 경로에서 검사합니다.
+
+
+### 심사용 조회 인증
+
+별도 조회 인증 DB에 review_code(id=1, code_hash)와 sessions.purpose를 추가합니다. 기존 연결의 purpose는 personal이며 심사용 연결은 review입니다. 기존 sessions를 확장하기 전에 같은 auth 폴더에 SQLite backup으로 보호 사본을 만듭니다. 원본 관찰 DB 스키마는 변경하지 않습니다. 심사용 코드는 무작위 12자리 영문·숫자이고 SHA-256 해시만 인증 DB에 저장합니다. 연결 만료는 로그인 시각에서 30일 뒤이며 서버와 Secure·HttpOnly·SameSite=Strict 쿠키에 함께 적용합니다. 유효 연결 상한은 일반용 10개, 심사용 100개이며 기존 로그인 시도 제한을 유지합니다. 심사용 코드 재발급·해제와 해당 세션 삭제는 한 트랜잭션으로 처리합니다.

@@ -53,7 +53,7 @@ class MainActivity: ComponentActivity() {
         val body=column().apply { setPadding(dp(16),dp(12),dp(16),dp(20));setBackgroundColor(Color.WHITE) }
         setContentView(ScrollView(this).apply { addView(body);fitsSystemWindows=true })
         body.addView(text("집 안 사진 전송",23f))
-        body.addView(text("사진의 촬영 정보만 PC 자료 수집 대기함으로 보냅니다. 원본과 미리보기는 휴대폰에서만 사용합니다."))
+        body.addView(text("갤러리에서 공유한 사진은 PC 자료 수집 대기함으로 보냅니다. 아래 사진 목록에서는 촬영 정보만 전송할 수 있습니다."))
         connection=text("");body.addView(connection)
         val panel=column().apply { setPadding(dp(12),dp(8),dp(12),dp(12));setBackgroundColor(Color.rgb(255,244,207)) }
         body.addView(panel)
@@ -78,6 +78,7 @@ class MainActivity: ComponentActivity() {
         button(body,"선택 정보 읽기 · 읽기 실패 다시 시도") { model.readSelection() }
         send=button(body,"확인한 정보 전송") { model.send(false) }.apply { setBackgroundColor(Color.rgb(251,188,4)) }
         retry=button(body,"전송 실패 항목 재시도") { model.send(true) }
+        button(body,"공유 사진 다시 전송") { model.sendShared() }
         stop=button(body,"작업 중단") { model.cancel() }
         button(body,"선택 목록 비우기") { model.clearQueue() }
         body.addView(text("날짜·GPS를 확인한 뒤 전송해 주세요. PC에서 검수한 뒤 직접 관찰로 등록합니다. 사진 500장·한 장 32MB까지 지원합니다. 앱을 종료하면 선택 목록이 사라집니다."))
@@ -85,6 +86,20 @@ class MainActivity: ComponentActivity() {
         previous=button(body,"이전 12장") { if(model.queueMode) model.showQueue(model.queuePage-1) else model.browse((model.galleryOffset-PAGE_SIZE).coerceAtLeast(0)) }
         cards=column();body.addView(cards)
         next=button(body,"다음 12장") { if(model.queueMode) model.showQueue(model.queuePage+1) else model.browse(model.galleryOffset+PAGE_SIZE) }
+        if(savedInstanceState==null) receiveShare(intent)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        receiveShare(intent)
+    }
+    @Suppress("DEPRECATION")
+    private fun receiveShare(intent: Intent) {
+        val uris = when(intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
+            else -> return
+        }
+        model.sendShared(uris)
     }
     private fun granted(permission: String)=checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED
     private fun requestPhotoPermissions() {

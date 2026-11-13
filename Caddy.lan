@@ -10,7 +10,20 @@
 https://{$BUTTERFLY_LAN_IP}:8443 {
     bind {$BUTTERFLY_LAN_IP}
     tls internal
-    request_body {
+    @original {
+        method POST
+        path /m/api/photos/original
+    }
+    @other {
+        not {
+            method POST
+            path /m/api/photos/original
+        }
+    }
+    request_body @original {
+        max_size 33554432
+    }
+    request_body @other {
         max_size 32KB
     }
     reverse_proxy 127.0.0.1:8001

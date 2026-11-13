@@ -122,8 +122,8 @@ def test_auto_extract_replaces_existing_fields_and_preserves_original(client, mo
         db.execute('UPDATE papers SET payload_json=?', (json.dumps(paper),))
     candidate = {'title': 'Butterfly research', 'authors': '', 'journal': 'Example Journal', 'published': '2015'}
     monkeypatch.setattr(research, 'gemini_request', lambda _: {'content': {'parts': [{'text': json.dumps(candidate)}]}})
-    assert client.post(root, headers=HEADERS, json={'consent': True, 'save': True}).json() == {'updated': ['title', 'journal']}
-    assert client.post(root, headers=HEADERS, json={'consent': True, 'save': True}).json() == {'updated': []}
+    assert client.post(root, headers=HEADERS, json={'consent': True, 'save': True}).json()['updated'] == ['title', 'journal']
+    assert client.post(root, headers=HEADERS, json={'consent': True, 'save': True}).json() == {'updated': [], 'changes': {}}
     paper = client.get('/api/papers').json()['items'][0]
     assert (paper['title'], paper['authors'], paper['published']) == ('Butterfly research', 'Existing author', '2015-03-01')
     assert paper['reviewed_bibliography']['title']['original_value'] == 'Existing title'

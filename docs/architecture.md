@@ -8,7 +8,7 @@
 | --- | --- |
 | `frontend/src` | PC React 화면·상태·API 형식. 브라우저에서 DB에 직접 접근하지 않습니다. |
 | `frontend/tests` | Node 기반 계산·필터·도표 회귀 검사. |
-| `backend/app/main.py` | PC FastAPI 경로·요청 연결. `schemas.py` 입력 검증, `database.py` 연결, `migrations.py` 스키마 16. |
+| `backend/app/main.py` | PC FastAPI 경로·요청 연결. `schemas.py` 입력 검증, `database.py` 연결, `migrations.py` 스키마 17. |
 | `backend/tests` | 독립 시험 DB 기반 API·자료 보존·보안 검사. 개인 DB로 시험하지 않습니다. |
 | `backend/app/mobile_server.py`, `mobile_web` | 집 안 전송 전용 서버와 휴대폰 정적 화면·사진 메타데이터 추출. |
 | `viewer_server.py`, `viewer_web` | 원본 DB를 읽지 않는 외부 사본 조회 서버·정적 화면. |
@@ -88,6 +88,13 @@ android는 MediaStore·ACCESS_MEDIA_LOCATION 동의 후 setRequireOriginal과 Ex
 
 논문 정리와 웹 자료는 `backend/app/research.py`에서 관리합니다. Gemini 키는 서버 환경 변수에서 읽습니다. 브라우저에는 설정 여부만 돌려주고, 외부 요청은 공개 자료 검색과 선택한 PDF의 첫 두 쪽 텍스트에 한해 사용자가 실행합니다.
 
+
+## 등록 관찰 조회와 위치 계산
+
+스키마 17의 collection_import_views는 등록 당시 collection_imports의 화면 표시 필드만 담는 파생 테이블입니다. 목록·단건 관찰 조회와 흐림 위치 제외 판정은 이 작은 자료를 사용합니다. 원문 payload_json과 inference_json, 당시 도감 스냅샷은 collection_imports에 그대로 남습니다. 삽입·관련 필드 수정은 SQLite 트리거로 같은 트랜잭션에서 반영하며 부모 삭제 시 파생 자료도 제거합니다. 현재 대기함 원문 변경은 등록 당시 요약에 반영하지 않습니다. 숫자형 좌표·오차는 원문 JSON 숫자 표현을 보존합니다. 기존 DB는 초기화하지 않으며 변경 전 SQLite 보호 복사본과 실패 시 전체 롤백을 사용합니다.
+
+regions의 위치 판정은 원본 정밀 경계를 유지합니다. 좌표 쌍 기준 캐시는 최대 65,536개이며 원문 주소 문구가 달라도 재사용합니다. 경계선은 최대 128개 수평 띠에 후보 변을 준비하고 기존 교차 판정식을 적용합니다. 지역 판정 실패를 이미 확인한 표시 요청은 다시 계산하지 않습니다. 서버 실행 중 경계 자료는 고정이며 재시작 시 캐시를 새로 만듭니다. 외부 위치 API나 새 의존성을 사용하지 않습니다.
+
 iNaturalist 최초 보호 복사와 외부 자료 정규화는 수집 요청 잠금 안에서 완료하고 DB 쓰기 트랜잭션은 실제 저장 직전에 시작합니다. 네이처링 수신은 쓰기 잠금 획득의 SQLITE_BUSY에 한해 한 번 재시도하고 획득 뒤 연결 키를 다시 확인합니다. 저장 본문과 호출 횟수 예약은 다시 실행하지 않습니다.
 
 ## 지도 어른벌레 출현 예측
@@ -98,3 +105,8 @@ iNaturalist 최초 보호 복사와 외부 자료 정규화는 수집 요청 잠
 - 과거 기온은 최근 저장된 관측소 목록에서 20km 이내 가장 가까운 ASOS 지점의 일평균 관측 캐시를 사용합니다. `BUTTERFLY_GDD_DAILY_CSV`에 지정한 UTF-8 CSV로 보완할 수 있습니다. 열은 `latitude,longitude,date,temperature_c,source`이며 조회 좌표·날짜와 일치해야 합니다.
 - 과거 일자료는 백엔드 모듈을 불러올 수 있는 환경에서 `python -m app.prediction_gdd 관측소번호 시작일 종료일`로 수집합니다. 날짜 형식은 `YYYY-MM-DD`이며 한 번에 최대 366일, 종료일은 어제까지입니다. 이미 저장된 날짜는 다시 저장하지 않으며 결과는 기존 `weather_samples`의 일자료에 추가합니다. 지도 요청이 과거 자료 일괄 수집을 시작하지는 않습니다.
 - `BUTTERFLY_PREDICTION_SETTINGS`는 종 ID를 키로 하는 선택 JSON 파일입니다. 각 종에 `base_temperature_c`, `start_month_day`, `activity`를 지정할 수 있습니다. 개발 기본값은 기준온도 10°C, 시작일 1월 1일, 활동 계수 `[24, 8, 0.12, 0.08]`입니다. 활동 계수 순서는 적정 기온, 기온 범위 척도, 강수 감쇠, 풍속 감쇠이며 현재 앱에는 기온 항목만 반영합니다.
+
+
+### 심사용 코드 운영
+
+viewer_server.py는 일반 일회용 코드와 반복 사용 가능한 심사용 코드를 구분하고 두 방식 모두 30일 연결을 발급합니다. backend/app/viewer_export.py의 /api/viewer/review-code와 /review-disable은 PC 인증과 local_screen 검사를 거칩니다. ViewerControls.tsx에서 발급·해제하고 viewer_web/index.html에서 기존 로그인 입력란으로 받습니다. 배포 시 외부 viewer_server.py와 web/index.html을 갱신하고 조회 서버를 재시작해야 합니다. PC 관리 API 변경은 PC 백엔드 다음 실행에 반영하며 사용자 입력 중 임의 재시작하지 않습니다. 인증 DB와 제출용 안내서 사본은 Git 제외 경로에 보관합니다.

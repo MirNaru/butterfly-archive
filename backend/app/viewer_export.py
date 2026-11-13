@@ -33,10 +33,36 @@ def status():
     try:directory=root()
     except HTTPException:return {'configured':False,'url':ORIGIN,'published_at':None,'sessions':[]}
     file=directory/'snapshots/current.json'
+    viewer_server.initialize_auth(directory)
     published_at=datetime.fromtimestamp(file.stat().st_mtime,timezone.utc).isoformat() if file.is_file() else None
     with viewer_server.connect(directory) as db:
-        sessions=[dict(r) for r in db.execute('SELECT label,expires FROM sessions WHERE expires>?',(time.time(),))]
-    return {'configured':True,'url':ORIGIN,'published_at':published_at,'sessions':sessions}
+        sessions=[dict(r) for r in db.execute('SELECT label,expires,purpose FROM sessions WHERE expires>?',(time.time(),))]
+        review_enabled=db.execute('SELECT 1 FROM review_code WHERE id=1').fetchone() is not None
+    return {'configured':True,'url':ORIGIN,'published_at':published_at,'sessions':sessions,'review_enabled':review_enabled}
+
+
+@router.post('/review-code')
+def review_connection(request:Request):
+    local_screen(request)
+    directory=root()
+    viewer_server.initialize_auth(directory)
+    code=secrets.token_hex(6).upper()
+    with viewer_server.connect(directory) as db:
+        db.execute("DELETE FROM sessions WHERE purpose='review'")
+        db.execute('INSERT INTO review_code VALUES(1,?) ON CONFLICT(id) DO UPDATE SET code_hash=excluded.code_hash',(viewer_server.digest(code),))
+        db.execute('INSERT INTO config VALUES(1,1,NULL,0) ON CONFLICT(id) DO UPDATE SET enabled=1')
+    return {'code':code,'url':ORIGIN,'session_days':30}
+
+
+@router.post('/review-disable')
+def review_disable(request:Request):
+    local_screen(request)
+    directory=root()
+    viewer_server.initialize_auth(directory)
+    with viewer_server.connect(directory) as db:
+        db.execute('DELETE FROM review_code')
+        db.execute("DELETE FROM sessions WHERE purpose='review'")
+    return {'disabled':True}
 
 
 @router.post('/connection')
@@ -54,6 +80,7 @@ def disable(request:Request):
     with viewer_server.connect(root()) as db:
         db.execute('UPDATE config SET enabled=0,code_hash=NULL,expires=0 WHERE id=1')
         db.execute('DELETE FROM sessions')
+        db.execute('DELETE FROM review_code')
     return {'disabled':True}
 
 

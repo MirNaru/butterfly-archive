@@ -82,6 +82,17 @@ def viewer_start():
     print('읽기 전용 서버 시작 확인. 인증서 상태에서 HTTPS 제공 여부를 확인할 수 있습니다.')
 
 
+def viewer_stop():
+    command = ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+               '-File', str(ROOT / 'start_viewer.ps1'), '-Shutdown']
+    for options in (['-Https'], []):
+        subprocess.run(command + options, cwd=ROOT, check=True, timeout=45,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+    if viewer_ready():
+        raise RuntimeError('읽기 전용 서버가 여전히 응답합니다.')
+    print('읽기 전용 서버 종료 완료')
+
+
 def certificate_check():
     if not start_app.occupied(443):
         run_script('start_viewer.py', '--https')
@@ -128,7 +139,8 @@ if __name__ == '__main__':
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     os.environ['PYTHONIOENCODING'] = 'utf-8'
     commands = {'pc': lambda: run_script('start_app.py'),
-                'viewer': viewer_start, 'mobile': lambda: run_script('start_mobile.py'),
+                'viewer': viewer_start, 'viewer-stop': viewer_stop,
+                'mobile': lambda: run_script('start_mobile.py'),
                 'certificate': certificate_check, 'status': status}
     try:
         commands[sys.argv[1]]()

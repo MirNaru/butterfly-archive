@@ -13,6 +13,8 @@ from app.collection import local_screen
 from app.database import connect_database, PROJECT_ROOT
 from app.schemas import InputModel, SurveyInput, Survey
 from app import records
+from app.photos import inspect_image, read_image, store_photo
+from starlette.concurrency import run_in_threadpool
 
 local_router = APIRouter(prefix='/api/mobile')
 remote_router = APIRouter(prefix='/m/api')
@@ -207,6 +209,35 @@ def receive_photo(value: PhotoMetadata, request: Request):
             raise HTTPException(409, 'PC에서 대기 사진을 정리한 뒤 전송해 주세요.')
         cursor = db.execute('INSERT INTO mobile_photos(sha256,payload_json,device_label,received_at,status) VALUES(?,?,?,?,?)', (value.sha256,json.dumps(metadata_view(value.model_dump()),ensure_ascii=False),device['label'],stamp(),'pending'))
         return {'id':cursor.lastrowid,'status':'received'}
+
+
+@remote_router.post('/photos/original')
+async def receive_original(request: Request, filename: str = Query(min_length=1, max_length=255)):
+    def authorize():
+        with connect_database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            device = require_session(request, db)
+            rate_limit(db, 'original:'+str(device['id']), 120, 60)
+
+    def save(data):
+        metadata = inspect_image(data, filename)
+        with connect_database() as db:
+            require_session(request, db)
+        store_photo(metadata, data)
+        with connect_database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            device = require_session(request, db)
+            previous = db.execute('SELECT id,status FROM mobile_photos WHERE sha256=?', (metadata['sha256'],)).fetchone()
+            if previous:
+                return {'id':previous['id'], 'status':'duplicate', 'existing_status':previous['status']}
+            if db.execute("SELECT count(*) FROM mobile_photos WHERE status='pending'").fetchone()[0] >= 50000:
+                raise HTTPException(409, 'PC에서 대기 사진을 정리한 뒤 전송해 주세요.')
+            cursor = db.execute('INSERT INTO mobile_photos(sha256,payload_json,device_label,received_at,status) VALUES(?,?,?,?,?)',
+                                (metadata['sha256'], json.dumps(metadata, ensure_ascii=False), device['label'], stamp(), 'pending'))
+            return {'id':cursor.lastrowid, 'status':'received'}
+
+    await run_in_threadpool(authorize)
+    return await run_in_threadpool(save, await read_image(request))
 
 
 @local_router.get('/photos')

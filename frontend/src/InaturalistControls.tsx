@@ -30,11 +30,53 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
     mounted.current = true
     return () => { mounted.current = false; stopped.current = true }
   }, [])
-  async function search(kind: 'taxa' | 'places') {
+  const [composing, setComposing] = useState(false)
+  const [taxonMessage, setTaxonMessage] = useState('')
+  const taxonRequest = useRef<AbortController | null>(null)
+  const taxonTimer = useRef<number | undefined>(undefined)
+  const taxonCache = useRef(new Map<string, Match[]>())
+
+  async function findTaxa(query: string) {
+    window.clearTimeout(taxonTimer.current)
+    if (taxonRequest.current) return
+    const cached = taxonCache.current.get(query)
+    if (cached) {
+      setTaxa(cached)
+      setTaxonMessage(cached.length ? '' : '종 검색 결과가 없습니다.')
+      return
+    }
+    const controller = new AbortController()
+    taxonRequest.current = controller
+    setTaxonMessage('종 검색 중')
+    try {
+      const rows = await searchInat(query, 'taxa', controller.signal)
+      if (controller.signal.aborted) return
+      if (taxonCache.current.size >= 30) taxonCache.current.clear()
+      taxonCache.current.set(query, rows)
+      setTaxa(rows)
+      setTaxonMessage(rows.length ? '' : '종 검색 결과가 없습니다.')
+    } catch {
+      if (!controller.signal.aborted) setTaxonMessage('종 검색에 실패했습니다. Enter로 다시 검색할 수 있습니다.')
+    } finally {
+      if (taxonRequest.current === controller) taxonRequest.current = null
+    }
+  }
+
+  useEffect(() => {
+    const query = taxonQuery.trim()
+    if (mode !== 'history' || composing || taxon || query.length < 2) return
+    taxonTimer.current = window.setTimeout(() => void findTaxa(query), 400)
+    return () => {
+      window.clearTimeout(taxonTimer.current)
+      taxonRequest.current?.abort()
+      taxonRequest.current = null
+    }
+  }, [taxonQuery, composing, mode, taxon])
+  async function searchPlace() {
     setBusy(true); onBusyChange(true); setError('')
     try {
-      const rows = await searchInat(kind === 'taxa' ? taxonQuery : placeQuery, kind)
-      if (kind === 'taxa') setTaxa(rows); else setPlaces(rows)
+      const rows = await searchInat(placeQuery, 'places')
+      setPlaces(rows)
       if (!rows.length) setNotice('검색 결과가 없습니다. 학명이나 영어 지역명으로도 검색해 주세요.')
     } catch (e) { setError(e instanceof Error ? e.message : '검색하지 못했습니다.') }
     finally { setBusy(false); onBusyChange(false) }
@@ -62,10 +104,27 @@ export default function InaturalistControls({ onUpdated, onBusyChange }: { onUpd
     <fieldset disabled={busy} className="inat-fields">
       <div className="inat-row inat-species-row" role="group" aria-label="수집 방식과 종">
         <label className="inat-mode">수집 방식<select value={mode} onChange={e => { setMode(e.target.value as 'history' | 'latest'); setNotice(''); setError('') }}><option value="history">종별 과거 자료 · 이어서 수집</option><option value="latest">나비 전체 최신 자료</option></select></label>
-        {mode === 'history' && <><label className="inat-taxon-query">종 찾기<input value={taxonQuery} onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (!busy && taxonQuery.trim().length >= 2) void search('taxa') } }} onChange={e => { setTaxonQuery(e.target.value); setTaxon(null); setTaxa([]) }} placeholder="국명 또는 학명" /></label><button type="button" disabled={taxonQuery.trim().length < 2} onClick={() => void search('taxa')}>종 검색</button>{(taxa.length > 0 || taxon) && <label className="inat-taxon-select">검색 결과<select value={taxon?.id || ''} onChange={e => setTaxon(taxa.find(t => t.id === Number(e.target.value)) || null)}><option value="">종을 선택해 주세요</option>{taxa.map(t => <option key={t.id} value={t.id}>{t.name} · {t.scientific_name}</option>)}</select></label>}</>}
+        {mode === 'history' && <>
+          <div className="inat-taxon-query">
+            <label>종 찾기<input value={taxonQuery} placeholder="국명 또는 학명"
+              onCompositionStart={() => setComposing(true)} onCompositionEnd={() => setComposing(false)}
+              onChange={e => { setTaxonQuery(e.target.value); setTaxon(null); setTaxa([]); setTaxonMessage('') }}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !composing) {
+                  e.preventDefault()
+                  if (!taxon && taxonQuery.trim().length >= 2) void findTaxa(taxonQuery.trim())
+                }
+              }} /></label>
+            {!taxon && taxa.length > 0 && <ul className="inat-taxon-results">{taxa.map(item =>
+              <li key={item.id}><button type="button" onClick={() => { setTaxon(item); setTaxonMessage('') }}>{item.name} · {item.scientific_name}</button></li>
+            )}</ul>}
+            {taxonMessage && <small role="status">{taxonMessage}</small>}
+          </div>
+          <div className="inat-taxon-target"><small>대상 종</small><div>{taxon ? taxon.name + ' · ' + taxon.scientific_name : '미선택'}</div></div>
+        </>}
       </div>
       <div className="inat-row inat-location-row" role="group" aria-label="수집 지역과 관찰 기간">
-        <label className="inat-place-query">지역 찾기<input value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} placeholder="국가·지역명" /></label><button type="button" disabled={placeQuery.trim().length < 2} onClick={() => void search('places')}>지역 검색</button><label className="inat-place-select">수집 지역<select value={place.id} onChange={e => setPlace([{ id: 6891, name: '대한민국', scientific_name: '' }, ...places].find(p => p.id === Number(e.target.value))!)}><option value={6891}>대한민국</option>{places.filter(p => p.id !== 6891).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+        <label className="inat-place-query">지역 찾기<input value={placeQuery} onChange={e => setPlaceQuery(e.target.value)} placeholder="국가·지역명" /></label><button type="button" disabled={placeQuery.trim().length < 2} onClick={() => void searchPlace()}>지역 검색</button><label className="inat-place-select">수집 지역<select value={place.id} onChange={e => setPlace([{ id: 6891, name: '대한민국', scientific_name: '' }, ...places].find(p => p.id === Number(e.target.value))!)}><option value={6891}>대한민국</option>{places.filter(p => p.id !== 6891).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
         <label className="inat-date">시작일 · 선택<input type="date" value={start} onChange={e => setStart(e.target.value)} /></label><label className="inat-date">종료일 · 선택<input type="date" value={end} onChange={e => setEnd(e.target.value)} /></label>
       </div>
     </fieldset>

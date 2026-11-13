@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 ORIGIN='https://archive.mirnaru.kro.kr'
 COOKIE='__Host-butterfly-view'
+SESSION_SECONDS=30*86400
 ROOT=Path(os.environ.get('BUTTERFLY_VIEWER_ROOT',Path(__file__).resolve().parent)).resolve()
 
 
@@ -28,9 +29,16 @@ def connect(root):
 def initialize_auth(root):
     (root/'auth').mkdir(parents=True,exist_ok=True)
     with connect(root) as db:
+        existing=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'").fetchone()
+        if existing and 'purpose' not in {row['name'] for row in db.execute('PRAGMA table_info(sessions)')}:
+            with sqlite3.connect(root/'auth'/f'viewer-before-review-{time.time_ns()}.sqlite3') as backup:
+                db.backup(backup)
         db.executescript('''CREATE TABLE IF NOT EXISTS config(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL,code_hash TEXT,expires REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,label TEXT NOT NULL,expires REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS attempts(key TEXT PRIMARY KEY,count INTEGER NOT NULL,expires REAL NOT NULL);''')
+        db.execute('CREATE TABLE IF NOT EXISTS review_code(id INTEGER PRIMARY KEY CHECK(id=1),code_hash TEXT NOT NULL)')
+        if 'purpose' not in {row['name'] for row in db.execute('PRAGMA table_info(sessions)')}:
+            db.execute("ALTER TABLE sessions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'personal'")
 
 
 def digest(value):
@@ -159,17 +167,24 @@ class ViewerHandler(BaseHTTPRequestHandler):
             db.execute('BEGIN IMMEDIATE')
             code=value.get('code','');label=value.get('label','내 휴대폰')
             row=db.execute('SELECT * FROM config WHERE id=1').fetchone()
-            if not isinstance(code,str) or len(code)!=12 or not row or not row['enabled'] or row['expires']<now or not row['code_hash'] or not hmac.compare_digest(row['code_hash'],digest(code.upper())):
+            review=db.execute('SELECT code_hash FROM review_code WHERE id=1').fetchone()
+            valid_format=isinstance(code,str) and len(code)==12
+            hashed=digest(code.upper()) if valid_format else ''
+            is_review=bool(valid_format and review and hmac.compare_digest(review['code_hash'],hashed))
+            is_personal=bool(valid_format and row and row['expires']>now and row['code_hash'] and hmac.compare_digest(row['code_hash'],hashed))
+            if not row or not row['enabled'] or not (is_review or is_personal):
                 self.reply(401,{'detail':'조회 코드가 없거나 만료되었습니다.'});return
             if not isinstance(label,str) or len(label)>80:
                 self.reply(422,{'detail':'기기 이름을 확인해 주세요.'});return
             token=secrets.token_urlsafe(32)
             db.execute('DELETE FROM sessions WHERE expires<?',(now,))
-            if db.execute('SELECT count(*) FROM sessions').fetchone()[0]>=10:
+            purpose='review' if is_review else 'personal'
+            if db.execute('SELECT count(*) FROM sessions WHERE purpose=?',(purpose,)).fetchone()[0]>=(100 if is_review else 10):
                 self.reply(409,{'detail':'PC에서 기존 조회 연결을 해제해 주세요.'});return
-            db.execute('INSERT INTO sessions VALUES(?,?,?)',(digest(token),label,now+30*86400))
-            db.execute('UPDATE config SET code_hash=NULL,expires=0 WHERE id=1')
-        self.reply(200,{'authenticated':True},cookie=f'{COOKIE}={token}; Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Strict')
+            db.execute('INSERT INTO sessions(token_hash,label,expires,purpose) VALUES(?,?,?,?)',(digest(token),label,now+SESSION_SECONDS,purpose))
+            if not is_review:
+                db.execute('UPDATE config SET code_hash=NULL,expires=0 WHERE id=1')
+        self.reply(200,{'authenticated':True},cookie=f'{COOKIE}={token}; Max-Age={SESSION_SECONDS}; Path=/; Secure; HttpOnly; SameSite=Strict')
 
 
 if __name__=='__main__':
@@ -178,4 +193,5 @@ if __name__=='__main__':
     logging.basicConfig(level=logging.INFO,handlers=[logger],format='%(asctime)s %(message)s')
     # 인증 DB·정적 파일은 PC가 준비합니다. 이 서버에는 원본 DB 경로나 초기화 기능이 없습니다.
     if not (ROOT/'auth/viewer.sqlite3').is_file():raise RuntimeError('PC에서 조회 서버를 준비해 주세요.')
+    initialize_auth(ROOT)
     ViewerServer(('127.0.0.1',8010),ROOT).serve_forever()

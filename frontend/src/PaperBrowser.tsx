@@ -1,7 +1,7 @@
 // 논문 서지 수집과 원문 확인, 논문 사례의 간접 관찰 등록 진입을 제공합니다.
 import { useEffect, useState } from 'react'
 import type { Species } from './models'
-import { listPapers, paperStatus, refreshPapers, uploadPaperPdf, paperPdfText, organizePaper, researchStatus, extractBibliography, type Paper, type PaperQuery } from './api'
+import { listPapers, paperStatus, refreshPapers, uploadPaperPdf, paperPdfText, organizePaper, researchStatus, extractBibliography, type Paper, type PaperQuery, type PaperRecommendation } from './api'
 
 export default function PaperBrowser({ species, revision, onRegister }: { species: Species[]; revision: number; onRegister: (paper: Paper) => void }) {
   const [provider, setProvider] = useState<PaperQuery['provider'] | 'pdf'>('all')
@@ -24,7 +24,9 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
     try {
       const result = await extractBibliography(fileId)
       setReload(n => n + 1)
-      setNotice(result.updated.length ? `서지 정보 ${result.updated.length}개 항목을 자동 저장했습니다.` : '새로 반영할 서지 정보가 없습니다.')
+      const labels: Record<string,string> = {title:'제목',authors:'저자',journal:'학술지',published:'발표일',doi:'DOI'}
+      setNotice(result.updated.length ? ['서지 정보를 저장했습니다.', ...Object.entries(result.changes ?? {}).map(([field, value]) =>
+        (labels[field] ?? field) + ' · ' + (value.before || '미기재') + ' → ' + value.after)].join('\n') : '새로 반영할 서지 정보가 없습니다.')
     } catch (e) { setError(e instanceof Error ? e.message : '서지 정보를 추출하지 못했습니다.') }
     finally { setBusy(false) }
   }
@@ -83,13 +85,18 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
     return () => { active = false }
   }, [page, topic, language, revision, reload, requestKey, query, speciesId, start, end, provider, favorite, tag])
   function changed() { setRemotePage(1); setNotice('') }
-  async function refresh() {
+  const [recommendations, setRecommendations] = useState<PaperRecommendation[]>([])
+  const [recommendationBasis, setRecommendationBasis] = useState('')
+  async function refresh(preview = false) {
     if (provider === 'pdf') return
     setBusy(true); setError(''); setNotice('')
     try {
-      const result = await refreshPapers({ provider, topic, query, species_id: speciesId ? Number(speciesId) : null, start: start || null, end: end || null, page: remotePage })
+      const result = await refreshPapers({ provider, topic, query, species_id: speciesId ? Number(speciesId) : null, start: start || null, end: end || null, page: preview ? 1 : remotePage, preview })
       setNotice(`검색 ${result.received} · 신규 ${result.created} · 기존 ${result.duplicate} · 관련 조건 제외 ${result.excluded}건\n${result.warnings.join('\n')}`)
-      setReload(n => n + 1); setPage(0)
+      if (preview) {
+        setRecommendations(result.recommendations ?? [])
+        setRecommendationBasis([species.find(item => item.id === Number(speciesId))?.korean_name || '나비 전체', {latest:'최신 논문',new_record:'국내 미기록종',rearing:'사육·기주식물·생태'}[topic],query.trim()].filter(Boolean).join(' · '))
+      } else { setReload(n => n + 1); setPage(0) }
     } catch (e) { setError(e instanceof Error ? e.message : '논문을 가져오지 못했습니다.') }
     finally { setBusy(false) }
   }
@@ -109,6 +116,7 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
           <label>목록 언어<select value={language} onChange={e => { setLanguage(e.target.value); setPage(0) }}><option value="preferred">한국어·영어·미상</option><option value="ko">한국어</option><option value="en">영어</option><option value="all">전체</option></select></label>
           <label>가져올 검색 페이지<input type="number" min={1} max={100} value={remotePage} onChange={e => setRemotePage(Number(e.target.value))} /></label>
           <button type="button" disabled={provider === 'pdf' || !!(start && end && start > end) || remotePage < 1 || remotePage > 100 || !Number.isInteger(remotePage)} onClick={() => void refresh()}>논문 갱신</button>
+          <button type="button" disabled={provider === 'pdf' || !!(start && end && start > end)} onClick={() => void refresh(true)}>추천 후보 보기</button>
         </div>
       </fieldset>
       <p className="hint">과거 자료는 시작일을 비워 검색합니다. 수집처별 최대 50건씩 확인하며 검색 페이지를 바꿔 더 가져올 수 있습니다. 국내 미기록종 관련 자료는 원문 확인이 필요한 후보입니다.</p>
@@ -119,6 +127,9 @@ export default function PaperBrowser({ species, revision, onRegister }: { specie
     <div className="toolbar"><h3>수집 논문 · {total}건</h3>
       <label><input type="checkbox" checked={favorite} onChange={e => {setFavorite(e.target.checked); setPage(0)}} /> 즐겨찾기만</label>
       <label>논문 태그 검색<input value={tag} maxLength={60} onChange={e => {setTag(e.target.value); setPage(0)}} /></label><button disabled={disabled} onClick={() => setReload(n => n + 1)}>목록 새로고침</button></div>
+    {recommendationBasis && <section aria-label="논문 추천 후보"><h3>추천 후보</h3><p>{recommendationBasis}</p>
+      {recommendations.length ? <ul>{recommendations.map((item,index) => <li key={index}><a href={item.url} target="_blank" rel="noopener noreferrer">{item.title || '제목 미상'}</a> · {item.published || '발표일 미상'} · {item.provider === 'kci' ? 'KCI' : 'Crossref'}</li>)}</ul> : <p>조건에 맞는 후보가 없습니다.</p>}
+    </section>}
     {notice && <p role="status" style={{ whiteSpace: 'pre-wrap' }}>{notice}</p>}{error && <p role="alert" className="error">{error}</p>}{disabled && <p role="status">처리 중입니다.</p>}
     <p className="hint">논문에 실린 관찰 사례는 해당 행의 간접 관찰 등록으로 입력합니다. 발표일은 관찰일이 아니며 원문 날짜·장소·근거 페이지를 직접 확인해 주세요.</p>
     <div className="table-wrap"><table className="paper-table"><thead><tr><th>논문·초록</th><th>저자·학술지</th><th>발표일·언어</th><th>출처</th><th>관찰 사례</th></tr></thead><tbody>{items.map(paper => <tr key={paper.id}>

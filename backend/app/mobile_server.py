@@ -41,9 +41,10 @@ async def protection(request: Request, call_next):
         if request.headers.get('origin') != origin or request.headers.get('x-butterfly-mobile') != '1':
             return JSONResponse({'detail':'모바일 화면에서 다시 시도해 주세요.'},status_code=403)
         size = request.headers.get('content-length','')
-        if not size.isascii() or not size.isdigit() or int(size)>32768:
+        original = request.method == 'POST' and request.url.path == '/m/api/photos/original'
+        if not size.isascii() or not size.isdigit() or int(size) > (32 * 1024 * 1024 if original else 32768):
             return JSONResponse({'detail':'전송 정보 크기를 확인해 주세요.'},status_code=413)
-        if request.headers.get('content-type','').split(';')[0] != 'application/json':
+        if request.headers.get('content-type','').split(';')[0] != ('application/octet-stream' if original else 'application/json'):
             return JSONResponse({'detail':'사진 정보 형식을 확인해 주세요.'},status_code=415)
     response = await call_next(request)
     response.headers.update({

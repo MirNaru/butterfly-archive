@@ -112,16 +112,17 @@ export const findExploration = (on: string, region: string) => request<import('.
 
 export interface InatQuery { mode: 'history' | 'latest'; taxon_id: number | null; place_id: number; start: string | null; end: string | null }
 export interface InatProgress { done: boolean; scanned: number; created: number; updated: number; unchanged: number; excluded: number }
-export const searchInat = (query: string, kind: 'taxa' | 'places') => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const searchInat = (query: string, kind: 'taxa' | 'places', signal?: AbortSignal) => request<{id: number; name: string; scientific_name: string}[]>('/collection/inaturalist/search', {...post({query, kind}), signal:signal ? AbortSignal.any([signal, AbortSignal.timeout(45000)]) : AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const syncInat = (query: InatQuery) => request<InatProgress>('/collection/inaturalist/sync', {...post(query), signal:AbortSignal.timeout(90000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 
 export interface Paper { favorite: boolean; tags: string[]; id: number; title: string; authors: string; journal: string; published: string; language: string; abstract: string; url: string; doi: string; provider: string; providers: string[]; received_at: string; observations: {id:number; survey_id:number; evidence:string}[]; files?: {id:number; original_name:string}[] }
 export const uploadPaperPdf = (file: File) => request<{id:number; paper_id:number; duplicate:boolean; warning?:string}>(`/papers/pdf?${new URLSearchParams({filename:file.name})}`, {method:'POST',body:file,headers:{'Content-Type':'application/pdf','X-Butterfly-Client':'app'},signal:AbortSignal.timeout(60000)})
 export const paperPdfText = (id: number) => request<{pages:string[]}>(`/papers/pdf/${id}/text`)
-export interface PaperQuery { provider: 'all' | 'crossref' | 'kci'; topic: 'latest' | 'new_record' | 'rearing'; query: string; species_id: number | null; start: string | null; end: string | null; page: number }
+export interface PaperRecommendation { title: string; url: string; provider: string; published: string }
+export interface PaperQuery { preview?: boolean; provider: 'all' | 'crossref' | 'kci'; topic: 'latest' | 'new_record' | 'rearing'; query: string; species_id: number | null; start: string | null; end: string | null; page: number }
 export const paperStatus = () => request<{kci_ready:boolean}>('/papers/status')
 export const listPapers = (offset: number, query: string, topic: string, language: string, speciesId = '', start = '', end = '', provider = 'all', favorite = false, tag = '') => request<{total:number; items:Paper[]}>(`/papers?${new URLSearchParams({offset:String(offset),query,topic,language,provider,favorite:String(favorite),tag,...(speciesId ? {species_id:speciesId} : {}),...(start ? {start} : {}),...(end ? {end} : {})})}`)
-export const refreshPapers = (value: PaperQuery) => request<{received:number; created:number; duplicate:number; excluded:number; warnings:string[]}>('/papers/refresh', {...post(value), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
+export const refreshPapers = (value: PaperQuery) => request<{received:number; created:number; duplicate:number; excluded:number; warnings:string[]; recommendations?: PaperRecommendation[]}>('/papers/refresh', {...post(value), signal:AbortSignal.timeout(45000), headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 export const addPaperObservation = (paperId: number, evidence: string, survey: SurveyInput) => request<Survey>(`/papers/${paperId}/observations`, {...post({evidence,survey}),headers:{'Content-Type':'application/json','X-Butterfly-Client':'app'}})
 
 
@@ -130,11 +131,11 @@ const researchWrite = (value: unknown, method = 'POST') => ({
 })
 export interface WebSource { id: number; title: string; url: string; saved_at: string; species_name: string | null; registered_count: number }
 export interface GroundedSearch { answer: string; entry: string; links: {url: string; title: string}[] }
-export const researchStatus = () => request<{gemini_ready: boolean; daily_limit: number}>('/research/status')
+export const researchStatus = () => request<{gemini_ready: boolean; daily_limit: number; remaining: number}>('/research/status')
 export const organizePaper = (id: number, favorite: boolean, tags: string[]) =>
   request<{favorite: boolean; tags: string[]}>(`/research/papers/${id}/organization`, researchWrite({favorite, tags}, 'PUT'))
 export const extractBibliography = (id: number) =>
-  request<{updated: string[]}>(`/research/pdf/${id}/extract`, researchWrite({consent: true, save: true}))
+  request<{updated: string[]; changes: Record<string, {before: string; after: string}>}>(`/research/pdf/${id}/extract`, researchWrite({consent: true, save: true}))
 export const searchWeb = (query: string) => request<GroundedSearch>('/research/web/search', researchWrite({query, consent: true}))
 export const listWebSources = (page: number) => request<{items: WebSource[]; total: number}>(`/research/web/sources?offset=${page * 25}`)
 export const saveWebSource = (value: {title: string; url: string; species_id: number | null}) =>
@@ -171,7 +172,9 @@ export const mobilePhotos = (page:number) => request<{items:MobilePhoto[];total:
 export const mobileDiscard = (ids:number[]) => request('/mobile/discard',mobilePost({ids}))
 export const mobileRegister = (ids:number[],survey:SurveyInput) => request<Survey>('/mobile/register',mobilePost({ids,survey}))
 
-export const viewerStatus = () => request<{configured:boolean;url:string;published_at:string|null;sessions:{label:string;expires:number}[]}>('/viewer/status')
+export const viewerStatus = () => request<{configured:boolean;url:string;published_at:string|null;review_enabled?:boolean;sessions:{label:string;expires:number;purpose?:string}[]}>('/viewer/status')
+export const viewerReviewConnection = () => request<{code:string;session_days:number}>('/viewer/review-code',mobilePost({}))
+export const viewerReviewDisable = () => request('/viewer/review-disable',mobilePost({}))
 export const viewerPublish = () => request<{records:number;catalog:number;holdings:number}>('/viewer/snapshot',mobilePost({}))
 export const viewerConnection = () => request<{code:string;url:string}>('/viewer/connection',mobilePost({}))
 export const viewerDisable = () => request('/viewer/disable',mobilePost({}))
